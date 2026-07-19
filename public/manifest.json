@@ -1,0 +1,24 @@
+{
+  "short_name": "Yaa POS",
+  "name": "Yaa POS - Punto de Venta",
+  "description": "Sistema de punto de venta profesional con control de inventario, vencimientos y gastos offline.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#005e63",
+  "theme_color": "#005e63",
+  "display": "standalone",
+  "orientation": "portrait"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Yaa POS",
+  "description": "Sistema de punto de venta profesional para ferreterías, farmacias y librerías con control de inventario, compras, vencimientos y gastos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

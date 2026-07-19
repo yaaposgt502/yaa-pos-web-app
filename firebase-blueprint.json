@@ -1,0 +1,216 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account information and metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "email", "name"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Product inventory item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "expirationDate": { "type": "string" },
+        "unit": { "type": "string" }
+      },
+      "required": ["id", "name", "price", "cost", "stock", "minStock", "unit"]
+    },
+    "Client": {
+      "title": "Client",
+      "description": "Store client information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "balanceCredit": { "type": "number" },
+        "limitCredit": { "type": "number" }
+      },
+      "required": ["id", "name", "phone", "email", "balanceCredit", "limitCredit"]
+    },
+    "Provider": {
+      "title": "Provider",
+      "description": "Inventory and stock provider",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "contact": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" }
+      },
+      "required": ["id", "name", "contact", "phone", "email"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "A purchase sale transaction receipt",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "total": { "type": "number" },
+        "profit": { "type": "number" },
+        "received": { "type": "number" },
+        "change": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "clientId": { "type": "string" },
+        "shiftId": { "type": "string" }
+      },
+      "required": ["id", "date", "total", "profit", "received", "change", "paymentMethod", "shiftId"]
+    },
+    "Purchase": {
+      "title": "Purchase",
+      "description": "A restock purchase transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "total": { "type": "number" },
+        "providerId": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "date", "total", "providerId", "status"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Store operational expense log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" }
+      },
+      "required": ["id", "date", "description", "amount", "category"]
+    },
+    "Shift": {
+      "title": "Shift",
+      "description": "Daily open cash register work shifts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "openedAt": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "initialCash": { "type": "number" },
+        "finalCash": { "type": "number" },
+        "salesTotal": { "type": "number" },
+        "expensesTotal": { "type": "number" },
+        "state": { "type": "string" }
+      },
+      "required": ["id", "openedAt", "initialCash", "salesTotal", "expensesTotal", "state"]
+    },
+    "UserFile": {
+      "title": "UserFile",
+      "description": "Metadata of user files uploaded to storage",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "size": { "type": "number" },
+        "path": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "mimeType", "size", "path", "uploadedAt"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Configuration settings of the store",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "logo": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "currency": { "type": "string" },
+        "alertDaysBeforeExpiration": { "type": "number" },
+        "businessType": { "type": "string" }
+      },
+      "required": ["storeName", "currency", "alertDaysBeforeExpiration", "businessType"]
+    },
+    "Operator": {
+      "title": "Operator",
+      "description": "Store operator linked to the owner's account with defined access privileges",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "password": { "type": "string" },
+        "status": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "disabledTabs": { "type": "array" }
+      },
+      "required": ["id", "name", "email", "role", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile metadata"
+    },
+    "/users/{userId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Store products"
+    },
+    "/users/{userId}/clients/{clientId}": {
+      "schema": "Client",
+      "description": "Store clients"
+    },
+    "/users/{userId}/providers/{providerId}": {
+      "schema": "Provider",
+      "description": "Store providers"
+    },
+    "/users/{userId}/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Sales history"
+    },
+    "/users/{userId}/purchases/{purchaseId}": {
+      "schema": "Purchase",
+      "description": "Purchasing history"
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Store expenses"
+    },
+    "/users/{userId}/shifts/{shiftId}": {
+      "schema": "Shift",
+      "description": "Cash register shifts"
+    },
+    "/users/{userId}/files/{fileId}": {
+      "schema": "UserFile",
+      "description": "User files list metadata"
+    },
+    "/users/{userId}/configs/{configId}": {
+      "schema": "AppConfig",
+      "description": "User-specific store configuration"
+    },
+    "/operators/{operatorEmail}": {
+      "schema": "Operator",
+      "description": "Global operator mapping for session lookup and authentication"
+    },
+    "/users/{userId}/operators/{operatorEmail}": {
+      "schema": "Operator",
+      "description": "Owner's isolated list of operators/cashiers"
+    }
+  }
+}

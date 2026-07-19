@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Check if the user is the global system admin
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == 'uSEwpR9zZPWvekBQKdx1SMsrs7n1';
+    }
+
+    // Helper to check if the current user is an operator of the target owner
+    function isOperatorOf(ownerId) {
+      return request.auth != null && 
+             request.auth.token != null && 
+             request.auth.token.email != null &&
+             hasActiveOperator(ownerId, request.auth.token.email.lower());
+    }
+
+    function hasActiveOperator(ownerId, email) {
+      return (exists(/databases/$(database)/documents/operators/$(email)) &&
+              get(/databases/$(database)/documents/operators/$(email)).data.ownerId == ownerId &&
+              get(/databases/$(database)/documents/operators/$(email)).data.status == 'active') ||
+             (exists(/databases/$(database)/documents/users/$(ownerId)/operators/$(email)) &&
+              get(/databases/$(database)/documents/users/$(ownerId)/operators/$(email)).data.status == 'active');
+    }
+
+    // Helper to check if a user is NOT suspended/deactivated in their user profile document
+    function isAccountActive(userId) {
+      let userPath = /databases/$(database)/documents/users/$(userId);
+      return !exists(userPath) || 
+             !('accountStatus' in get(userPath).data) || 
+             (get(userPath).data.accountStatus != 'Suspendida' && 
+              get(userPath).data.accountStatus != 'Desactivada');
+    }
+
+    // Helper to check if a user's license is active (not suspended, deactivated, pending, or expired)
+    function isLicenseActive(userId) {
+      let licensePath = /databases/$(database)/documents/licenses/$(userId);
+      return !exists(licensePath) || 
+             !('status' in get(licensePath).data) || 
+             (get(licensePath).data.status != 'Suspendida' && 
+              get(licensePath).data.status != 'Desactivada' && 
+              get(licensePath).data.status != 'Pendiente' && 
+              get(licensePath).data.status != 'Expirada');
+    }
+
+    // Rules for individual tenant space (user documents and subcollections)
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && 
+                            (isAdmin() || 
+                             (((request.auth.uid == userId) || isOperatorOf(userId)) && 
+                              isAccountActive(userId) && 
+                              isLicenseActive(userId)));
+    }
+
+    // Rules for user profile documents specifically
+    match /users/{userId} {
+      allow read: if request.auth != null && 
+                     (isAdmin() || 
+                      (request.auth.uid == userId || isOperatorOf(userId)));
+                      
+      allow write: if request.auth != null && 
+                      (isAdmin() || 
+                       (request.auth.uid == userId && isAccountActive(userId) && isLicenseActive(userId)));
+    }
+
+    // Rules for licenses collection
+    match /licenses/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isOperatorOf(userId) || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Global operators collection (so operators can be registered/looked up)
+    match /operators/{operatorEmail} {
+      allow read: if request.auth != null && (
+                     (request.auth.token != null && request.auth.token.email != null && request.auth.token.email.lower() == operatorEmail.lower()) || 
+                     (resource != null && resource.data.ownerId == request.auth.uid) ||
+                     isAdmin()
+                  );
+      allow write: if request.auth != null && (
+                      isAdmin() ||
+                      // If creating/updating, the operator's ownerId must be the authenticated user
+                      request.resource.data.ownerId == request.auth.uid ||
+                      // If deleting, the existing operator's ownerId must be the authenticated user
+                      (resource != null && resource.data.ownerId == request.auth.uid)
+                   );
+    }
+  }
+}
