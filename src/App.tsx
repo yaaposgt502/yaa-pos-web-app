@@ -1375,6 +1375,20 @@ export default function App() {
               })}
             </nav>
 
+            {/* Bottom Profile and Logout for Mobile Drawer */}
+            <div className="border-t border-slate-800 px-4 py-4 shrink-0 bg-[#172132]">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  handleLogout();
+                }}
+                className="w-full py-2.5 bg-rose-950/60 hover:bg-rose-900 text-rose-200 hover:text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 border border-rose-900/30 cursor-pointer transition-colors uppercase tracking-wider"
+              >
+                <LogOut className="w-4 h-4 text-rose-400" /> Cerrar Sesión
+              </button>
+            </div>
+
           </div>
         </div>
       )}

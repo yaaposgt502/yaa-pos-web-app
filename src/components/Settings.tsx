@@ -32,7 +32,8 @@ import {
   BookOpen,
   Wrench,
   Sliders,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 
 const getDefaultCategoriesForType = (type: string) => {
@@ -204,6 +205,30 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Database Reset States & Handler
+  const [resetConfirmation, setResetConfirmation] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetDatabase = async () => {
+    if (resetConfirmation !== 'REINICIAR') {
+      alert('Por favor, escriba la palabra REINICIAR exactamente para continuar.');
+      return;
+    }
+    const confirmDouble = window.confirm('¿Está absolutamente seguro de que desea reiniciar la base de datos? Esta acción eliminará permanentemente todos sus productos, transacciones, operadores y archivos del sistema, y NO se puede deshacer.');
+    if (!confirmDouble) return;
+
+    try {
+      setIsResetting(true);
+      await api.resetUserDatabase();
+      setResetConfirmation('');
+      alert('✓ Base de datos reiniciada con éxito. Todos los registros y transacciones operativas han sido eliminados de su cuenta.');
+    } catch (error: any) {
+      alert('Error al reiniciar la base de datos: ' + (error.message || error));
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   // Logo upload helper
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1460,6 +1485,55 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                     </div>
 
                   </div>
+
+                  {/* Danger Zone / Reset Database */}
+                  <div className="border border-rose-100 bg-rose-50/10 rounded-xl p-5 space-y-4 mt-6">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                        <Trash2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm">Zona de Peligro: Reiniciar Base de Datos</h4>
+                        <p className="text-xs text-rose-700 font-medium leading-relaxed mt-0.5">
+                          Esta acción eliminará de forma permanente todos los productos, clientes, proveedores, ventas, compras, gastos, turnos y archivos del sistema asociados a su cuenta. El logotipo, configuración de la tienda y la sesión activa se mantendrán.
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-col gap-4 pt-4 border-t border-rose-100">
+                      <div className="text-[11px] text-slate-500 leading-normal">
+                        Para proceder, escriba <strong className="font-mono text-rose-600 select-all">REINICIAR</strong> abajo y haga clic en el botón. Esta acción no se puede deshacer.
+                      </div>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full">
+                        <input 
+                          type="text" 
+                          placeholder="REINICIAR" 
+                          value={resetConfirmation}
+                          onChange={(e) => setResetConfirmation(e.target.value)}
+                          className="border border-rose-200 rounded-xl px-3 text-xs font-mono uppercase text-center w-full sm:w-48 focus:outline-hidden focus:ring-2 focus:ring-rose-500 bg-white h-10 transition-all shrink-0"
+                        />
+                        <button
+                          type="button"
+                          disabled={resetConfirmation !== 'REINICIAR' || isResetting}
+                          onClick={handleResetDatabase}
+                          className="bg-rose-600 hover:bg-rose-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-bold text-xs px-5 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs shrink-0 cursor-pointer h-10 w-full sm:w-auto"
+                        >
+                          {isResetting ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Reiniciando...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Reiniciar base de datos</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
 
                 {/* System security cards (col-span-4) */}

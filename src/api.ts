@@ -1142,3 +1142,41 @@ export function subscribeConfig(callback: (config: AppConfig, metadata?: SyncMet
   }
 }
 
+// --- SYSTEM RESET API ---
+export async function resetUserDatabase(): Promise<void> {
+  // First delete files properly from storage and database
+  try {
+    const filesCol = getCollectionRef('files');
+    const filesSnap = await getDocs(filesCol);
+    for (const d of filesSnap.docs) {
+      await deleteFile(d.id);
+    }
+  } catch (error) {
+    console.error('Error clearing files:', error);
+  }
+
+  // Clear other collections
+  const collectionsToClear = [
+    'products',
+    'clients',
+    'providers',
+    'sales',
+    'purchases',
+    'expenses',
+    'shifts',
+    'operators'
+  ];
+
+  for (const colName of collectionsToClear) {
+    try {
+      const colRef = getCollectionRef(colName);
+      const snapshot = await getDocs(colRef);
+      const deletePromises = snapshot.docs.map(docSnap => deleteDoc(docSnap.ref));
+      await Promise.all(deletePromises);
+    } catch (error) {
+      console.error(`Error clearing collection ${colName}:`, error);
+    }
+  }
+}
+
+
