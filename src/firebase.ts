@@ -1,6 +1,3 @@
-import 'firebase/firestore';
-import 'firebase/auth';
-import 'firebase/storage';
 import { initializeApp } from 'firebase/app';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';

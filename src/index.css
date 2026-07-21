@@ -14,6 +14,18 @@ body, html {
   color: #0f172a;
 }
 
+/* Chrome, Safari, Edge, Opera - Hide input[type=number] spinners */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox - Hide input[type=number] spinners */
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
 h1, h2, h3, h4 {
   font-family: var(--font-display), var(--font-sans);
 }
