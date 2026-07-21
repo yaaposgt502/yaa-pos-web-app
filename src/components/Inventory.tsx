@@ -133,7 +133,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
   const [formMinStock, setFormMinStock] = useState('');
   const [formUnit, setFormUnit] = useState('Pza');
   const [formExpirationDate, setFormExpirationDate] = useState('');
-  const [formLocation, setFormLocation] = useState('Almacén Principal');
+  const [formLocation, setFormLocation] = useState('');
   const [formDetail, setFormDetail] = useState('');
 
   // Pharmacy-specific form fields
@@ -143,17 +143,51 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
   const [formPrescriptionRequired, setFormPrescriptionRequired] = useState('sin receta médica'); // sin receta médica, bajo receta médica
   const [formSanitaryRegister, setFormSanitaryRegister] = useState('');
   const [formDiscount, setFormDiscount] = useState('0');
-  const [formUnitsPerBox, setFormUnitsPerBox] = useState('100');
-  const [formUnitsPerBlister, setFormUnitsPerBlister] = useState('10');
+  const [formUnitsPerBox, setFormUnitsPerBox] = useState('');
+  const [formUnitsPerBlister, setFormUnitsPerBlister] = useState('');
   const [formMarginPercent, setFormMarginPercent] = useState('');
   const [formPricePerUnit, setFormPricePerUnit] = useState('');
   const [formPricePerBlister, setFormPricePerBlister] = useState('0');
   const [formPricePerBox, setFormPricePerBox] = useState('0');
+  const [laboratoriesList, setLaboratoriesList] = useState<string[]>(() => {
+    const saved = localStorage.getItem('pharmacy_laboratories');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    return ['Bayer', 'Genfar', 'Pfizer', 'Roche', 'Abbott', 'Sandoz', 'Laboratorios Ramos', 'Otros'];
+  });
+  const [isAddLabModalOpen, setIsAddLabModalOpen] = useState(false);
+  const [newLabName, setNewLabName] = useState('');
   const [formLaboratory, setFormLaboratory] = useState('Bayer');
+
+  const combinedLabs = useMemo(() => {
+    const fromProducts = products.map(p => p.laboratory).filter(Boolean) as string[];
+    return Array.from(new Set([...laboratoriesList, ...fromProducts]));
+  }, [laboratoriesList, products]);
+
+  const handleAddNewLaboratory = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newLabName.trim();
+    if (!trimmed) return;
+    if (!laboratoriesList.includes(trimmed)) {
+      const updatedList = [...laboratoriesList, trimmed];
+      setLaboratoriesList(updatedList);
+      localStorage.setItem('pharmacy_laboratories', JSON.stringify(updatedList));
+    }
+    setFormLaboratory(trimmed);
+    setNewLabName('');
+    setIsAddLabModalOpen(false);
+  };
+
   const [formSymptoms, setFormSymptoms] = useState('');
   const [formStatus, setFormStatus] = useState('Activo');
   const [formManageBatchAndExpiration, setFormManageBatchAndExpiration] = useState(true);
-  const [formExpirationAlertDays, setFormExpirationAlertDays] = useState('15');
+  const [formExpirationAlertDays, setFormExpirationAlertDays] = useState('');
   const [formInitialBatch, setFormInitialBatch] = useState('00101');
   const [formImageUrl, setFormImageUrl] = useState('');
   const [dragActive, setDragActive] = useState(false);
@@ -684,7 +718,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     setFormMinStock('5');
     setFormUnit(unitsList[0] || 'Pza');
     setFormExpirationDate('');
-    setFormLocation('Almacén Principal');
+    setFormLocation('');
     setFormDetail('');
     setFormImageUrl('');
     
@@ -695,8 +729,8 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     setFormPrescriptionRequired('sin receta médica');
     setFormSanitaryRegister('');
     setFormDiscount('0');
-    setFormUnitsPerBox('100');
-    setFormUnitsPerBlister('10');
+    setFormUnitsPerBox('');
+    setFormUnitsPerBlister('');
     setFormMarginPercent('');
     setFormPricePerUnit('');
     setFormPricePerBlister('0');
@@ -705,7 +739,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     setFormSymptoms('');
     setFormStatus('Activo');
     setFormManageBatchAndExpiration(true);
-    setFormExpirationAlertDays('15');
+    setFormExpirationAlertDays('');
     setFormInitialBatch('00101');
     
     setIsModalOpen(true);
@@ -2559,20 +2593,25 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
                     <div className="space-y-1">
                       <label className="block text-xs font-bold text-slate-500 uppercase">Laboratorio (*)</label>
-                      <select
-                        value={formLaboratory}
-                        onChange={(e) => setFormLaboratory(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 bg-white text-slate-700 font-medium"
-                      >
-                        <option value="Bayer">Bayer</option>
-                        <option value="Genfar">Genfar</option>
-                        <option value="Pfizer">Pfizer</option>
-                        <option value="Roche">Roche</option>
-                        <option value="Abbott">Abbott</option>
-                        <option value="Sandoz">Sandoz</option>
-                        <option value="Laboratorios Ramos">Laboratorios Ramos</option>
-                        <option value="Otros">Otros</option>
-                      </select>
+                      <div className="flex gap-2 items-center">
+                        <select
+                          value={formLaboratory}
+                          onChange={(e) => setFormLaboratory(e.target.value)}
+                          className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 bg-white text-slate-700 font-medium"
+                        >
+                          {combinedLabs.map((lab) => (
+                            <option key={lab} value={lab}>{lab}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setIsAddLabModalOpen(true)}
+                          className="w-9 h-9 flex items-center justify-center bg-[#F0F4F9] hover:bg-[#E2E8F0] active:bg-[#CBD5E1] text-[#2E3B4E] rounded-xl border border-slate-100 shadow-sm cursor-pointer transition-all duration-150 shrink-0"
+                          title="Agregar nuevo laboratorio"
+                        >
+                          <Plus className="w-5 h-5" strokeWidth={2.5} />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Síntomas & Estado */}
@@ -2618,6 +2657,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                             <input
                               type="number"
                               min="0"
+                              placeholder="15"
                               value={formExpirationAlertDays}
                               onChange={(e) => setFormExpirationAlertDays(e.target.value)}
                               className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 font-mono focus:ring-2 focus:ring-blue-500"
@@ -3573,6 +3613,60 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Agregar Laboratorio */}
+      {isAddLabModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-800 text-sm">Registrar Nuevo Laboratorio</h3>
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsAddLabModalOpen(false);
+                  setNewLabName('');
+                }} 
+                className="text-slate-400 hover:text-slate-600 font-bold cursor-pointer text-lg animate-none bg-transparent border-0"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleAddNewLaboratory} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-500 uppercase">Nombre del Laboratorio *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Pfizer, Genfar, Sandoz..."
+                  value={newLabName}
+                  onChange={(e) => setNewLabName(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddLabModalOpen(false);
+                    setNewLabName('');
+                  }}
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold cursor-pointer transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2 bg-[#005e63] hover:bg-[#004d52] text-white rounded-lg font-bold cursor-pointer transition-colors"
+                >
+                  Registrar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

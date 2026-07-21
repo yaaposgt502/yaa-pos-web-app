@@ -60,12 +60,12 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
   const [activeTab, setActiveTab] = useState<'empresa' | 'usuarios' | 'listas' | 'comprobantes' | 'vista' | 'certificado' | 'backup'>('empresa');
 
   // Tab 1: Empresa States
-  const [nit, setNit] = useState(config.nit || '20123456789');
-  const [razonSocial, setRazonSocial] = useState(config.razonSocial || 'Mi Tienda E.I.R.L.');
+  const [nit, setNit] = useState(config.nit || '');
+  const [razonSocial, setRazonSocial] = useState(config.razonSocial || '');
   const [logo, setLogo] = useState(config.logo || '');
-  const [address, setAddress] = useState(config.address || 'Av. Larco 123, Miraflores - Lima');
-  const [phone, setPhone] = useState(config.phone || '987654321');
-  const [email, setEmail] = useState(config.email || 'ventas@licoria-demo.com');
+  const [address, setAddress] = useState(config.address || '');
+  const [phone, setPhone] = useState(config.phone || '');
+  const [email, setEmail] = useState(config.email || '');
 
   // Shared Config Fields
   const [storeName, setStoreName] = useState(config.storeName || 'Yaa POS');
@@ -111,12 +111,12 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
   // Sync state with config prop when it changes
   useEffect(() => {
     if (config) {
-      setNit(config.nit || '20123456789');
-      setRazonSocial(config.razonSocial || 'Mi Tienda E.I.R.L.');
+      setNit(config.nit || '');
+      setRazonSocial(config.razonSocial || '');
       setLogo(config.logo || '');
-      setAddress(config.address || 'Av. Larco 123, Miraflores - Lima');
-      setPhone(config.phone || '987654321');
-      setEmail(config.email || 'ventas@licoria-demo.com');
+      setAddress(config.address || '');
+      setPhone(config.phone || '');
+      setEmail(config.email || '');
       setStoreName(config.storeName || 'Yaa POS');
       setCurrency(config.currency || 'Q');
       setAlertDays(config.alertDaysBeforeExpiration?.toString() || '30');
@@ -1267,10 +1267,10 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                           </svg>
                         </div>
                       )}
-                      <h4 className="font-extrabold text-xs uppercase leading-tight">{razonSocial || 'Mi Tienda E.I.R.L.'}</h4>
-                      <p className="text-[10px]">NIT: {nit || '20123456789'}</p>
-                      <p className="text-[9px] leading-tight text-slate-600">{address}</p>
-                      <p className="text-[9px]">TEL: {phone}</p>
+                      <h4 className="font-extrabold text-xs uppercase leading-tight">{razonSocial || 'Razón Social de la Empresa'}</h4>
+                      <p className="text-[10px]">NIT: {nit || 'NIT'}</p>
+                      <p className="text-[9px] leading-tight text-slate-600">{address || 'Dirección de la empresa'}</p>
+                      <p className="text-[9px]">TEL: {phone || 'Teléfono'}</p>
                     </div>
 
                     <div className="border-t border-b border-dashed border-slate-300 py-2.5 text-[9px] space-y-1.5 text-slate-600">
