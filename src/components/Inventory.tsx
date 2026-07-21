@@ -2442,10 +2442,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
                     {/* Unidad x Caja & Unidad x Blister */}
                     <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-500 uppercase">Unidad x Caja (*)</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase">Unidad x Caja</label>
                       <input
                         type="number"
-                        required
                         min="1"
                         placeholder="100"
                         value={formUnitsPerBox}
@@ -2455,10 +2454,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                     </div>
 
                     <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-500 uppercase">Unidad x Blister (*)</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase">Unidad x Blister</label>
                       <input
                         type="number"
-                        required
                         min="1"
                         placeholder="10"
                         value={formUnitsPerBlister}
@@ -2535,11 +2533,10 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                     </div>
 
                     <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-500 uppercase">Precio Venta x Blister (*)</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase">Precio Venta x Blister</label>
                       <input
                         type="number"
                         step="0.01"
-                        required
                         placeholder="0"
                         value={formPricePerBlister}
                         onChange={(e) => setFormPricePerBlister(e.target.value)}
@@ -2549,11 +2546,10 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
                     {/* Precio Venta x Caja & Laboratorio */}
                     <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-500 uppercase">Precio Venta x Caja (*)</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase">Precio Venta x Caja</label>
                       <input
                         type="number"
                         step="0.01"
-                        required
                         placeholder="0"
                         value={formPricePerBox}
                         onChange={(e) => setFormPricePerBox(e.target.value)}
