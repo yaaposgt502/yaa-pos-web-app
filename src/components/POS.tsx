@@ -257,6 +257,53 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   const [selectedLoteVal, setSelectedLoteVal] = useState<string>('Lote 01');
   const [addToCartQty, setAddToCartQty] = useState<number>(1);
 
+  const availableLotes = useMemo(() => {
+    if (!selectedProductToAddToCart) return [];
+    
+    // If it has specific multiple expirationDates
+    if (selectedProductToAddToCart.expirationDates && selectedProductToAddToCart.expirationDates.length > 0) {
+      return selectedProductToAddToCart.expirationDates.map(r => {
+        const batchName = r.batch || selectedProductToAddToCart.initialBatch || 'Lote 01';
+        let dateStr = r.date || 'S/V';
+        if (r.date) {
+          const parts = r.date.split('-');
+          if (parts.length === 3) {
+            dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+          }
+        }
+        return {
+          value: `${batchName} – Vence: ${dateStr}`,
+          label: `${batchName} – Vence: ${dateStr} (Stock: ${r.stock})`,
+          stock: r.stock
+        };
+      });
+    }
+
+    // If it only has single expirationDate/batch
+    if (selectedProductToAddToCart.expirationDate || selectedProductToAddToCart.initialBatch) {
+      const batchName = selectedProductToAddToCart.initialBatch || 'Lote 01';
+      let dateStr = selectedProductToAddToCart.expirationDate || 'No aplica';
+      if (selectedProductToAddToCart.expirationDate) {
+        const parts = selectedProductToAddToCart.expirationDate.split('-');
+        if (parts.length === 3) {
+          dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+      }
+      return [{
+        value: `${batchName} – Vence: ${dateStr}`,
+        label: `${batchName} – Vence: ${dateStr} (Stock: ${selectedProductToAddToCart.stock})`,
+        stock: selectedProductToAddToCart.stock
+      }];
+    }
+
+    // Default if none
+    return [{
+      value: 'Lote General',
+      label: 'Lote General',
+      stock: selectedProductToAddToCart.stock
+    }];
+  }, [selectedProductToAddToCart]);
+
   const openAddToCartModal = (product: POSProduct) => {
     if (product.isPromoItem) {
       updateActiveSession(s => ({
@@ -274,16 +321,29 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     setSelectedUnitType('Unidad');
     
     // Format expiration date if exists
-    let loteStr = 'Lote 01 – Vence: 17/12/2025';
-    if (product.expirationDate) {
-      const parts = product.expirationDate.split('-');
-      if (parts.length === 3) {
-        loteStr = `Lote 01 – Vence: ${parts[2]}/${parts[1]}/${parts[0]}`;
-      } else {
-        loteStr = `Lote 01 – Vence: ${product.expirationDate}`;
+    let loteStr = 'Lote General';
+    if (product.expirationDates && product.expirationDates.length > 0) {
+      const first = product.expirationDates[0];
+      const batchName = first.batch || product.initialBatch || 'Lote 01';
+      let dateStr = first.date || 'S/V';
+      if (first.date) {
+        const parts = first.date.split('-');
+        if (parts.length === 3) {
+          dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
       }
-    } else {
-      // Create a nice mock date for products without expiration date to resemble the image
+      loteStr = `${batchName} – Vence: ${dateStr}`;
+    } else if (product.expirationDate || product.initialBatch) {
+      const batchName = product.initialBatch || 'Lote 01';
+      let dateStr = product.expirationDate || 'No aplica';
+      if (product.expirationDate) {
+        const parts = product.expirationDate.split('-');
+        if (parts.length === 3) {
+          dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+      }
+      loteStr = `${batchName} – Vence: ${dateStr}`;
+    } else if (product.manageBatchAndExpiration) {
       loteStr = 'Lote 01 – Vence: 17/12/2025';
     }
     setSelectedLoteVal(loteStr);
@@ -2229,9 +2289,11 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         onChange={(e) => setSelectedLoteVal(e.target.value)}
                         className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3.5 py-3 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0] appearance-none cursor-pointer pr-10"
                       >
-                        <option value={selectedLoteVal}>{selectedLoteVal}</option>
-                        <option value="Lote 02 – Vence: 10/06/2026">Lote 02 – Vence: 10/06/2026</option>
-                        <option value="Lote General">Lote General</option>
+                        {availableLotes.map((loteOpt, i) => (
+                          <option key={i} value={loteOpt.value}>
+                            {loteOpt.label}
+                          </option>
+                        ))}
                       </select>
                       <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-500">
                         <ChevronDown className="w-4 h-4" />

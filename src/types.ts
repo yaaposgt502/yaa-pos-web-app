@@ -44,6 +44,7 @@ export interface Product {
   manageBatchAndExpiration?: boolean;
   expirationAlertDays?: number;
   initialBatch?: string;
+  expirationDates?: { date: string; stock: number; batch?: string }[];
 }
 
 export interface Client {

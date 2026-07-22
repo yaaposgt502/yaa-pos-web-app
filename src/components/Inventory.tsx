@@ -170,6 +170,18 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     return Array.from(new Set([...laboratoriesList, ...fromProducts]));
   }, [laboratoriesList, products]);
 
+  const isBlisterHidden = useMemo(() => {
+    if (!formUnit) return false;
+    const unitLower = formUnit.toLowerCase().trim();
+    return (
+      unitLower === 'jarabe' ||
+      unitLower === 'ampolla' ||
+      unitLower === 'suspensión' ||
+      unitLower === 'suspension' ||
+      unitLower === 'frasco'
+    );
+  }, [formUnit]);
+
   const handleAddNewLaboratory = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newLabName.trim();
@@ -189,8 +201,18 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
   const [formManageBatchAndExpiration, setFormManageBatchAndExpiration] = useState(true);
   const [formExpirationAlertDays, setFormExpirationAlertDays] = useState('');
   const [formInitialBatch, setFormInitialBatch] = useState('00101');
+  const [formExpirationRows, setFormExpirationRows] = useState<{ date: string; stock: string; batch: string }[]>([]);
   const [formImageUrl, setFormImageUrl] = useState('');
   const [dragActive, setDragActive] = useState(false);
+
+  useEffect(() => {
+    if (formManageBatchAndExpiration && formExpirationRows.length > 0) {
+      const sum = formExpirationRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0);
+      if (sum > 0) {
+        setFormStock(sum.toString());
+      }
+    }
+  }, [formExpirationRows, formManageBatchAndExpiration]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -741,6 +763,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     setFormManageBatchAndExpiration(true);
     setFormExpirationAlertDays('');
     setFormInitialBatch('00101');
+    setFormExpirationRows([
+      { date: '', stock: '', batch: '00101' }
+    ]);
     
     setIsModalOpen(true);
   };
@@ -781,6 +806,18 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     setFormExpirationAlertDays((p.expirationAlertDays ?? 15).toString());
     setFormInitialBatch(p.initialBatch || '00101');
 
+    if (p.expirationDates && p.expirationDates.length > 0) {
+      setFormExpirationRows(p.expirationDates.map(r => ({
+        date: r.date,
+        stock: r.stock.toString(),
+        batch: r.batch || ''
+      })));
+    } else {
+      setFormExpirationRows([
+        { date: p.expirationDate || '', stock: p.stock.toString(), batch: p.initialBatch || '00101' }
+      ]);
+    }
+
     setIsModalOpen(true);
   };
 
@@ -815,7 +852,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       stock: stockNum,
       minStock: minStockNum,
       unit: formUnit || 'Pza',
-      expirationDate: formExpirationDate || undefined,
+      expirationDate: formManageBatchAndExpiration && formExpirationRows.length > 0 
+        ? (formExpirationRows.find(r => r.date)?.date || undefined) 
+        : (formExpirationDate || undefined),
       location: formLocation || 'Almacén Principal',
       detail: formDetail || '',
       imageUrl: formImageUrl || undefined,
@@ -828,17 +867,24 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       sanitaryRegister: formSanitaryRegister,
       discount: parseFloat(formDiscount) || 0,
       unitsPerBox: parseInt(formUnitsPerBox) || 0,
-      unitsPerBlister: parseInt(formUnitsPerBlister) || 0,
+      unitsPerBlister: isBlisterHidden ? 0 : (parseInt(formUnitsPerBlister) || 0),
       marginPercent: parseFloat(formMarginPercent) || 0,
       pricePerUnit: parseFloat(formPricePerUnit) || priceNum,
-      pricePerBlister: parseFloat(formPricePerBlister) || 0,
+      pricePerBlister: isBlisterHidden ? 0 : (parseFloat(formPricePerBlister) || 0),
       pricePerBox: parseFloat(formPricePerBox) || 0,
       laboratory: formLaboratory,
       symptoms: formSymptoms,
       status: formStatus,
       manageBatchAndExpiration: formManageBatchAndExpiration,
       expirationAlertDays: parseInt(formExpirationAlertDays) || 0,
-      initialBatch: formInitialBatch
+      initialBatch: formInitialBatch,
+      expirationDates: formManageBatchAndExpiration && formExpirationRows.length > 0
+        ? formExpirationRows.map(r => ({
+            date: r.date,
+            stock: parseInt(r.stock) || 0,
+            batch: r.batch || formInitialBatch || '00101'
+          }))
+        : undefined
     };
 
     try {
@@ -2487,17 +2533,19 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-500 uppercase">Unidad x Blister</label>
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="10"
-                        value={formUnitsPerBlister}
-                        onChange={(e) => setFormUnitsPerBlister(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
-                      />
-                    </div>
+                    {!isBlisterHidden && (
+                      <div className="space-y-1">
+                        <label className="block text-xs font-bold text-slate-500 uppercase">Unidad x Blister</label>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="10"
+                          value={formUnitsPerBlister}
+                          onChange={(e) => setFormUnitsPerBlister(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
+                        />
+                      </div>
+                    )}
 
                     {/* Precio Compra & Margen % */}
                     <div className="space-y-1">
@@ -2566,17 +2614,19 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-500 uppercase">Precio Venta x Blister</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="0"
-                        value={formPricePerBlister}
-                        onChange={(e) => setFormPricePerBlister(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
-                      />
-                    </div>
+                    {!isBlisterHidden && (
+                      <div className="space-y-1">
+                        <label className="block text-xs font-bold text-slate-500 uppercase">Precio Venta x Blister</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0"
+                          value={formPricePerBlister}
+                          onChange={(e) => setFormPricePerBlister(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
+                        />
+                      </div>
+                    )}
 
                     {/* Precio Venta x Caja & Laboratorio */}
                     <div className="space-y-1">
@@ -2651,37 +2701,126 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                       </label>
 
                       {formManageBatchAndExpiration && (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3 bg-slate-50/80 p-4 rounded-xl border border-slate-150 animate-in slide-in-from-top-2 duration-150">
-                          <div className="space-y-1">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Alerta vencimiento (días)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              placeholder="15"
-                              value={formExpirationAlertDays}
-                              onChange={(e) => setFormExpirationAlertDays(e.target.value)}
-                              className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 font-mono focus:ring-2 focus:ring-blue-500"
-                            />
+                        <div className="space-y-4 mt-3 bg-slate-50/80 p-4 rounded-xl border border-slate-150 animate-in slide-in-from-top-2 duration-150">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase">Alerta vencimiento (días)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="15"
+                                value={formExpirationAlertDays}
+                                onChange={(e) => setFormExpirationAlertDays(e.target.value)}
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 font-mono focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase">Lote Inicial Predeterminado</label>
+                              <input
+                                type="text"
+                                placeholder="00101"
+                                value={formInitialBatch}
+                                onChange={(e) => setFormInitialBatch(e.target.value)}
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 font-mono focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
                           </div>
-                          <div className="space-y-1">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Lote Inicial</label>
-                            <input
-                              type="text"
-                              placeholder="00101"
-                              value={formInitialBatch}
-                              onChange={(e) => setFormInitialBatch(e.target.value)}
-                              className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 font-mono focus:ring-2 focus:ring-blue-500"
-                            />
+
+                          <div className="flex items-center justify-between border-t border-slate-200/60 pt-3">
+                            <span className="text-xs font-bold text-slate-700 uppercase">Fechas de Vencimiento y Stock por Lote</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormExpirationRows([
+                                  ...formExpirationRows,
+                                  { date: '', stock: '', batch: formInitialBatch || '00101' }
+                                ]);
+                              }}
+                              className="w-9 h-9 flex items-center justify-center bg-[#F0F4F9] hover:bg-[#E2E8F0] active:bg-[#CBD5E1] text-[#2E3B4E] rounded-xl border border-slate-100 shadow-sm cursor-pointer transition-all duration-150 shrink-0"
+                              title="Agregar fecha de vencimiento"
+                            >
+                              <Plus className="w-5 h-5" strokeWidth={2.5} />
+                            </button>
                           </div>
-                          <div className="space-y-1">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Fecha de Vencimiento</label>
-                            <input
-                              type="date"
-                              value={formExpirationDate}
-                              onChange={(e) => setFormExpirationDate(e.target.value)}
-                              className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 font-mono focus:ring-2 focus:ring-blue-500"
-                            />
+
+                          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                            {formExpirationRows.length === 0 ? (
+                              <div className="text-center py-4 bg-white/50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-xs">
+                                Haga clic en el botón <strong className="text-slate-600 font-bold">+</strong> para registrar una fecha de vencimiento.
+                              </div>
+                            ) : (
+                              formExpirationRows.map((row, index) => (
+                                <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-2 bg-white p-3 rounded-lg border border-slate-200 items-end shadow-xs relative">
+                                  <div className="sm:col-span-4 space-y-1">
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase">Lote</label>
+                                    <input
+                                      type="text"
+                                      placeholder="Ej: 00101"
+                                      value={row.batch}
+                                      onChange={(e) => {
+                                        const updated = [...formExpirationRows];
+                                        updated[index].batch = e.target.value;
+                                        setFormExpirationRows(updated);
+                                      }}
+                                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-800 font-mono focus:ring-1 focus:ring-blue-500"
+                                    />
+                                  </div>
+
+                                  <div className="sm:col-span-4 space-y-1">
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase">Fecha de Vencimiento</label>
+                                    <input
+                                      type="date"
+                                      required
+                                      value={row.date}
+                                      onChange={(e) => {
+                                        const updated = [...formExpirationRows];
+                                        updated[index].date = e.target.value;
+                                        setFormExpirationRows(updated);
+                                      }}
+                                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-800 font-mono focus:ring-1 focus:ring-blue-500"
+                                    />
+                                  </div>
+
+                                  <div className="sm:col-span-3 space-y-1">
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase">Stock</label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      required
+                                      placeholder="Ej: 50"
+                                      value={row.stock}
+                                      onChange={(e) => {
+                                        const updated = [...formExpirationRows];
+                                        updated[index].stock = e.target.value;
+                                        setFormExpirationRows(updated);
+                                      }}
+                                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-800 font-mono focus:ring-1 focus:ring-blue-500"
+                                    />
+                                  </div>
+
+                                  <div className="sm:col-span-1 flex justify-center pb-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = formExpirationRows.filter((_, i) => i !== index);
+                                        setFormExpirationRows(updated);
+                                      }}
+                                      className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                      title="Eliminar fila"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
                           </div>
+
+                          {formExpirationRows.length > 0 && (
+                            <div className="text-right text-[10px] font-bold text-slate-500 uppercase pr-1">
+                              Suma de stock en lotes: <span className="font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{formExpirationRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0)}</span> unidades.
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -3030,6 +3169,26 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                   <span className="font-mono text-slate-700 font-semibold">{detailProduct.expirationDate || 'No aplica'}</span>
                 </div>
               </div>
+
+              {detailProduct.expirationDates && detailProduct.expirationDates.length > 0 && (
+                <div className="p-3 border border-slate-100 rounded-lg bg-slate-50 space-y-2">
+                  <span className="block text-[10px] text-slate-500 font-bold uppercase">Lotes y Fechas de Vencimiento</span>
+                  <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase border-b border-slate-200 pb-1 font-mono">
+                    <span>Lote</span>
+                    <span>Vencimiento</span>
+                    <span>Stock</span>
+                  </div>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {detailProduct.expirationDates.map((r, idx) => (
+                      <div key={idx} className="grid grid-cols-3 gap-2 text-xs text-slate-700 font-mono">
+                        <span className="truncate">{r.batch || 'S/N'}</span>
+                        <span>{r.date || 'S/F'}</span>
+                        <span className="font-bold text-blue-600">{r.stock} u.</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {detailProduct.detail && (
                 <div className="p-2 border border-slate-100 rounded-lg bg-white space-y-1">
