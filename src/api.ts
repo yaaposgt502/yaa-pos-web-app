@@ -28,6 +28,7 @@ import {
 import { auth, db, storage } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License } from './types';
+import { compressDataUrlIfNeeded } from './utils/imageCompressor';
 
 export enum OperationType {
   CREATE = 'create',
@@ -747,6 +748,17 @@ export async function saveProduct(product: Product): Promise<Product> {
     docId = doc(colRef).id;
     product = { ...product, id: docId };
   }
+
+  // Ensure image is compressed if it's a large base64 data URL
+  if (product.imageUrl && product.imageUrl.startsWith('data:image/') && product.imageUrl.length > 100000) {
+    try {
+      const compressed = await compressDataUrlIfNeeded(product.imageUrl, 600, 0.75);
+      product = { ...product, imageUrl: compressed };
+    } catch (e) {
+      console.warn('Could not compress image in saveProduct:', e);
+    }
+  }
+
   await setDoc(getDocRef('products', docId), product);
   return product;
 }

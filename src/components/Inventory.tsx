@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product, AppConfig, Sale, Purchase } from '../types';
+import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
 import { 
   Plus, 
   Search, 
@@ -214,20 +215,16 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     }
   }, [formExpirationRows, formManageBatchAndExpiration]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    if (file.size > 5 * 1024 * 1024) {
-      alert("La imagen no debe superar los 5MB.");
-      return;
+    try {
+      const compressed = await compressImage(file, 600, 600, 0.75);
+      setFormImageUrl(compressed);
+    } catch {
+      alert("Error al procesar la imagen.");
     }
-    
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setFormImageUrl(reader.result as string);
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -240,21 +237,18 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
-      if (file.size > 5 * 1024 * 1024) {
-        alert("La imagen no debe superar los 5MB.");
-        return;
+      try {
+        const compressed = await compressImage(file, 600, 600, 0.75);
+        setFormImageUrl(compressed);
+      } catch {
+        alert("Error al procesar la imagen.");
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -842,6 +836,15 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       return;
     }
 
+    let finalImageUrl = formImageUrl || undefined;
+    if (finalImageUrl && finalImageUrl.startsWith('data:image/') && finalImageUrl.length > 100000) {
+      try {
+        finalImageUrl = await compressDataUrlIfNeeded(finalImageUrl, 600, 0.75);
+      } catch (e) {
+        console.warn("Could not compress formImageUrl:", e);
+      }
+    }
+
     const productData: Product = {
       id: editingProduct?.id || '', 
       name: formName,
@@ -857,7 +860,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
         : (formExpirationDate || undefined),
       location: formLocation || 'Almacén Principal',
       detail: formDetail || '',
-      imageUrl: formImageUrl || undefined,
+      imageUrl: finalImageUrl,
       
       // Pharmacy fields
       registrationDate: formRegistrationDate,
