@@ -209,9 +209,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
   useEffect(() => {
     if (formManageBatchAndExpiration && formExpirationRows.length > 0) {
       const sum = formExpirationRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0);
-      if (sum > 0) {
-        setFormStock(sum.toString());
-      }
+      setFormStock(sum.toString());
     }
   }, [formExpirationRows, formManageBatchAndExpiration]);
 
@@ -845,6 +843,13 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       }
     }
 
+    const lotesSum = (formManageBatchAndExpiration && formExpirationRows.length > 0)
+      ? formExpirationRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0)
+      : 0;
+    const finalStock = (formManageBatchAndExpiration && formExpirationRows.length > 0)
+      ? lotesSum
+      : stockNum;
+
     const productData: Product = {
       id: editingProduct?.id || '', 
       name: formName,
@@ -852,7 +857,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       category: formCategory || 'General',
       price: priceNum,
       cost: costNum,
-      stock: stockNum,
+      stock: finalStock,
       minStock: minStockNum,
       unit: formUnit || 'Pza',
       expirationDate: formManageBatchAndExpiration && formExpirationRows.length > 0 

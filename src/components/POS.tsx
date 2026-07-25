@@ -160,6 +160,18 @@ const getProductImage = (p: Product | { name: string; imageUrl?: string }): stri
   return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400&auto=format&fit=crop&q=60';
 };
 
+export const getProductEffectiveStock = (p: Product): number => {
+  if (p.category === 'Combos' || p.category === 'Servicios' || p.category === 'Promociones') {
+    return 999999;
+  }
+  const baseStock = typeof p.stock === 'number' && !isNaN(p.stock) ? p.stock : 0;
+  if (p.expirationDates && p.expirationDates.length > 0) {
+    const lotesSum = p.expirationDates.reduce((acc, r) => acc + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+    return Math.max(baseStock, lotesSum);
+  }
+  return baseStock;
+};
+
 export default function POS({ products, clients, shifts, config, user, onSaveSale, onRefreshData, onNavigate }: POSProps) {
   const currency = config.currency || 'Q';
   const taxName = config?.taxName || 'IVA';
@@ -259,6 +271,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
 
   const availableLotes = useMemo(() => {
     if (!selectedProductToAddToCart) return [];
+    const effStock = getProductEffectiveStock(selectedProductToAddToCart);
     
     // If it has specific multiple expirationDates
     if (selectedProductToAddToCart.expirationDates && selectedProductToAddToCart.expirationDates.length > 0) {
@@ -291,8 +304,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       }
       return [{
         value: `${batchName} – Vence: ${dateStr}`,
-        label: `${batchName} – Vence: ${dateStr} (Stock: ${selectedProductToAddToCart.stock})`,
-        stock: selectedProductToAddToCart.stock
+        label: `${batchName} – Vence: ${dateStr} (Stock: ${effStock})`,
+        stock: effStock
       }];
     }
 
@@ -300,9 +313,22 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     return [{
       value: 'Lote General',
       label: 'Lote General',
-      stock: selectedProductToAddToCart.stock
+      stock: effStock
     }];
   }, [selectedProductToAddToCart]);
+
+  const selectedLoteObj = useMemo(() => {
+    if (!availableLotes || availableLotes.length === 0) return null;
+    return availableLotes.find(l => l.value === selectedLoteVal) || availableLotes[0];
+  }, [availableLotes, selectedLoteVal]);
+
+  const currentAvailableStock = useMemo(() => {
+    if (!selectedProductToAddToCart) return 0;
+    if (selectedLoteObj && typeof selectedLoteObj.stock === 'number') {
+      return selectedLoteObj.stock;
+    }
+    return getProductEffectiveStock(selectedProductToAddToCart);
+  }, [selectedProductToAddToCart, selectedLoteObj]);
 
   const openAddToCartModal = (product: POSProduct) => {
     if (product.isPromoItem) {
@@ -315,16 +341,22 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       return;
     }
 
-    setSelectedProductToAddToCart(product);
+    const effStock = getProductEffectiveStock(product);
+    const effectiveProd = {
+      ...product,
+      stock: effStock
+    };
+
+    setSelectedProductToAddToCart(effectiveProd);
     setSelectedPriceType('retail');
-    setCustomPriceVal((product.pricePerUnit || product.price).toFixed(2));
+    setCustomPriceVal((effectiveProd.pricePerUnit || effectiveProd.price).toFixed(2));
     setSelectedUnitType('Unidad');
     
     // Format expiration date if exists
     let loteStr = 'Lote General';
-    if (product.expirationDates && product.expirationDates.length > 0) {
-      const first = product.expirationDates[0];
-      const batchName = first.batch || product.initialBatch || 'Lote 01';
+    if (effectiveProd.expirationDates && effectiveProd.expirationDates.length > 0) {
+      const first = effectiveProd.expirationDates[0];
+      const batchName = first.batch || effectiveProd.initialBatch || 'Lote 01';
       let dateStr = first.date || 'S/V';
       if (first.date) {
         const parts = first.date.split('-');
@@ -333,17 +365,17 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
         }
       }
       loteStr = `${batchName} – Vence: ${dateStr}`;
-    } else if (product.expirationDate || product.initialBatch) {
-      const batchName = product.initialBatch || 'Lote 01';
-      let dateStr = product.expirationDate || 'No aplica';
-      if (product.expirationDate) {
-        const parts = product.expirationDate.split('-');
+    } else if (effectiveProd.expirationDate || effectiveProd.initialBatch) {
+      const batchName = effectiveProd.initialBatch || 'Lote 01';
+      let dateStr = effectiveProd.expirationDate || 'No aplica';
+      if (effectiveProd.expirationDate) {
+        const parts = effectiveProd.expirationDate.split('-');
         if (parts.length === 3) {
           dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
         }
       }
       loteStr = `${batchName} – Vence: ${dateStr}`;
-    } else if (product.manageBatchAndExpiration) {
+    } else if (effectiveProd.manageBatchAndExpiration) {
       loteStr = 'Lote 01 – Vence: 17/12/2025';
     }
     setSelectedLoteVal(loteStr);
@@ -548,7 +580,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     }
 
     const isSpecial = product.category === 'Combos' || product.category === 'Servicios';
-    if (!isSpecial && product.stock <= 0) {
+    const effStock = getProductEffectiveStock(product);
+    if (!isSpecial && effStock <= 0) {
       alert(`El producto "${product.name}" no tiene stock disponible.`);
       return;
     }
@@ -556,8 +589,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     updateActiveSession(s => {
       const existing = s.cart.find(item => item.product.id === product.id);
       if (existing) {
-        if (!isSpecial && existing.quantity >= product.stock) {
-          alert(`No puedes agregar más. Stock disponible: ${product.stock}`);
+        if (!isSpecial && existing.quantity >= effStock) {
+          alert(`No puedes agregar más. Stock disponible: ${effStock}`);
           return s;
         }
         return {
@@ -571,7 +604,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       }
       return {
         ...s,
-        cart: [...s.cart, { product, quantity: 1, selectedUnit: isSpecial ? (product.category === 'Combos' ? 'Combo' : 'Servicio') : undefined }]
+        cart: [...s.cart, { product: { ...product, stock: effStock }, quantity: 1, selectedUnit: isSpecial ? (product.category === 'Combos' ? 'Combo' : 'Servicio') : undefined }]
       };
     });
   };
@@ -584,11 +617,18 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
           if (newQty <= 0) return null;
           
           const isSpecial = item.product.category === 'Combos' || item.product.category === 'Servicios';
-          const mult = isSpecial ? 1 : (item.selectedUnit === 'Blíster' ? (item.product.unitsPerBlister || 10) : (item.selectedUnit === 'Caja' ? (item.product.unitsPerBox || 100) : 1));
+          const mult = isSpecial 
+            ? 1 
+            : (item.selectedUnit === 'Blíster' 
+                ? (item.product.unitsPerBlister && item.product.unitsPerBlister > 0 ? item.product.unitsPerBlister : 1) 
+                : (item.selectedUnit === 'Caja' 
+                    ? (item.product.unitsPerBox && item.product.unitsPerBox > 0 ? item.product.unitsPerBox : 1) 
+                    : 1));
           const totalPhysicalUnits = newQty * mult;
+          const effStock = getProductEffectiveStock(item.product);
 
-          if (!isSpecial && totalPhysicalUnits > item.product.stock) {
-            alert(`No puedes agregar más. Stock disponible: ${item.product.stock} unidades. (Estás intentando agregar ${newQty} ${item.selectedUnit || 'unidades'}, lo que equivale a ${totalPhysicalUnits} unidades físicas).`);
+          if (!isSpecial && totalPhysicalUnits > effStock) {
+            alert(`No puedes agregar más. Stock disponible: ${effStock} unidades. (Estás intentando agregar ${newQty} ${item.selectedUnit || 'unidades'}, lo que equivale a ${totalPhysicalUnits} unidades físicas).`);
             return item;
           }
           return { ...item, quantity: newQty };
@@ -1090,7 +1130,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
           {posMode === 'classica' && (
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
               {filteredProducts.map(p => {
-                const stockColor = p.stock <= 0 ? 'bg-rose-500' : p.stock <= p.minStock ? 'bg-amber-500' : 'bg-emerald-500';
+                const effStock = getProductEffectiveStock(p);
+                const stockColor = effStock <= 0 ? 'bg-rose-500' : effStock <= p.minStock ? 'bg-amber-500' : 'bg-emerald-500';
                 return (
                   <div 
                     key={p.id}
@@ -1099,7 +1140,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                   >
                     {/* Stock indicator badge exactly as shown in reference */}
                     <div className={`absolute top-2.5 right-2.5 ${stockColor} text-white font-black text-[10px] px-2 py-0.5 rounded-lg shadow-sm z-10`}>
-                      {p.stock}
+                      {effStock}
                     </div>
 
                     {/* Image space (using matching Unsplash photography for real visuals) */}
@@ -1152,7 +1193,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                   >
                     <div>
                       <h4 className="text-xs font-bold text-slate-800">{p.name}</h4>
-                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">Cód: {p.code} | Stock: <span className="font-bold text-slate-600">{p.stock}</span></p>
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">Cód: {p.code} | Stock: <span className="font-bold text-slate-600">{getProductEffectiveStock(p)}</span></p>
                     </div>
                     <div className="text-right flex items-center gap-4">
                       <span className="text-xs font-extrabold text-[#0086F0] font-mono">{currency}{p.price.toFixed(2)}</span>
@@ -2230,11 +2271,15 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         value={selectedUnitType}
                         onChange={(e) => {
                           const val = e.target.value;
-                          const mult = val === 'Blíster' ? (selectedProductToAddToCart.unitsPerBlister || 10) : (val === 'Caja' ? (selectedProductToAddToCart.unitsPerBox || 100) : 1);
-                          const maxQ = Math.floor(selectedProductToAddToCart.stock / mult);
+                          const mult = val === 'Blíster' 
+                            ? (selectedProductToAddToCart.unitsPerBlister && selectedProductToAddToCart.unitsPerBlister > 0 ? selectedProductToAddToCart.unitsPerBlister : 1) 
+                            : (val === 'Caja' 
+                                ? (selectedProductToAddToCart.unitsPerBox && selectedProductToAddToCart.unitsPerBox > 0 ? selectedProductToAddToCart.unitsPerBox : 1) 
+                                : 1);
+                          const maxQ = Math.floor(currentAvailableStock / mult);
                           
                           if (maxQ <= 0 && val !== 'Unidad') {
-                            alert(`No hay suficiente stock para vender en la presentación de ${val}. Requiere al menos ${mult} unidades, pero el stock actual es de ${selectedProductToAddToCart.stock} unidades.`);
+                            alert(`No hay suficiente stock para vender en la presentación de ${val}. Requiere al menos ${mult} unidades, pero el stock actual es de ${currentAvailableStock} unidades.`);
                             return;
                           }
 
@@ -2320,8 +2365,14 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         onChange={(e) => {
                           const val = parseInt(e.target.value) || 1;
                           const isSpecial = selectedProductToAddToCart.category === 'Combos' || selectedProductToAddToCart.category === 'Servicios';
-                          const mult = isSpecial ? 1 : (selectedUnitType === 'Blíster' ? (selectedProductToAddToCart.unitsPerBlister || 10) : (selectedUnitType === 'Caja' ? (selectedProductToAddToCart.unitsPerBox || 100) : 1));
-                          const maxQty = isSpecial ? 999999 : Math.floor(selectedProductToAddToCart.stock / mult);
+                          const mult = isSpecial 
+                            ? 1 
+                            : (selectedUnitType === 'Blíster' 
+                                ? (selectedProductToAddToCart.unitsPerBlister && selectedProductToAddToCart.unitsPerBlister > 0 ? selectedProductToAddToCart.unitsPerBlister : 1) 
+                                : (selectedUnitType === 'Caja' 
+                                    ? (selectedProductToAddToCart.unitsPerBox && selectedProductToAddToCart.unitsPerBox > 0 ? selectedProductToAddToCart.unitsPerBox : 1) 
+                                    : 1));
+                          const maxQty = isSpecial ? 999999 : Math.floor(currentAvailableStock / mult);
                           setAddToCartQty(Math.min(maxQty, Math.max(1, val)));
                         }}
                         className="w-14 text-center text-sm font-extrabold font-mono text-slate-800 focus:outline-hidden bg-transparent"
@@ -2330,8 +2381,14 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         type="button"
                         onClick={() => {
                           const isSpecial = selectedProductToAddToCart.category === 'Combos' || selectedProductToAddToCart.category === 'Servicios';
-                          const mult = isSpecial ? 1 : (selectedUnitType === 'Blíster' ? (selectedProductToAddToCart.unitsPerBlister || 10) : (selectedUnitType === 'Caja' ? (selectedProductToAddToCart.unitsPerBox || 100) : 1));
-                          const maxQty = isSpecial ? 999999 : Math.floor(selectedProductToAddToCart.stock / mult);
+                          const mult = isSpecial 
+                            ? 1 
+                            : (selectedUnitType === 'Blíster' 
+                                ? (selectedProductToAddToCart.unitsPerBlister && selectedProductToAddToCart.unitsPerBlister > 0 ? selectedProductToAddToCart.unitsPerBlister : 1) 
+                                : (selectedUnitType === 'Caja' 
+                                    ? (selectedProductToAddToCart.unitsPerBox && selectedProductToAddToCart.unitsPerBox > 0 ? selectedProductToAddToCart.unitsPerBox : 1) 
+                                    : 1));
+                          const maxQty = isSpecial ? 999999 : Math.floor(currentAvailableStock / mult);
                           setAddToCartQty(prev => Math.min(maxQty, prev + 1));
                         }}
                         className="w-10 h-10 hover:bg-white text-slate-600 rounded-lg flex items-center justify-center transition-colors border border-transparent hover:border-slate-100 shadow-2xs cursor-pointer"
@@ -2345,7 +2402,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
                         </svg>
-                        <span>{selectedProductToAddToCart.stock} disponibles</span>
+                        <span>{currentAvailableStock} disponibles</span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-150 text-emerald-700">
@@ -2387,12 +2444,18 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                   if (addToCartQty <= 0) return;
 
                   const isSpecial = selectedProductToAddToCart.category === 'Combos' || selectedProductToAddToCart.category === 'Servicios';
-                  const mult = isSpecial ? 1 : (selectedUnitType === 'Blíster' ? (selectedProductToAddToCart.unitsPerBlister || 10) : (selectedUnitType === 'Caja' ? (selectedProductToAddToCart.unitsPerBox || 100) : 1));
+                  const mult = isSpecial 
+                    ? 1 
+                    : (selectedUnitType === 'Blíster' 
+                        ? (selectedProductToAddToCart.unitsPerBlister && selectedProductToAddToCart.unitsPerBlister > 0 ? selectedProductToAddToCart.unitsPerBlister : 1) 
+                        : (selectedUnitType === 'Caja' 
+                            ? (selectedProductToAddToCart.unitsPerBox && selectedProductToAddToCart.unitsPerBox > 0 ? selectedProductToAddToCart.unitsPerBox : 1) 
+                            : 1));
                   const totalUnitsRequested = addToCartQty * mult;
-                  const maxQty = isSpecial ? 999999 : Math.floor(selectedProductToAddToCart.stock / mult);
+                  const maxQty = isSpecial ? 999999 : Math.floor(currentAvailableStock / mult);
 
-                  if (!isSpecial && totalUnitsRequested > selectedProductToAddToCart.stock) {
-                    alert(`No puedes agregar más de ${selectedProductToAddToCart.stock} unidades de este producto.`);
+                  if (!isSpecial && totalUnitsRequested > currentAvailableStock) {
+                    alert(`No puedes agregar más de ${currentAvailableStock} unidades de este producto.`);
                     return;
                   }
 
@@ -2423,7 +2486,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
 
                       // Same unit type: merge quantities
                       if (!isSpecial && existing.quantity + addToCartQty > maxQty) {
-                        alert(`No puedes exceder el stock total de ${selectedProductToAddToCart.stock} unidades. Ya tienes ${existing.quantity} ${resolvedUnitName}(s) en el carrito (equivale a ${existing.quantity * mult} unidades).`);
+                        alert(`No puedes exceder el stock total de ${currentAvailableStock} unidades. Ya tienes ${existing.quantity} ${resolvedUnitName}(s) en el carrito (equivale a ${existing.quantity * mult} unidades).`);
                         return s;
                       }
 

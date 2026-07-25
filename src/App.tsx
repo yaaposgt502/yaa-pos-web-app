@@ -595,12 +595,47 @@ export default function App() {
     for (const item of s.items) {
       const product = products.find(p => p.id === item.productId);
       if (product) {
-        const mult = item.selectedUnit === 'Blíster' ? (product.unitsPerBlister || 10) : (item.selectedUnit === 'Caja' ? (product.unitsPerBox || 100) : 1);
+        const mult = item.selectedUnit === 'Blíster' 
+          ? (product.unitsPerBlister && product.unitsPerBlister > 0 ? product.unitsPerBlister : 1) 
+          : (item.selectedUnit === 'Caja' 
+              ? (product.unitsPerBox && product.unitsPerBox > 0 ? product.unitsPerBox : 1) 
+              : 1);
         const unitsToDeduct = item.quantity * mult;
-        const nextStock = Math.max(0, product.stock - unitsToDeduct);
+        
+        const lotesSum = (product.expirationDates || []).reduce((acc, r) => acc + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+        const currentStock = Math.max(product.stock || 0, lotesSum);
+        const nextStock = Math.max(0, currentStock - unitsToDeduct);
+
+        let updatedExpirationDates = product.expirationDates;
+        if (updatedExpirationDates && updatedExpirationDates.length > 0) {
+          let remainingDeduct = unitsToDeduct;
+          // First attempt to deduct from matching selected batch
+          updatedExpirationDates = updatedExpirationDates.map(r => {
+            const batchName = r.batch || product.initialBatch || 'Lote 01';
+            if (remainingDeduct > 0 && item.selectedLote && item.selectedLote.includes(batchName)) {
+              const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+              const deduct = Math.min(currentLoteStock, remainingDeduct);
+              remainingDeduct -= deduct;
+              return { ...r, stock: currentLoteStock - deduct };
+            }
+            return r;
+          });
+          // Deduct remaining from any available lote
+          if (remainingDeduct > 0) {
+            updatedExpirationDates = updatedExpirationDates.map(r => {
+              if (remainingDeduct <= 0) return r;
+              const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+              const deduct = Math.min(currentLoteStock, remainingDeduct);
+              remainingDeduct -= deduct;
+              return { ...r, stock: currentLoteStock - deduct };
+            });
+          }
+        }
+
         await api.saveProduct({
           ...product,
-          stock: nextStock
+          stock: nextStock,
+          expirationDates: updatedExpirationDates
         });
       }
     }

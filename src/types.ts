@@ -76,6 +76,7 @@ export interface SaleItem {
   price: number;
   cost: number;
   selectedUnit?: string;
+  selectedLote?: string;
 }
 
 export interface Sale {
