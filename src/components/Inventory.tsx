@@ -104,6 +104,17 @@ function renderBarcodeSVG(code: string) {
   );
 }
 
+// Helper to calculate total effective stock taking into account expirationDates/lotes sum
+export const getProductStock = (p: Product | null | undefined): number => {
+  if (!p) return 0;
+  const baseStock = typeof p.stock === 'number' && !isNaN(p.stock) ? p.stock : 0;
+  if (p.expirationDates && p.expirationDates.length > 0) {
+    const lotesSum = p.expirationDates.reduce((acc, r) => acc + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+    return Math.max(baseStock, lotesSum);
+  }
+  return baseStock;
+};
+
 export default function Inventory({ products, config, onSaveProduct, onDeleteProduct, onRefreshData, sales = [], purchases = [] }: InventoryProps) {
   const currency = config.currency || 'Q';
 
@@ -770,7 +781,8 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     setFormCategory(p.category);
     setFormPrice(p.price.toString());
     setFormCost(p.cost.toString());
-    setFormStock(p.stock.toString());
+    const effStock = getProductStock(p);
+    setFormStock(effStock.toString());
     setFormMinStock(p.minStock.toString());
     setFormUnit(p.unit || 'Pza');
     setFormExpirationDate(p.expirationDate || '');
@@ -806,7 +818,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       })));
     } else {
       setFormExpirationRows([
-        { date: p.expirationDate || '', stock: p.stock.toString(), batch: p.initialBatch || '00101' }
+        { date: p.expirationDate || '', stock: effStock.toString(), batch: p.initialBatch || '00101' }
       ]);
     }
 
@@ -918,9 +930,16 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
   // Quick plus stock button (+1)
   const handleQuickAddStock = async (product: Product) => {
+    const currentStock = getProductStock(product);
+    const newStock = currentStock + 1;
+    let updatedExpirationDates = product.expirationDates;
+    if (updatedExpirationDates && updatedExpirationDates.length > 0) {
+      updatedExpirationDates = updatedExpirationDates.map((r, i) => i === 0 ? { ...r, stock: (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) + 1 } : r);
+    }
     const updated: Product = {
       ...product,
-      stock: product.stock + 1
+      stock: newStock,
+      expirationDates: updatedExpirationDates
     };
     try {
       await onSaveProduct(updated);
@@ -938,10 +957,11 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     let expiringAlerts = 0;
 
     products.forEach(p => {
-      totalItems += p.stock;
-      if (p.stock === 0) {
+      const effStock = getProductStock(p);
+      totalItems += effStock;
+      if (effStock === 0) {
         outOfStock++;
-      } else if (p.stock <= p.minStock) {
+      } else if (effStock <= p.minStock) {
         lowStock++;
       }
 
@@ -962,6 +982,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
   // Filter products logic
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
+      const effStock = getProductStock(p);
       // Name & category text search
       const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             p.category.toLowerCase().includes(searchQuery.toLowerCase());
@@ -978,9 +999,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       // Metric filter
       let matchesStock = true;
       if (stockFilter === 'critical') {
-        matchesStock = p.stock <= p.minStock && p.stock > 0;
+        matchesStock = effStock <= p.minStock && effStock > 0;
       } else if (stockFilter === 'outOfStock') {
-        matchesStock = p.stock === 0;
+        matchesStock = effStock === 0;
       } else if (stockFilter === 'expiring') {
         matchesStock = !!p.expirationDate;
       }
@@ -1380,8 +1401,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     let productsCount = products.length;
 
     products.forEach(p => {
-      totalInversion += p.stock * p.cost;
-      valorVentaTotal += p.stock * p.price;
+      const effStock = getProductStock(p);
+      totalInversion += effStock * p.cost;
+      valorVentaTotal += effStock * p.price;
     });
 
     const gananciaEstimada = valorVentaTotal - totalInversion;
@@ -1692,8 +1714,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredProducts.map((p) => {
-                      const isCritical = p.stock <= p.minStock && p.stock > 0;
-                      const isOutOfStock = p.stock === 0;
+                      const effStock = getProductStock(p);
+                      const isCritical = effStock <= p.minStock && effStock > 0;
+                      const isOutOfStock = effStock === 0;
 
                       // Get status text and badge styling
                       let statusText = 'Normal';
@@ -1738,7 +1761,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                           </td>
                           <td className="py-3 px-4 text-center">
                             <span className="bg-[#1fc3df] text-white font-bold font-mono text-[10px] px-2.5 py-0.5 rounded-full inline-block">
-                              {p.stock}
+                              {effStock}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-slate-600 font-medium">{p.location || 'Almacén Principal'}</td>
@@ -3162,7 +3185,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                 </div>
                 <div className="p-2 border border-slate-100 rounded-lg bg-white">
                   <span className="block text-[9px] text-slate-400 font-bold uppercase">Stock</span>
-                  <span className="font-mono text-slate-700 font-semibold">{detailProduct.stock} {detailProduct.unit}</span>
+                  <span className="font-mono text-slate-700 font-semibold">{getProductStock(detailProduct)} {detailProduct.unit}</span>
                 </div>
                 <div className="p-2 border border-slate-100 rounded-lg bg-white">
                   <span className="block text-[9px] text-slate-400 font-bold uppercase">Alerta de mínimo</span>
@@ -3269,16 +3292,19 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-600">
-                  {products.map((p) => (
-                    <tr key={p.id} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-3 font-sans font-semibold text-slate-800">{p.name}</td>
-                      <td className="py-2 px-2 text-center font-bold text-slate-700">{p.stock}</td>
-                      <td className="py-2 px-2 text-right">{currency}{p.cost.toFixed(2)}</td>
-                      <td className="py-2 px-2 text-right text-slate-700">{currency}{(p.stock * p.cost).toFixed(2)}</td>
-                      <td className="py-2 px-2 text-right">{currency}{p.price.toFixed(2)}</td>
-                      <td className="py-2 px-2 text-right text-teal-700 font-bold">{currency}{(p.stock * p.price).toFixed(2)}</td>
-                    </tr>
-                  ))}
+                  {products.map((p) => {
+                    const effStock = getProductStock(p);
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/50">
+                        <td className="py-2 px-3 font-sans font-semibold text-slate-800">{p.name}</td>
+                        <td className="py-2 px-2 text-center font-bold text-slate-700">{effStock}</td>
+                        <td className="py-2 px-2 text-right">{currency}{p.cost.toFixed(2)}</td>
+                        <td className="py-2 px-2 text-right text-slate-700">{currency}{(effStock * p.cost).toFixed(2)}</td>
+                        <td className="py-2 px-2 text-right">{currency}{p.price.toFixed(2)}</td>
+                        <td className="py-2 px-2 text-right text-teal-700 font-bold">{currency}{(effStock * p.price).toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

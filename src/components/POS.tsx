@@ -284,10 +284,11 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
             dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
           }
         }
+        const loteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
         return {
           value: `${batchName} – Vence: ${dateStr}`,
-          label: `${batchName} – Vence: ${dateStr} (Stock: ${r.stock})`,
-          stock: r.stock
+          label: `${batchName} – Vence: ${dateStr} (Stock: ${loteStock})`,
+          stock: loteStock
         };
       });
     }
@@ -2402,7 +2403,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
                         </svg>
-                        <span>{currentAvailableStock} disponibles</span>
+                        <span>{currentAvailableStock} {selectedProductToAddToCart.unit || 'uds.'} disponibles</span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-150 text-emerald-700">
