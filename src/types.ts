@@ -191,6 +191,13 @@ export interface AppConfig {
   certificatePassword?: string;
   certificateExpiration?: string;
 
+  // FEL (Factura Electrónica SAT)
+  felEnabled?: boolean;
+  felAuthorizedBy?: string;
+  felAuthorizedDate?: string;
+  felCertifierName?: string;
+  felApiKey?: string;
+
   // Master lists
   categories?: string[];
   units?: string[];

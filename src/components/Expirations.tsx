@@ -44,9 +44,9 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
     }
   };
 
-  // Filter products that have expiration dates
+  // Filter products that have expiration dates or manage batches
   const productsWithExpiry = useMemo(() => {
-    return products.filter(p => p.expirationDate);
+    return products.filter(p => p.expirationDate || p.manageBatchAndExpiration || p.initialBatch || (p.expirationDates && p.expirationDates.length > 0));
   }, [products]);
 
   // Current timestamp helper
@@ -55,16 +55,19 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
   // Compute status for each product
   const productsStatus = useMemo(() => {
     return productsWithExpiry.map(p => {
-      const expTime = new Date(p.expirationDate!).getTime();
+      const primaryDateStr = p.expirationDate || (p.expirationDates && p.expirationDates.length > 0 ? p.expirationDates[0].date : '');
+      const expTime = primaryDateStr ? new Date(primaryDateStr).getTime() : 0;
       const warningTimeLimit = now + alertDays * 24 * 3600 * 1000;
       
       let status: 'expired' | 'soon' | 'valid' = 'valid';
-      let daysLeft = Math.ceil((expTime - now) / (24 * 3600 * 1000));
+      let daysLeft = expTime ? Math.ceil((expTime - now) / (24 * 3600 * 1000)) : 999;
 
-      if (expTime <= now) {
-        status = 'expired';
-      } else if (expTime <= warningTimeLimit) {
-        status = 'soon';
+      if (expTime > 0) {
+        if (expTime <= now) {
+          status = 'expired';
+        } else if (expTime <= warningTimeLimit) {
+          status = 'soon';
+        }
       }
 
       return {
@@ -252,7 +255,14 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
                       <span className="font-mono font-bold text-slate-700">{product.stock} {product.unit || 'Pza'}</span>
                     </td>
                     <td className="py-3.5 px-4 text-center font-mono text-xs font-bold text-slate-700">
-                      {product.expirationDate}
+                      {(() => {
+                        const raw = product.expirationDate || (product.expirationDates && product.expirationDates.length > 0 ? product.expirationDates[0].date : '—');
+                        if (raw && raw.includes('-')) {
+                          const parts = raw.split('-');
+                          return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : raw;
+                        }
+                        return raw || '—';
+                      })()}
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       {status === 'expired' ? (

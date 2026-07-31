@@ -67,9 +67,12 @@ const defaultAppConfig: AppConfig = {
   showLogoInTicket: true,
   showOperatorInTicket: true,
   ticketFontSize: 'sm',
-  certificateName: 'certificado_digital_sunat.pfx',
-  certificatePassword: '••••••••••••',
-  certificateExpiration: '2027-12-15'
+  certificateName: '',
+  certificatePassword: '',
+  certificateExpiration: '',
+  felEnabled: false,
+  felCertifierName: '',
+  felApiKey: ''
 };
 
 const calculateDaysRemaining = (expirationDate: string): number => {
@@ -81,6 +84,78 @@ const calculateDaysRemaining = (expirationDate: string): number => {
   const diffTime = exp.getTime() - today.getTime();
   return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 };
+
+export function applyPurchaseItemToProduct(
+  product: Product,
+  item: { quantity: number; cost: number; lote?: string; expirationDate?: string }
+): Product {
+  let dateStr = '';
+  if (item.expirationDate && item.expirationDate !== '—') {
+    const rawDate = item.expirationDate.trim();
+    if (rawDate.includes('/')) {
+      const parts = rawDate.split('/');
+      if (parts.length === 3) {
+        dateStr = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      } else {
+        dateStr = rawDate;
+      }
+    } else {
+      dateStr = rawDate;
+    }
+  }
+
+  const batchName = (item.lote && item.lote !== '—')
+    ? item.lote.trim()
+    : (product.initialBatch || '00101');
+
+  let currentLotes = product.expirationDates ? product.expirationDates.map(r => ({ ...r })) : [];
+  const existingProductStock = typeof product.stock === 'number' && !isNaN(product.stock) ? product.stock : 0;
+
+  if (currentLotes.length === 0 && existingProductStock > 0) {
+    currentLotes.push({
+      batch: product.initialBatch || '00101',
+      date: product.expirationDate || '',
+      stock: existingProductStock
+    });
+  }
+
+  // Find if there is an existing lote with the SAME batch name AND the SAME date
+  const existingIdx = currentLotes.findIndex(r => {
+    const sameBatch = (r.batch || '').trim().toLowerCase() === batchName.toLowerCase();
+    if (!sameBatch) return false;
+    if (dateStr && r.date && r.date !== '—') {
+      return r.date === dateStr;
+    }
+    return true;
+  });
+
+  if (existingIdx > -1) {
+    const currentLoteStock = typeof currentLotes[existingIdx].stock === 'number' ? currentLotes[existingIdx].stock : (parseInt(currentLotes[existingIdx].stock as any) || 0);
+    currentLotes[existingIdx].stock = currentLoteStock + item.quantity;
+    if (dateStr) {
+      currentLotes[existingIdx].date = dateStr;
+    }
+  } else {
+    currentLotes.push({
+      batch: batchName,
+      date: dateStr || product.expirationDate || '',
+      stock: item.quantity
+    });
+  }
+
+  const lotesSum = currentLotes.reduce((sum, r) => sum + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+  const nextStock = Math.max(existingProductStock + item.quantity, lotesSum);
+
+  return {
+    ...product,
+    stock: nextStock,
+    cost: item.cost > 0 ? item.cost : product.cost,
+    expirationDate: dateStr || product.expirationDate,
+    initialBatch: product.initialBatch || batchName,
+    expirationDates: currentLotes,
+    manageBatchAndExpiration: true
+  };
+}
 
 export default function App() {
   const [token, setToken] = useState<string | null>(api.getToken());
@@ -672,17 +747,43 @@ export default function App() {
   };
 
   const onSavePurchase = async (pur: Purchase) => {
-    // 1. Aumentar stock e ingresar costo del producto
-    for (const item of pur.items) {
-      const product = products.find(p => p.id === item.productId);
-      if (product) {
-        const nextStock = product.stock + item.quantity;
-        await api.saveProduct({
-          ...product,
-          stock: nextStock,
-          cost: item.cost,
-          expirationDate: item.expirationDate || product.expirationDate
-        });
+    // 1. Aumentar stock e ingresar costo, lote y vencimiento del producto si la compra está completada
+    if (pur.status === 'completed') {
+      const updatedProductsMap = new Map<string, Product>();
+
+      for (const item of pur.items) {
+        let product = updatedProductsMap.get(item.productId) || products.find(p => p.id === item.productId);
+        
+        if (!product) {
+          product = products.find(p => p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+        }
+
+        if (!product) {
+          const itemAny = item as any;
+          const newProd: Product = {
+            id: item.productId && !item.productId.startsWith('NEW_') ? item.productId : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            code: itemAny.productCode || `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
+            name: item.name,
+            category: itemAny.productCategory || 'General',
+            cost: item.cost || 0,
+            price: itemAny.price || (item.cost ? Number((item.cost * 1.3).toFixed(2)) : 0),
+            stock: 0,
+            minStock: 5,
+            unit: 'Pza',
+            expirationDate: item.expirationDate || '',
+            initialBatch: item.lote || '00101',
+            manageBatchAndExpiration: true,
+            expirationDates: []
+          };
+          product = newProd;
+        }
+
+        const updatedProd = applyPurchaseItemToProduct(product, item);
+        updatedProductsMap.set(updatedProd.id, updatedProd);
+      }
+
+      for (const updatedProd of updatedProductsMap.values()) {
+        await api.saveProduct(updatedProd);
       }
     }
 

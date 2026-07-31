@@ -17,7 +17,12 @@ import {
   UserCheck,
   X,
   Eye,
-  Building
+  Building,
+  Printer,
+  FileText,
+  CheckCircle2,
+  QrCode,
+  Building2
 } from 'lucide-react';
 import * as api from '../api';
 
@@ -43,6 +48,10 @@ export default function DailyReports({ sales, expenses, clients, config, product
   const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [showDetailedModal, setShowDetailedModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Document Viewer Modal State (Ticket, Factura, Comprobante)
+  const [documentModalSale, setDocumentModalSale] = useState<Sale | null>(null);
+  const [selectedDocumentType, setSelectedDocumentType] = useState<'ticket' | 'factura' | 'comprobante'>('ticket');
 
   // Loaded operators state
   const [operators, setOperators] = useState<any[]>([]);
@@ -831,6 +840,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
                     <th className="py-2.5 px-3 font-medium text-center">Tipo</th>
                     <th className="py-2.5 px-3 text-center">Método</th>
                     <th className="py-2.5 px-3 text-right">Total Cobrado</th>
+                    <th className="py-2.5 px-3 text-center">Ver Comprobante</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -865,6 +875,34 @@ export default function DailyReports({ sales, expenses, clients, config, product
                       </td>
                       <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">
                         {currency} {sale.total.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('ticket'); }}
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-blue-100"
+                            title="Ver Ticket"
+                          >
+                            <Receipt className="w-3 h-3 text-blue-600" /> Ticket
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('factura'); }}
+                            className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-md text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-purple-100"
+                            title="Ver Factura"
+                          >
+                            <FileText className="w-3 h-3 text-purple-600" /> Factura
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('comprobante'); }}
+                            className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-md text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-emerald-100"
+                            title="Ver Comprobante"
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Comprobante
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1194,6 +1232,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
                           <th className="py-2 px-3 text-center">Tipo</th>
                           <th className="py-2 px-3 text-center">Método</th>
                           <th className="py-2 px-3 text-right">Total</th>
+                          <th className="py-2 px-3 text-center">Ver Comprobantes</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -1229,6 +1268,34 @@ export default function DailyReports({ sales, expenses, clients, config, product
                             <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
                               {currency} {sale.total.toFixed(2)}
                             </td>
+                            <td className="py-2 px-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('ticket'); }}
+                                  className="px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[9px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-blue-100"
+                                  title="Ver Ticket"
+                                >
+                                  <Receipt className="w-2.5 h-2.5 text-blue-600" /> Ticket
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('factura'); }}
+                                  className="px-1.5 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded text-[9px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-purple-100"
+                                  title="Ver Factura"
+                                >
+                                  <FileText className="w-2.5 h-2.5 text-purple-600" /> Factura
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('comprobante'); }}
+                                  className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-[9px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-emerald-100"
+                                  title="Ver Comprobante"
+                                >
+                                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Comprobante
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1248,6 +1315,359 @@ export default function DailyReports({ sales, expenses, clients, config, product
               >
                 Cerrar
               </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 9. DOCUMENT VIEWER MODAL (TICKET, FACTURA Y COMPROBANTE) */}
+      {documentModalSale && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-3xl w-full overflow-hidden shadow-2xl border border-slate-150 flex flex-col my-auto max-h-[90vh]">
+            
+            {/* Top Banner & Document Type Selector Tabs */}
+            <div className="bg-slate-900 text-white px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md shrink-0">
+              <div>
+                <h3 className="font-extrabold text-base flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-indigo-400" />
+                  Documento de Venta #{documentModalSale.id.slice(-6).toUpperCase()}
+                </h3>
+                <p className="text-[11px] text-slate-400 font-medium">
+                  Fecha: {new Date(documentModalSale.date).toLocaleString('es-ES')} | Cliente: {getClientName(documentModalSale.clientId)}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Document switcher tabs */}
+                <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDocumentType('ticket')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      selectedDocumentType === 'ticket' 
+                        ? 'bg-blue-600 text-white shadow-xs' 
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    Ticket
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDocumentType('factura')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      selectedDocumentType === 'factura' 
+                        ? 'bg-purple-600 text-white shadow-xs' 
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    Factura
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDocumentType('comprobante')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      selectedDocumentType === 'comprobante' 
+                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Comprobante
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setDocumentModalSale(null)}
+                  className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  title="Cerrar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable / Renderable Content Area */}
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-100/70 flex justify-center items-start min-h-[380px]">
+              
+              {/* TICKET FORMAT */}
+              {selectedDocumentType === 'ticket' && (
+                <div className="bg-white p-6 rounded-2xl shadow-md border border-slate-200 w-full max-w-sm text-xs font-mono space-y-4 text-slate-800 print:shadow-none print:border-none">
+                  <div className="text-center space-y-1 border-b border-dashed border-slate-300 pb-3">
+                    <h4 className="font-extrabold text-base tracking-tight uppercase text-slate-900">{config.storeName || 'MI NEGOCIO'}</h4>
+                    {config.address && <p className="text-[10px] text-slate-500">{config.address}</p>}
+                    {config.phone && <p className="text-[10px] text-slate-500">Tel: {config.phone}</p>}
+                    <p className="text-[10px] font-bold text-slate-600">NIT: {config.nit || 'C/F'}</p>
+                    <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 font-bold text-[10px] rounded mt-1 border border-blue-100">
+                      TICKET DE VENTA
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-[11px] border-b border-dashed border-slate-300 pb-3 text-slate-600">
+                    <div className="flex justify-between">
+                      <span>No. Ticket:</span>
+                      <span className="font-bold text-slate-800">#TKT-{documentModalSale.id.slice(-6).toUpperCase()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Fecha/Hora:</span>
+                      <span>{new Date(documentModalSale.date).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cliente:</span>
+                      <span className="font-bold truncate max-w-[150px]">{getClientName(documentModalSale.clientId)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Vendedor:</span>
+                      <span>{documentModalSale.operatorName || 'Administrador'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Tipo Venta:</span>
+                      <span className="capitalize">{documentModalSale.saleType || 'presencial'}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-b border-dashed border-slate-300 pb-3">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase">
+                      <span>Cant x Producto</span>
+                      <span>Subtotal</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {documentModalSale.items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-[11px]">
+                          <span className="truncate pr-2">{item.quantity}x {item.name}</span>
+                          <span className="font-bold shrink-0">{currency} {(item.price * item.quantity).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1 text-[11px]">
+                    <div className="flex justify-between font-extrabold text-sm text-slate-900 border-b border-slate-200 pb-1">
+                      <span>TOTAL A PAGAR:</span>
+                      <span className="text-blue-700">{currency} {documentModalSale.total.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>Método de Pago:</span>
+                      <span className="font-bold capitalize">{documentModalSale.paymentMethod === 'cash' ? 'Efectivo' : documentModalSale.paymentMethod === 'card' ? 'Tarjeta' : documentModalSale.paymentMethod === 'transfer' ? 'Transferencia' : 'Crédito'}</span>
+                    </div>
+                    {documentModalSale.paymentMethod === 'cash' && documentModalSale.received > 0 && (
+                      <>
+                        <div className="flex justify-between text-slate-500 text-[10px]">
+                          <span>Efectivo Recibido:</span>
+                          <span>{currency} {documentModalSale.received.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500 text-[10px]">
+                          <span>Cambio / Vuelto:</span>
+                          <span>{currency} {documentModalSale.change.toFixed(2)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="text-center pt-3 border-t border-dashed border-slate-300 space-y-1">
+                    <p className="text-[10px] font-bold text-slate-500">*** ¡Gracias por su compra! ***</p>
+                    <p className="text-[9px] text-slate-400">Conserve este ticket para cualquier reclamo o garantía.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* FACTURA FORMAT */}
+              {selectedDocumentType === 'factura' && (
+                <div className="bg-white p-8 rounded-2xl shadow-md border border-slate-200 w-full max-w-2xl text-xs space-y-6 text-slate-800 print:shadow-none print:border-none">
+                  {/* Factura Header */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b-2 border-slate-800 pb-5">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-6 h-6 text-purple-700" />
+                        <h4 className="font-black text-xl text-slate-900 tracking-tight uppercase">{config.storeName || 'MI NEGOCIO, S.A.'}</h4>
+                      </div>
+                      {config.address && <p className="text-slate-500 font-medium">{config.address}</p>}
+                      {config.phone && <p className="text-slate-500 font-medium">Teléfono: {config.phone}</p>}
+                      <p className="font-bold text-slate-700">NIT Emisor: {config.nit || '12345678-9'}</p>
+                      <p className="text-[10px] text-slate-400 font-medium">Régimen: Pequeño Contribuyente / Sujeto a Retención Definitiva</p>
+                    </div>
+
+                    <div className="bg-purple-50 border-2 border-purple-200 p-4 rounded-xl text-center min-w-[200px] space-y-1 shrink-0">
+                      <span className="block text-[10px] font-black text-purple-800 uppercase tracking-widest">FACTURA ELECTRÓNICA FEL</span>
+                      <span className="block font-mono text-xs font-bold text-slate-700">Serie: FEL-A1</span>
+                      <span className="block font-mono text-sm font-black text-purple-900">No. 00{documentModalSale.id.slice(-6).toUpperCase()}</span>
+                      <div className="pt-1 text-[9px] text-purple-700 font-mono border-t border-purple-200">
+                        AUT: 4E82B1C9-{documentModalSale.id.slice(0, 8).toUpperCase()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Client & Date Info Table */}
+                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div>
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase">RECEPTOR / CLIENTE</span>
+                      <span className="font-bold text-slate-900 text-sm">{getClientName(documentModalSale.clientId)}</span>
+                      <span className="block text-slate-500 text-[11px]">NIT / DPI: C/F (Consumidor Final)</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase">FECHA DE EMISIÓN</span>
+                      <span className="font-bold text-slate-800 font-mono text-xs">{new Date(documentModalSale.date).toLocaleString('es-ES')}</span>
+                      <span className="block text-slate-500 text-[11px]">Moneda: GTQ / {currency}</span>
+                    </div>
+                  </div>
+
+                  {/* Items Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-purple-900 text-white font-bold uppercase text-[10px]">
+                          <th className="py-2.5 px-3 rounded-l-lg">Cant.</th>
+                          <th className="py-2.5 px-3">Descripción / Producto</th>
+                          <th className="py-2.5 px-3 text-right">P. Unitario</th>
+                          <th className="py-2.5 px-3 text-right rounded-r-lg">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {documentModalSale.items.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-3 font-bold font-mono text-slate-700">{item.quantity}</td>
+                            <td className="py-2.5 px-3 font-medium text-slate-800">{item.name}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-600">{currency} {item.price.toFixed(2)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">{currency} {(item.price * item.quantity).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Totals Section */}
+                  <div className="flex justify-between items-end border-t border-slate-200 pt-4">
+                    <div className="space-y-1 max-w-xs">
+                      <p className="text-[10px] text-slate-400 leading-tight">
+                        Sujeto a pagos trimestrales ISR / Documento Tributario Electrónico emitido conforme a la resolución de la SAT.
+                      </p>
+                      <div className="flex items-center gap-1.5 text-purple-700 font-bold text-[10px] pt-1">
+                        <QrCode className="w-4 h-4" /> Certificado Digitalmente por la SAT
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl min-w-[220px] space-y-1.5 font-mono">
+                      <div className="flex justify-between text-slate-600 text-[11px]">
+                        <span>Subtotal Neto:</span>
+                        <span>{currency} {(documentModalSale.total * 0.88).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-600 text-[11px]">
+                        <span>IVA Incluido (12%):</span>
+                        <span>{currency} {(documentModalSale.total * 0.12).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between font-black text-sm text-slate-900 border-t border-slate-200 pt-1.5">
+                        <span>TOTAL FACTURA:</span>
+                        <span className="text-purple-700">{currency} {documentModalSale.total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* COMPROBANTE FORMAT */}
+              {selectedDocumentType === 'comprobante' && (
+                <div className="bg-white p-8 rounded-2xl shadow-md border border-slate-200 w-full max-w-xl text-xs space-y-6 text-slate-800 print:shadow-none print:border-none">
+                  {/* Header Banner */}
+                  <div className="flex justify-between items-start border-b-2 border-emerald-600 pb-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                        <h4 className="font-extrabold text-lg text-slate-900 tracking-tight">{config.storeName || 'MI NEGOCIO'}</h4>
+                      </div>
+                      <p className="text-slate-500 text-[11px]">Comprobante de Cancelación / Entrega</p>
+                      {config.phone && <p className="text-slate-500 text-[11px]">Atención al Cliente: {config.phone}</p>}
+                    </div>
+
+                    <div className="text-right space-y-1">
+                      <span className="inline-block px-3 py-1 bg-emerald-100 text-emerald-800 font-black text-xs rounded-lg border border-emerald-200 uppercase">
+                        COMPROBANTE DE PAGO
+                      </span>
+                      <span className="block font-mono font-bold text-slate-700 text-xs">#CMP-{documentModalSale.id.slice(-6).toUpperCase()}</span>
+                      <span className="block text-[10px] text-slate-400 font-mono">{new Date(documentModalSale.date).toLocaleString('es-ES')}</span>
+                    </div>
+                  </div>
+
+                  {/* Recibido de info */}
+                  <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 space-y-2">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase">RECIBIDO DE (CLIENTE)</span>
+                        <span className="font-extrabold text-slate-900 text-sm">{getClientName(documentModalSale.clientId)}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase">FORMA DE PAGO</span>
+                        <span className="inline-block px-2.5 py-0.5 rounded font-extrabold text-xs capitalize bg-white text-emerald-800 border border-emerald-200 mt-0.5">
+                          {documentModalSale.paymentMethod === 'cash' ? 'Efectivo' : documentModalSale.paymentMethod === 'card' ? 'Tarjeta' : documentModalSale.paymentMethod === 'transfer' ? 'Transferencia' : 'Crédito'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Concept / Items Breakdown */}
+                  <div className="space-y-2">
+                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">CONCEPTO Y DETALLE DE PRODUCTOS</span>
+                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                      {documentModalSale.items.map((item, idx) => (
+                        <div key={idx} className="p-3 flex justify-between items-center bg-white hover:bg-slate-50">
+                          <div>
+                            <span className="font-bold text-slate-800 text-xs block">{item.name}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">{item.quantity} unidad(es) x {currency}{item.price.toFixed(2)}</span>
+                          </div>
+                          <span className="font-mono font-bold text-slate-900">{currency} {(item.price * item.quantity).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Total Highlight Banner */}
+                  <div className="bg-slate-900 text-white p-4 rounded-xl flex items-center justify-between shadow-xs">
+                    <span className="font-extrabold text-xs uppercase tracking-wider text-slate-300">TOTAL CANCELADO:</span>
+                    <span className="font-mono font-black text-xl text-emerald-400">{currency} {documentModalSale.total.toFixed(2)}</span>
+                  </div>
+
+                  {/* Signatures */}
+                  <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-200 text-center">
+                    <div className="space-y-1">
+                      <div className="border-b border-slate-300 h-10 w-3/4 mx-auto" />
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase">FIRMA CAJERO / EMPRESA</span>
+                      <span className="block text-[10px] text-slate-400">{documentModalSale.operatorName || 'Administrador'}</span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="border-b border-slate-300 h-10 w-3/4 mx-auto" />
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase">FIRMA CLIENTE</span>
+                      <span className="block text-[10px] text-slate-400">Recibido Conforme</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer Controls */}
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-150 flex items-center justify-between shrink-0">
+              <div className="text-xs text-slate-500 font-medium hidden sm:block">
+                Mostrando como: <strong className="capitalize text-slate-800">{selectedDocumentType}</strong>
+              </div>
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-md flex items-center gap-2"
+                >
+                  <Printer className="w-4 h-4" />
+                  Imprimir Documento
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDocumentModalSale(null)}
+                  className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
 
           </div>

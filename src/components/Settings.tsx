@@ -33,7 +33,9 @@ import {
   Wrench,
   Sliders,
   X,
-  Loader2
+  Loader2,
+  CheckCircle2,
+  QrCode
 } from 'lucide-react';
 
 const getDefaultCategoriesForType = (type: string) => {
@@ -95,9 +97,12 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
   const [ticketFontSize, setTicketFontSize] = useState<'sm' | 'md' | 'lg'>(config.ticketFontSize || 'sm');
 
   // Tab 6: Certificado Digital States
-  const [certificateName, setCertificateName] = useState(config.certificateName || 'certificado_digital_sunat.pfx');
-  const [certificatePassword, setCertificatePassword] = useState(config.certificatePassword || '••••••••••••');
-  const [certificateExpiration, setCertificateExpiration] = useState(config.certificateExpiration || '2027-12-15');
+  const [certificateName, setCertificateName] = useState(config.certificateName || '');
+  const [certificatePassword, setCertificatePassword] = useState(config.certificatePassword || '');
+  const [certificateExpiration, setCertificateExpiration] = useState(config.certificateExpiration || '');
+  const [felEnabled, setFelEnabled] = useState<boolean>(config.felEnabled ?? false);
+  const [felCertifierName, setFelCertifierName] = useState<string>(config.felCertifierName || '');
+  const [felApiKey, setFelApiKey] = useState<string>(config.felApiKey || '');
 
   // Tab 2: Operators real database state
   const [operators, setOperators] = useState<{ id: string; name: string; email: string; role: string; password?: string; status: 'active' | 'inactive'; disabledTabs?: string[] }[]>([]);
@@ -136,9 +141,12 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       setShowLogoInTicket(config.showLogoInTicket ?? true);
       setShowOperatorInTicket(config.showOperatorInTicket ?? true);
       setTicketFontSize(config.ticketFontSize || 'sm');
-      setCertificateName(config.certificateName || 'certificado_digital_sunat.pfx');
-      setCertificatePassword(config.certificatePassword || '••••••••••••');
-      setCertificateExpiration(config.certificateExpiration || '2027-12-15');
+      setCertificateName(config.certificateName || '');
+      setCertificatePassword(config.certificatePassword || '');
+      setCertificateExpiration(config.certificateExpiration || '');
+      setFelEnabled(config.felEnabled ?? false);
+      setFelCertifierName(config.felCertifierName || '');
+      setFelApiKey(config.felApiKey || '');
       if (config.categories && config.categories.length > 0) {
         setCategories(config.categories);
       } else {
@@ -286,6 +294,11 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       certificateName,
       certificatePassword,
       certificateExpiration,
+      felEnabled,
+      felCertifierName,
+      felApiKey,
+      felAuthorizedBy: user?.name || 'Propietario / Admin',
+      felAuthorizedDate: new Date().toLocaleDateString('es-ES'),
       categories,
       units
     };
@@ -1325,12 +1338,133 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
             </div>
           )}
 
-          {/* TAB 6: CERTIFICADO DIGITAL */}
+          {/* TAB 6: CERTIFICADO DIGITAL Y FEL */}
           {activeTab === 'certificado' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-150 rounded-xl px-4 py-3 text-slate-800">
-                <ShieldCheck className="w-4 h-4 shrink-0 text-slate-600" />
-                <span className="text-xs font-black uppercase tracking-wider">Firma Electrónica y Certificado XML Tributario</span>
+              {/* Header with blue checkbox button exactly as shown in the user's image */}
+              <div className="border-t border-slate-200/90 pt-5 pb-2">
+                <div className="flex items-center gap-3.5">
+                  <button
+                    type="button"
+                    onClick={() => setFelEnabled(!felEnabled)}
+                    className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0 shadow-md transition-all cursor-pointer border active:scale-95 ${
+                      felEnabled 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500/30 shadow-blue-500/20' 
+                        : 'bg-slate-200 hover:bg-slate-300 text-slate-400 border-slate-300'
+                    }`}
+                    title={felEnabled ? "Firma Electrónica y Certificado XML Activado (Clic para desactivar)" : "Clic para activar Firma Electrónica"}
+                  >
+                    <Check className="w-6 h-6 stroke-[3.5]" />
+                  </button>
+                  <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">
+                    Firma Electrónica y Certificado XML Tributario
+                  </h2>
+                </div>
+              </div>
+
+              {/* FEL Authorization & Configuration Panel (Propietario / Admin) */}
+              <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950 rounded-2xl p-6 text-white shadow-xl border border-indigo-700/40 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-800/60 pb-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-xl border border-indigo-400/30">
+                        <ShieldCheck className="w-5 h-5 text-indigo-300" />
+                      </div>
+                      <h3 className="font-extrabold text-base sm:text-lg tracking-tight text-white">
+                        Factura Electrónica (FEL) - Autorización de Propietario / Admin
+                      </h3>
+                    </div>
+                    <p className="text-xs text-indigo-200/80 leading-relaxed max-w-3xl">
+                      El propietario o administrador de la cuenta activa y autoriza la emisión oficial de <strong>Factura Electrónica (FEL)</strong> en formato tributario oficial con datos del emisor, serie/correlativo, código de autorización (CAE/UUID), datos del cliente, desglose de impuesto (IVA 12%) y certificación digital SAT.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-indigo-900/80 p-3 rounded-2xl border border-indigo-700/60 shrink-0 shadow-md">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={felEnabled} 
+                        onChange={(e) => setFelEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-12 h-6 bg-slate-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                    <span className={`text-xs font-black uppercase tracking-wider ${felEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
+                      {felEnabled ? 'FEL Activada' : 'FEL Desactivada'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Status Badge & Authorization Details */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-indigo-900/40 border border-indigo-800/60 p-4 rounded-xl space-y-1.5">
+                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest block">Estado de Autorización</span>
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <span className={`w-2.5 h-2.5 rounded-full ${felEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                      <span className="font-extrabold text-sm text-white">
+                        {felEnabled ? 'AUTORIZADO PARA EMISIÓN FEL' : 'REQUERIDA ACTIVACIÓN'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-indigo-200/80 pt-1">
+                      {felEnabled ? `Autorizado por: ${config.felAuthorizedBy || user?.name || 'Propietario / Admin'}` : 'Desactivado por el administrador'}
+                    </p>
+                  </div>
+
+                  <div className="bg-indigo-900/40 border border-indigo-800/60 p-4 rounded-xl space-y-1.5">
+                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest block">Certificador SAT Asignado</span>
+                    <input 
+                      type="text"
+                      value={felCertifierName}
+                      onChange={(e) => setFelCertifierName(e.target.value)}
+                      className="w-full text-xs bg-indigo-950/70 border border-indigo-700/60 rounded-lg px-3 py-2 text-white font-medium focus:outline-hidden focus:ring-1 focus:ring-indigo-400"
+                      placeholder="INFILE, S.A. / Certificador SAT"
+                    />
+                  </div>
+
+                  <div className="bg-indigo-900/40 border border-indigo-800/60 p-4 rounded-xl space-y-1.5">
+                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest block">Llave / Token API Certificador</span>
+                    <input 
+                      type="password"
+                      value={felApiKey}
+                      onChange={(e) => setFelApiKey(e.target.value)}
+                      className="w-full text-xs bg-indigo-950/70 border border-indigo-700/60 rounded-lg px-3 py-2 text-white font-mono focus:outline-hidden focus:ring-1 focus:ring-indigo-400"
+                      placeholder="FEL-SAT-KEY-8823910-X"
+                    />
+                  </div>
+                </div>
+
+                {/* Specifications Checklist */}
+                <div className="bg-slate-900/90 border border-indigo-800/50 p-4 rounded-xl space-y-2.5">
+                  <span className="text-[11px] font-extrabold text-indigo-300 uppercase tracking-wider block">
+                    Especificaciones Tributarias Incluidas en Factura Electrónica (FEL)
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs text-indigo-100">
+                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Datos del Emisor (NIT, Razón Social)</span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Serie y Correlativo DTE Autorizado</span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Código de Autorización UUID (CAE)</span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Datos del Cliente / NIT / C/F</span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Desglose de Impuesto (IVA 12%)</span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Firma y Certificación Digital SAT</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1382,19 +1516,21 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                     
                     <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3.5">
                       <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span className="font-extrabold text-slate-700">CERTIFICADO ACTIVO</span>
+                        <span className={`w-2.5 h-2.5 rounded-full ${certificateName || felEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
+                        <span className="font-extrabold text-slate-700">
+                          {certificateName || felEnabled ? 'CERTIFICADO REGISTRADO' : 'PENDIENTE DE REGISTRO'}
+                        </span>
                       </div>
                       
                       <div className="space-y-1 text-[11px] text-slate-500">
-                        <p><strong>Proveedor:</strong> SUNAT / Cámara de Comercio</p>
-                        <p><strong>Firma:</strong> RSA 2048 bits</p>
-                        <p><strong>Vence:</strong> {certificateExpiration || '2027-12-15'}</p>
+                        <p><strong>Proveedor:</strong> {felCertifierName || 'Sin asignar'}</p>
+                        <p><strong>Firma:</strong> RSA 2048 bits / SHA-256</p>
+                        <p><strong>Vence:</strong> {certificateExpiration || 'Sin especificar'}</p>
                       </div>
 
                       <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 flex gap-2 text-[10px] text-slate-400">
                         <Lock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                        <p>Cifrado SHA-256 para firma legal de Comprobantes de Pago Electrónicos (CPE).</p>
+                        <p>Cifrado SHA-256 para firma legal de Comprobantes de Pago Electrónicos (FEL / SAT).</p>
                       </div>
                     </div>
                   </div>

@@ -135,6 +135,15 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
   // General Detail Modal State
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
 
+  useEffect(() => {
+    if (detailProduct) {
+      const currentInList = products.find(p => p.id === detailProduct.id);
+      if (currentInList) {
+        setDetailProduct(currentInList);
+      }
+    }
+  }, [products]);
+
   // Form Fields
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
@@ -334,8 +343,8 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
             user: 'Administrador',
             operation: 'Entrada',
             motivo: 'Compra',
-            lote: `LOTE-${selectedKardexProduct.code}-2`,
-            vence: selectedKardexProduct.expirationDate || '10/9/2026'
+            lote: item.lote || selectedKardexProduct.initialBatch || '00101',
+            vence: item.expirationDate || selectedKardexProduct.expirationDate || '—'
           });
         }
       });
@@ -855,11 +864,32 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       }
     }
 
-    const lotesSum = (formManageBatchAndExpiration && formExpirationRows.length > 0)
-      ? formExpirationRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0)
-      : 0;
-    const finalStock = (formManageBatchAndExpiration && formExpirationRows.length > 0)
-      ? lotesSum
+    let preparedRows = [...formExpirationRows];
+    if (formManageBatchAndExpiration) {
+      if (preparedRows.length === 0) {
+        preparedRows = [{ date: formExpirationDate || '', stock: stockNum.toString(), batch: formInitialBatch || '00101' }];
+      } else if (preparedRows.length === 1) {
+        preparedRows[0].stock = stockNum.toString();
+        if (!preparedRows[0].batch) {
+          preparedRows[0].batch = formInitialBatch || '00101';
+        }
+        if (!preparedRows[0].date && formExpirationDate) {
+          preparedRows[0].date = formExpirationDate;
+        }
+      } else {
+        const lotesSum = preparedRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0);
+        if (lotesSum === 0 && stockNum > 0) {
+          preparedRows[0].stock = stockNum.toString();
+        } else if (stockNum !== lotesSum && stockNum > 0) {
+          const diff = stockNum - lotesSum;
+          const currentFirstStock = parseInt(preparedRows[0].stock) || 0;
+          preparedRows[0].stock = Math.max(0, currentFirstStock + diff).toString();
+        }
+      }
+    }
+
+    const computedStock = (formManageBatchAndExpiration && preparedRows.length > 0)
+      ? preparedRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0)
       : stockNum;
 
     const productData: Product = {
@@ -869,11 +899,11 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       category: formCategory || 'General',
       price: priceNum,
       cost: costNum,
-      stock: finalStock,
+      stock: computedStock,
       minStock: minStockNum,
       unit: formUnit || 'Pza',
-      expirationDate: formManageBatchAndExpiration && formExpirationRows.length > 0 
-        ? (formExpirationRows.find(r => r.date)?.date || undefined) 
+      expirationDate: formManageBatchAndExpiration && preparedRows.length > 0 
+        ? (preparedRows.find(r => r.date)?.date || formExpirationDate || undefined) 
         : (formExpirationDate || undefined),
       location: formLocation || 'Almacén Principal',
       detail: formDetail || '',
@@ -898,8 +928,8 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       manageBatchAndExpiration: formManageBatchAndExpiration,
       expirationAlertDays: parseInt(formExpirationAlertDays) || 0,
       initialBatch: formInitialBatch,
-      expirationDates: formManageBatchAndExpiration && formExpirationRows.length > 0
-        ? formExpirationRows.map(r => ({
+      expirationDates: formManageBatchAndExpiration && preparedRows.length > 0
+        ? preparedRows.map(r => ({
             date: r.date,
             stock: parseInt(r.stock) || 0,
             batch: r.batch || formInitialBatch || '00101'
@@ -909,6 +939,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
     try {
       await onSaveProduct(productData);
+      setDetailProduct(productData);
       setIsModalOpen(false);
       onRefreshData();
     } catch (err: any) {
@@ -2546,7 +2577,18 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                         min="0"
                         placeholder="ingrese el stock"
                         value={formStock}
-                        onChange={(e) => setFormStock(e.target.value)}
+                        onChange={(e) => {
+                          const newVal = e.target.value;
+                          setFormStock(newVal);
+                          if (formExpirationRows.length <= 1) {
+                            setFormExpirationRows(prev => {
+                              if (prev.length === 0) {
+                                return [{ date: formExpirationDate || '', stock: newVal, batch: formInitialBatch || '00101' }];
+                              }
+                              return [{ ...prev[0], stock: newVal }];
+                            });
+                          }
+                        }}
                         className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
                       />
                     </div>
@@ -2751,7 +2793,18 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                                 type="text"
                                 placeholder="00101"
                                 value={formInitialBatch}
-                                onChange={(e) => setFormInitialBatch(e.target.value)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setFormInitialBatch(val);
+                                  if (formExpirationRows.length <= 1) {
+                                    setFormExpirationRows(prev => {
+                                      if (prev.length === 0) {
+                                        return [{ date: formExpirationDate || '', stock: formStock || '', batch: val }];
+                                      }
+                                      return [{ ...prev[0], batch: val }];
+                                    });
+                                  }
+                                }}
                                 className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800 font-mono focus:ring-2 focus:ring-blue-500"
                               />
                             </div>
@@ -2807,6 +2860,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                                         const updated = [...formExpirationRows];
                                         updated[index].date = e.target.value;
                                         setFormExpirationRows(updated);
+                                        if (index === 0) {
+                                          setFormExpirationDate(e.target.value);
+                                        }
                                       }}
                                       className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-800 font-mono focus:ring-1 focus:ring-blue-500"
                                     />
@@ -3166,60 +3222,114 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Código de barras</span>
-                  <span className="font-mono text-slate-700 font-semibold">{detailProduct.code}</span>
-                </div>
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Categoría</span>
-                  <span className="text-slate-700 font-semibold">{detailProduct.category}</span>
-                </div>
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Costo</span>
-                  <span className="font-mono text-slate-700 font-semibold">{currency}{detailProduct.cost.toFixed(2)}</span>
-                </div>
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Precio de Venta</span>
-                  <span className="font-mono text-teal-700 font-bold">{currency}{detailProduct.price.toFixed(2)}</span>
-                </div>
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Stock</span>
-                  <span className="font-mono text-slate-700 font-semibold">{getProductStock(detailProduct)} {detailProduct.unit}</span>
-                </div>
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Alerta de mínimo</span>
-                  <span className="font-mono text-slate-700 font-semibold">{detailProduct.minStock} {detailProduct.unit}</span>
-                </div>
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Ubicación Física</span>
-                  <span className="text-slate-700 font-semibold">{detailProduct.location || 'Almacén Principal'}</span>
-                </div>
-                <div className="p-2 border border-slate-100 rounded-lg bg-white">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase">Vencimiento</span>
-                  <span className="font-mono text-slate-700 font-semibold">{detailProduct.expirationDate || 'No aplica'}</span>
-                </div>
-              </div>
+              {(() => {
+                const formatDateDisplay = (raw: string) => {
+                  if (!raw || raw === '—') return 'S/V';
+                  if (raw.includes('-')) {
+                    const parts = raw.split('-');
+                    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                  }
+                  return raw;
+                };
 
-              {detailProduct.expirationDates && detailProduct.expirationDates.length > 0 && (
-                <div className="p-3 border border-slate-100 rounded-lg bg-slate-50 space-y-2">
-                  <span className="block text-[10px] text-slate-500 font-bold uppercase">Lotes y Fechas de Vencimiento</span>
-                  <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase border-b border-slate-200 pb-1 font-mono">
-                    <span>Lote</span>
-                    <span>Vencimiento</span>
-                    <span>Stock</span>
-                  </div>
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {detailProduct.expirationDates.map((r, idx) => (
-                      <div key={idx} className="grid grid-cols-3 gap-2 text-xs text-slate-700 font-mono">
-                        <span className="truncate">{r.batch || 'S/N'}</span>
-                        <span>{r.date || 'S/F'}</span>
-                        <span className="font-bold text-blue-600">{r.stock} u.</span>
+                const totalProdStock = getProductStock(detailProduct);
+                let lotesList: { batch: string; date: string; stock: number }[] = [];
+                if (detailProduct.expirationDates && detailProduct.expirationDates.length > 0) {
+                  const sumLotes = detailProduct.expirationDates.reduce((s, r) => s + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+                  lotesList = detailProduct.expirationDates.map((r, idx) => {
+                    const rawStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+                    let calculatedStock = rawStock;
+                    if (detailProduct.expirationDates.length === 1) {
+                      calculatedStock = totalProdStock;
+                    } else if (sumLotes !== totalProdStock && sumLotes > 0) {
+                      const ratio = rawStock / sumLotes;
+                      calculatedStock = Math.round(totalProdStock * ratio);
+                    } else if (sumLotes === 0 && idx === 0) {
+                      calculatedStock = totalProdStock;
+                    }
+                    return {
+                      batch: r.batch || detailProduct.initialBatch || '00101',
+                      date: r.date || detailProduct.expirationDate || '—',
+                      stock: calculatedStock
+                    };
+                  });
+                } else if (detailProduct.manageBatchAndExpiration || detailProduct.initialBatch || detailProduct.expirationDate) {
+                  lotesList = [{
+                    batch: detailProduct.initialBatch || '00101',
+                    date: detailProduct.expirationDate || '—',
+                    stock: totalProdStock
+                  }];
+                }
+
+                const primaryBatch = detailProduct.initialBatch || (lotesList[0]?.batch) || '00101';
+                const primaryExpDate = formatDateDisplay(detailProduct.expirationDate || (lotesList[0]?.date) || '');
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Código de barras</span>
+                        <span className="font-mono text-slate-700 font-semibold">{detailProduct.code}</span>
                       </div>
-                    ))}
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Categoría</span>
+                        <span className="text-slate-700 font-semibold">{detailProduct.category}</span>
+                      </div>
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Costo</span>
+                        <span className="font-mono text-slate-700 font-semibold">{currency}{detailProduct.cost.toFixed(2)}</span>
+                      </div>
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Precio de Venta</span>
+                        <span className="font-mono text-teal-700 font-bold">{currency}{detailProduct.price.toFixed(2)}</span>
+                      </div>
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Stock Total</span>
+                        <span className="font-mono text-slate-700 font-semibold">{totalProdStock} {detailProduct.unit}</span>
+                      </div>
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Alerta de mínimo</span>
+                        <span className="font-mono text-slate-700 font-semibold">{detailProduct.minStock} {detailProduct.unit}</span>
+                      </div>
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Lote Inicial</span>
+                        <span className="font-mono text-slate-800 font-bold">{primaryBatch}</span>
+                      </div>
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Vencimiento</span>
+                        <span className="font-mono text-slate-800 font-bold">{primaryExpDate !== 'S/V' ? primaryExpDate : 'No aplica'}</span>
+                      </div>
+                      <div className="p-2 border border-slate-100 rounded-lg bg-white">
+                        <span className="block text-[9px] text-slate-400 font-bold uppercase">Ubicación Física</span>
+                        <span className="text-slate-700 font-semibold">{detailProduct.location || 'Almacén Principal'}</span>
+                      </div>
+                    </div>
+
+                    {lotesList.length > 0 && (
+                      <div className="p-3 border border-slate-200/80 rounded-xl bg-slate-50/80 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="block text-[10px] text-slate-600 font-bold uppercase tracking-wider">Lotes y Fechas de Vencimiento</span>
+                          <span className="text-[10px] font-semibold text-slate-400">Total: {totalProdStock} {detailProduct.unit || 'Pza'}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase border-b border-slate-200 pb-1 font-mono">
+                          <span>Lote</span>
+                          <span>Vencimiento</span>
+                          <span className="text-right">Stock</span>
+                        </div>
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5 divide-y divide-slate-100">
+                          {lotesList.map((r, idx) => (
+                            <div key={idx} className="grid grid-cols-3 gap-2 text-xs text-slate-700 font-mono pt-1.5 first:pt-0 items-center">
+                              <span className="truncate font-bold text-slate-800">{r.batch}</span>
+                              <span className="text-slate-600">{formatDateDisplay(r.date)}</span>
+                              <span className="font-bold text-blue-600 text-right bg-blue-50/80 px-2 py-0.5 rounded-md justify-self-end">{r.stock} {detailProduct.unit || 'u.'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {detailProduct.detail && (
                 <div className="p-2 border border-slate-100 rounded-lg bg-white space-y-1">

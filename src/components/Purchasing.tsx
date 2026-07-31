@@ -249,30 +249,6 @@ export default function Purchasing({
     };
 
     try {
-      // First update the product inventories if completed
-      if (purchaseStatus === 'completed') {
-        for (const item of purchaseItems) {
-          const origProd = products.find(p => p.id === item.product.id);
-          if (origProd) {
-            const updatedProd: Product = {
-              ...origProd,
-              stock: origProd.stock + item.quantity,
-              cost: item.cost,
-            };
-            if (item.expirationDate && item.expirationDate !== '—') {
-              // Convert date from DD/MM/YYYY to YYYY-MM-DD for expiration alerts
-              const parts = item.expirationDate.split('/');
-              if (parts.length === 3) {
-                updatedProd.expirationDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-              } else {
-                updatedProd.expirationDate = item.expirationDate;
-              }
-            }
-            await onSaveProduct(updatedProd);
-          }
-        }
-      }
-
       await onSavePurchase(newPurchase);
       setIsFormOpen(false);
       setPurchaseItems([]);
@@ -290,27 +266,6 @@ export default function Purchasing({
       const confirmPayment = window.confirm('¿Está seguro de que desea marcar esta compra como Pagada y recibir el stock?');
       if (!confirmPayment) return;
 
-      // Update stocks
-      for (const item of pur.items) {
-        const origProd = products.find(p => p.id === item.productId);
-        if (origProd) {
-          const updatedProd: Product = {
-            ...origProd,
-            stock: origProd.stock + item.quantity,
-            cost: item.cost,
-          };
-          if (item.expirationDate && item.expirationDate !== '—') {
-            const parts = item.expirationDate.split('/');
-            if (parts.length === 3) {
-              updatedProd.expirationDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-            } else {
-              updatedProd.expirationDate = item.expirationDate;
-            }
-          }
-          await onSaveProduct(updatedProd);
-        }
-      }
-      
       const updatedPurchase: Purchase = {
         ...pur,
         status: 'completed'
@@ -520,30 +475,74 @@ export default function Purchasing({
 
                 {/* Dropdown list for search */}
                 {prodSearch.trim() !== '' && !currentProduct && (
-                  <div className="absolute z-10 w-full bg-white border border-slate-200 rounded-xl mt-1 shadow-lg p-1.5 divide-y divide-slate-50 max-h-48 overflow-y-auto">
-                    {filteredProdList.length === 0 ? (
-                      <div className="p-2 text-xs text-slate-400 text-center">No se encontraron productos</div>
-                    ) : (
-                      filteredProdList.map(p => (
-                        <div
-                          key={p.id}
-                          onClick={() => {
-                            setCurrentProduct(p);
-                            setProdSearch(p.name);
-                            setCurrentCost(p.cost.toString());
-                            setCurrentLote(`LOTE-${p.code ? p.code.slice(-4) : '1234'}`);
-                            setCurrentVencimiento(p.expirationDate || '');
-                          }}
-                          className="p-2 hover:bg-blue-50/60 rounded-lg cursor-pointer flex justify-between items-center text-xs"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="font-bold text-slate-800 uppercase truncate">{p.name}</p>
-                            <p className="text-[10px] text-slate-400 font-mono">Código: {p.code} | Stock: {p.stock}</p>
-                          </div>
-                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-sm shrink-0">Insertar</span>
+                  <div className="absolute z-10 w-full bg-white border border-slate-200 rounded-xl mt-1 shadow-lg p-1.5 divide-y divide-slate-50 max-h-56 overflow-y-auto">
+                    {filteredProdList.map(p => (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          setCurrentProduct(p);
+                          setProdSearch(p.name);
+                          setCurrentCost(p.cost.toString());
+                          const initialBatchName = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].batch)
+                            ? p.expirationDates[p.expirationDates.length - 1].batch
+                            : (p.initialBatch || '00101');
+                          const initialExpDate = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].date)
+                            ? p.expirationDates[p.expirationDates.length - 1].date
+                            : (p.expirationDate || '');
+                          
+                          let formattedExp = initialExpDate;
+                          if (initialExpDate && initialExpDate.includes('/')) {
+                            const parts = initialExpDate.split('/');
+                            if (parts.length === 3) {
+                              formattedExp = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                            }
+                          }
+
+                          setCurrentLote(initialBatchName);
+                          setCurrentVencimiento(formattedExp);
+                        }}
+                        className="p-2 hover:bg-blue-50/60 rounded-lg cursor-pointer flex justify-between items-center text-xs"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-slate-800 uppercase truncate">{p.name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">Código: {p.code} | Stock: {p.stock}</p>
                         </div>
-                      ))
-                    )}
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-sm shrink-0">Insertar</span>
+                      </div>
+                    ))}
+
+                    <div
+                      onClick={() => {
+                        const cleanName = prodSearch.trim().toUpperCase();
+                        const newProd: Product = {
+                          id: `NEW_${Date.now()}`,
+                          code: `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
+                          name: cleanName,
+                          category: 'General',
+                          cost: 0,
+                          price: 0,
+                          stock: 0,
+                          minStock: 5,
+                          unit: 'Pza',
+                          initialBatch: '00101',
+                          expirationDate: '',
+                          manageBatchAndExpiration: true,
+                          expirationDates: []
+                        };
+                        setCurrentProduct(newProd);
+                        setProdSearch(cleanName);
+                        setCurrentCost('');
+                        setCurrentLote('00101');
+                        setCurrentVencimiento('');
+                      }}
+                      className="p-2.5 hover:bg-blue-50 rounded-lg cursor-pointer flex items-center justify-between text-xs text-[#0086F0] font-bold bg-blue-50/40 mt-1"
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span className="truncate">Registrar nuevo producto "{prodSearch.trim().toUpperCase()}"</span>
+                      </div>
+                      <span className="text-[10px] bg-[#0086F0] text-white px-2 py-0.5 rounded-md shrink-0">Nuevo</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -625,11 +624,12 @@ export default function Purchasing({
                         updated[existingIdx].quantity += q;
                         return updated;
                       }
+                      const effectiveLote = currentLote.trim() || currentProduct.initialBatch || '00101';
                       return [...prev, {
                         product: currentProduct,
                         quantity: q,
                         cost: c,
-                        lote: currentLote || `LOTE-${currentProduct.code ? currentProduct.code.slice(-4) : '1234'}`,
+                        lote: effectiveLote,
                         expirationDate: currentVencimiento 
                           ? (() => {
                               const parts = currentVencimiento.split('-');
@@ -638,7 +638,7 @@ export default function Purchasing({
                               }
                               return currentVencimiento;
                             })()
-                          : '—'
+                          : (currentProduct.expirationDate || '—')
                       }];
                     });
 

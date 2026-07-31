@@ -275,16 +275,36 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     
     // If it has specific multiple expirationDates
     if (selectedProductToAddToCart.expirationDates && selectedProductToAddToCart.expirationDates.length > 0) {
-      return selectedProductToAddToCart.expirationDates.map(r => {
-        const batchName = r.batch || selectedProductToAddToCart.initialBatch || 'Lote 01';
-        let dateStr = r.date || 'S/V';
-        if (r.date) {
-          const parts = r.date.split('-');
-          if (parts.length === 3) {
-            dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      const expDates = selectedProductToAddToCart.expirationDates;
+      const sumLoteStock = expDates.reduce((sum, r) => sum + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+
+      return expDates.map((r, idx) => {
+        const batchName = r.batch || selectedProductToAddToCart.initialBatch || `Lote ${String(idx + 1).padStart(2, '0')}`;
+        let dateStr = 'S/V';
+        if (r.date && r.date !== '—') {
+          if (r.date.includes('-')) {
+            const parts = r.date.split('-');
+            if (parts.length === 3) {
+              dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+            } else {
+              dateStr = r.date;
+            }
+          } else {
+            dateStr = r.date;
           }
         }
-        const loteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+        
+        const rawLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+        let loteStock = rawLoteStock;
+        if (expDates.length === 1) {
+          loteStock = effStock;
+        } else if (sumLoteStock !== effStock && sumLoteStock > 0) {
+          const ratio = rawLoteStock / sumLoteStock;
+          loteStock = Math.round(effStock * ratio);
+        } else if (sumLoteStock === 0 && idx === 0) {
+          loteStock = effStock;
+        }
+
         return {
           value: `${batchName} – Vence: ${dateStr}`,
           label: `${batchName} – Vence: ${dateStr} (Stock: ${loteStock})`,
@@ -296,11 +316,17 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     // If it only has single expirationDate/batch
     if (selectedProductToAddToCart.expirationDate || selectedProductToAddToCart.initialBatch) {
       const batchName = selectedProductToAddToCart.initialBatch || 'Lote 01';
-      let dateStr = selectedProductToAddToCart.expirationDate || 'No aplica';
-      if (selectedProductToAddToCart.expirationDate) {
-        const parts = selectedProductToAddToCart.expirationDate.split('-');
-        if (parts.length === 3) {
-          dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      let dateStr = 'No aplica';
+      if (selectedProductToAddToCart.expirationDate && selectedProductToAddToCart.expirationDate !== '—') {
+        if (selectedProductToAddToCart.expirationDate.includes('-')) {
+          const parts = selectedProductToAddToCart.expirationDate.split('-');
+          if (parts.length === 3) {
+            dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+          } else {
+            dateStr = selectedProductToAddToCart.expirationDate;
+          }
+        } else {
+          dateStr = selectedProductToAddToCart.expirationDate;
         }
       }
       return [{
@@ -313,10 +339,34 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     // Default if none
     return [{
       value: 'Lote General',
-      label: 'Lote General',
+      label: `Lote General (Stock: ${effStock})`,
       stock: effStock
     }];
   }, [selectedProductToAddToCart]);
+
+  // Keep selectedLoteVal valid
+  useEffect(() => {
+    if (availableLotes.length > 0) {
+      const exists = availableLotes.some(l => l.value === selectedLoteVal);
+      if (!exists) {
+        setSelectedLoteVal(availableLotes[0].value);
+      }
+    }
+  }, [availableLotes, selectedLoteVal]);
+
+  // Keep selectedProductToAddToCart updated when products change
+  useEffect(() => {
+    if (selectedProductToAddToCart) {
+      const fresh = products.find(p => p.id === selectedProductToAddToCart.id);
+      if (fresh) {
+        const effStock = getProductEffectiveStock(fresh);
+        setSelectedProductToAddToCart({
+          ...fresh,
+          stock: effStock
+        });
+      }
+    }
+  }, [products]);
 
   const selectedLoteObj = useMemo(() => {
     if (!availableLotes || availableLotes.length === 0) return null;
@@ -348,38 +398,39 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       stock: effStock
     };
 
-    setSelectedProductToAddToCart(effectiveProd);
-    setSelectedPriceType('retail');
-    setCustomPriceVal((effectiveProd.pricePerUnit || effectiveProd.price).toFixed(2));
-    setSelectedUnitType('Unidad');
-    
-    // Format expiration date if exists
-    let loteStr = 'Lote General';
+    let initialLote = 'Lote General';
     if (effectiveProd.expirationDates && effectiveProd.expirationDates.length > 0) {
       const first = effectiveProd.expirationDates[0];
       const batchName = first.batch || effectiveProd.initialBatch || 'Lote 01';
-      let dateStr = first.date || 'S/V';
-      if (first.date) {
-        const parts = first.date.split('-');
-        if (parts.length === 3) {
-          dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      let dateStr = 'S/V';
+      if (first.date && first.date !== '—') {
+        if (first.date.includes('-')) {
+          const parts = first.date.split('-');
+          dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : first.date;
+        } else {
+          dateStr = first.date;
         }
       }
-      loteStr = `${batchName} – Vence: ${dateStr}`;
+      initialLote = `${batchName} – Vence: ${dateStr}`;
     } else if (effectiveProd.expirationDate || effectiveProd.initialBatch) {
       const batchName = effectiveProd.initialBatch || 'Lote 01';
-      let dateStr = effectiveProd.expirationDate || 'No aplica';
-      if (effectiveProd.expirationDate) {
-        const parts = effectiveProd.expirationDate.split('-');
-        if (parts.length === 3) {
-          dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      let dateStr = 'No aplica';
+      if (effectiveProd.expirationDate && effectiveProd.expirationDate !== '—') {
+        if (effectiveProd.expirationDate.includes('-')) {
+          const parts = effectiveProd.expirationDate.split('-');
+          dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : effectiveProd.expirationDate;
+        } else {
+          dateStr = effectiveProd.expirationDate;
         }
       }
-      loteStr = `${batchName} – Vence: ${dateStr}`;
-    } else if (effectiveProd.manageBatchAndExpiration) {
-      loteStr = 'Lote 01 – Vence: 17/12/2025';
+      initialLote = `${batchName} – Vence: ${dateStr}`;
     }
-    setSelectedLoteVal(loteStr);
+
+    setSelectedProductToAddToCart(effectiveProd);
+    setSelectedLoteVal(initialLote);
+    setSelectedPriceType('retail');
+    setCustomPriceVal((effectiveProd.pricePerUnit || effectiveProd.price).toFixed(2));
+    setSelectedUnitType('Unidad');
     setAddToCartQty(1);
     setIsAddToCartModalOpen(true);
   };
