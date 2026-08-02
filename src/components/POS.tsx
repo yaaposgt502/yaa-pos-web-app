@@ -219,72 +219,67 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   const [isDevolucionesModalOpen, setIsDevolucionesModalOpen] = useState(false);
   const [isCotizacionesModalOpen, setIsCotizacionesModalOpen] = useState(false);
 
-  // Overlap detection for floating mobile button and static cart button
+  // Overlap and visibility detection for floating mobile button vs static cart button
   const staticBtnRef = useRef<HTMLButtonElement | null>(null);
-  const floatingBtnRef = useRef<HTMLDivElement | null>(null);
-  const [isOverlapping, setIsOverlapping] = useState(false);
+  const [isStaticBtnVisible, setIsStaticBtnVisible] = useState(false);
 
   useEffect(() => {
-    const checkOverlap = () => {
+    const checkVisibility = () => {
       if (!staticBtnRef.current) {
-        setIsOverlapping(false);
+        setIsStaticBtnVisible(false);
         return;
       }
 
-      const staticRect = staticBtnRef.current.getBoundingClientRect();
+      const rect = staticBtnRef.current.getBoundingClientRect();
 
-      // Is the static button visible in the browser viewport?
-      const isStaticVisible = 
-        staticRect.width > 0 &&
-        staticRect.height > 0 &&
-        staticRect.top < window.innerHeight &&
-        staticRect.bottom > 0;
+      // Check if any part of the static button is in or very near the browser viewport
+      const visible = 
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.top < window.innerHeight + 20 &&
+        rect.bottom > -20 &&
+        rect.left < window.innerWidth + 20 &&
+        rect.right > -20;
 
-      if (!isStaticVisible) {
-        setIsOverlapping(false);
-        return;
-      }
-
-      // Expected or actual bounds of the floating button at bottom center (270px width, 45px height)
-      let floatTop = window.innerHeight - 16 - 45;
-      let floatBottom = window.innerHeight - 16;
-      let floatLeft = (window.innerWidth - 270) / 2;
-      let floatRight = (window.innerWidth + 270) / 2;
-
-      if (floatingBtnRef.current) {
-        const floatRect = floatingBtnRef.current.getBoundingClientRect();
-        if (floatRect.width > 0 && floatRect.height > 0) {
-          floatTop = floatRect.top;
-          floatBottom = floatRect.bottom;
-          floatLeft = floatRect.left;
-          floatRight = floatRect.right;
-        }
-      }
-
-      // Buffer threshold for smooth hiding before visual collision
-      const buffer = 15;
-      const overlaps = !(
-        staticRect.right < floatLeft - buffer ||
-        staticRect.left > floatRight + buffer ||
-        staticRect.bottom < floatTop - buffer ||
-        staticRect.top > floatBottom + buffer
-      );
-
-      setIsOverlapping(overlaps);
+      setIsStaticBtnVisible(visible);
     };
 
-    window.addEventListener('scroll', checkOverlap, { passive: true, capture: true });
-    window.addEventListener('resize', checkOverlap, { passive: true });
-    const interval = setInterval(checkOverlap, 100);
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (entry) {
+            setIsStaticBtnVisible(entry.isIntersecting);
+          }
+        },
+        {
+          root: null,
+          rootMargin: '20px',
+          threshold: 0,
+        }
+      );
 
-    checkOverlap();
+      if (staticBtnRef.current) {
+        observer.observe(staticBtnRef.current);
+      }
+    }
+
+    window.addEventListener('scroll', checkVisibility, { passive: true, capture: true });
+    window.addEventListener('resize', checkVisibility, { passive: true });
+    const interval = setInterval(checkVisibility, 200);
+
+    checkVisibility();
 
     return () => {
-      window.removeEventListener('scroll', checkOverlap, { capture: true } as any);
-      window.removeEventListener('resize', checkOverlap);
+      if (observer) observer.disconnect();
+      window.removeEventListener('scroll', checkVisibility, { capture: true } as any);
+      window.removeEventListener('resize', checkVisibility);
       clearInterval(interval);
     };
   }, [cart]);
+
+  const isAnyModalOpen = isCartModalOpen || isAddClientModalOpen || isCheckoutModalOpen || isPendingOrdersModalOpen || isNuevoPedidoModalOpen || isDevolucionesModalOpen || isCotizacionesModalOpen;
 
   // Success completed state
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
@@ -1557,8 +1552,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       </div>
 
       {/* FLOATING MOBILE & IPHONE BOTTOM CHECKOUT BUTTON */}
-      {cart.length > 0 && !isCartModalOpen && !isCheckoutModalOpen && !isAddClientModalOpen && !isPendingOrdersModalOpen && !isOverlapping && (
-        <div ref={floatingBtnRef} className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 lg:hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
+      {cart.length > 0 && !isAnyModalOpen && !isStaticBtnVisible && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 lg:hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
           <button
             type="button"
             onClick={() => setIsCartModalOpen(true)}
