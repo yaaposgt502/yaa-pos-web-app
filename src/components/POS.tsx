@@ -26,7 +26,8 @@ import {
   Clock,
   User,
   Info,
-  Calendar
+  Calendar,
+  Loader2
 } from 'lucide-react';
 import * as api from '../api';
 
@@ -210,7 +211,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   const [cashReceived, setCashReceived] = useState<string>('');
   const [pastSales, setPastSales] = useState<Sale[]>([]);
 
-  // Modals
+  // Modals and submission state
+  const [isSubmittingSale, setIsSubmittingSale] = useState(false);
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
@@ -656,7 +658,11 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       }));
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
-        return mapped.filter(p => p.name.toLowerCase().includes(query) || p.code.toLowerCase().includes(query));
+        return mapped.filter(p => 
+          p.name.toLowerCase().includes(query) || 
+          p.code.toLowerCase().includes(query) || 
+          p.description.toLowerCase().includes(query)
+        );
       }
       return mapped;
     }
@@ -669,11 +675,18 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(p => 
-        p.name.toLowerCase().includes(query) || 
-        p.code.toLowerCase().includes(query) ||
-        p.category.toLowerCase().includes(query)
-      );
+      result = result.filter(p => {
+        const nameMatch = p.name?.toLowerCase().includes(query);
+        const codeMatch = p.code?.toLowerCase().includes(query);
+        const catMatch = p.category?.toLowerCase().includes(query);
+        const detailMatch = p.detail?.toLowerCase().includes(query);
+        const descMatch = (p as any).description?.toLowerCase().includes(query);
+        const barcodeMatch = p.barcode?.toLowerCase().includes(query);
+        const symptomsMatch = p.symptoms?.toLowerCase().includes(query);
+        const labMatch = p.laboratory?.toLowerCase().includes(query);
+
+        return nameMatch || codeMatch || catMatch || detailMatch || descMatch || barcodeMatch || symptomsMatch || labMatch;
+      });
     }
 
     return result;
@@ -869,6 +882,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   // Checkout transaction finalization
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingSale) return;
+
     if (!currentShift) {
       setErrorMessage('Debe abrir la caja registradora para poder vender.');
       return;
@@ -908,6 +923,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       saleType: saleType
     };
 
+    setIsSubmittingSale(true);
     try {
       const saved = await onSaveSale(newSale);
       setCompletedSale(saved);
@@ -916,10 +932,13 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       updateActiveSession(s => ({ ...s, cart: [], discountValue: '' }));
       setCashReceived('');
       setIsCheckoutModalOpen(false);
+      setIsCartModalOpen(false);
       setErrorMessage('');
       onRefreshData();
     } catch (err: any) {
       setErrorMessage(err.message || 'Error al guardar la venta');
+    } finally {
+      setIsSubmittingSale(false);
     }
   };
 
@@ -1230,7 +1249,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
               </span>
               <input
                 type="text"
-                placeholder="Buscar producto por nombre, código o escanear..."
+                placeholder="Buscar por nombre, código, descripción o escanear..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0] text-xs font-semibold bg-white text-slate-800"
@@ -1518,12 +1537,24 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
               <button
                 ref={staticBtnRef}
                 type="button"
-                disabled={cart.length === 0}
-                onClick={() => setIsCheckoutModalOpen(true)}
+                disabled={cart.length === 0 || isSubmittingSale}
+                onClick={() => {
+                  if (isSubmittingSale) return;
+                  setIsCheckoutModalOpen(true);
+                }}
                 className="w-full py-4 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white rounded-full text-sm font-extrabold tracking-wider uppercase transition-all shadow-lg shadow-emerald-600/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 border border-emerald-400/30"
               >
-                <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                <span>PROCESAR VENTA</span>
+                {isSubmittingSale ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                    <span>PROCESANDO...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                    <span>PROCESAR VENTA</span>
+                  </>
+                )}
               </button>
 
               {/* Footer navigation tools */}
@@ -1556,12 +1587,20 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 lg:hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
           <button
             type="button"
-            onClick={() => setIsCartModalOpen(true)}
-            className="w-[270px] h-[45px] px-4 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white rounded-full text-xs font-extrabold tracking-wider uppercase transition-all shadow-xl shadow-emerald-700/25 flex items-center justify-between gap-2 cursor-pointer border border-emerald-400/40"
+            disabled={cart.length === 0 || isSubmittingSale}
+            onClick={() => {
+              if (isSubmittingSale) return;
+              setIsCartModalOpen(true);
+            }}
+            className="w-[270px] h-[45px] px-4 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white rounded-full text-xs font-extrabold tracking-wider uppercase transition-all shadow-xl shadow-emerald-700/25 flex items-center justify-between gap-2 cursor-pointer border border-emerald-400/40 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 stroke-[2.5] text-white shrink-0" />
-              <span className="truncate">PROCESAR VENTA</span>
+              {isSubmittingSale ? (
+                <Loader2 className="w-4 h-4 animate-spin text-white shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 stroke-[2.5] text-white shrink-0" />
+              )}
+              <span className="truncate">{isSubmittingSale ? 'PROCESANDO...' : 'PROCESAR VENTA'}</span>
             </div>
             <span className="bg-emerald-800/60 text-emerald-100 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold shrink-0">
               {currency}/{cartTotals.total.toFixed(2)}
@@ -1759,15 +1798,25 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
             <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-3 shrink-0">
               <button
                 type="button"
-                disabled={cart.length === 0}
+                disabled={cart.length === 0 || isSubmittingSale}
                 onClick={() => {
+                  if (isSubmittingSale) return;
                   setIsCartModalOpen(false);
                   setIsCheckoutModalOpen(true);
                 }}
                 className="w-full py-3.5 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white rounded-full text-xs sm:text-sm font-extrabold tracking-wider uppercase transition-all shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-emerald-400/30"
               >
-                <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                <span>PROCESAR VENTA</span>
+                {isSubmittingSale ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                    <span>PROCESANDO...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                    <span>PROCESAR VENTA</span>
+                  </>
+                )}
               </button>
 
               <div className="flex items-center justify-between text-[11px] font-bold px-1 text-slate-400">
@@ -2130,9 +2179,17 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
 
               <button
                 type="submit"
-                className="w-full py-3 bg-[#0e9f6e] hover:bg-[#0b8a5c] text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md cursor-pointer transition-all"
+                disabled={isSubmittingSale || cart.length === 0}
+                className="w-full py-3.5 bg-[#0e9f6e] hover:bg-[#0b8a5c] text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Registrar Venta ({currency}/{cartTotals.total.toFixed(2)})
+                {isSubmittingSale ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white shrink-0" />
+                    <span>REGISTRANDO VENTA...</span>
+                  </>
+                ) : (
+                  <span>Registrar Venta ({currency}/{cartTotals.total.toFixed(2)})</span>
+                )}
               </button>
             </form>
           </div>
