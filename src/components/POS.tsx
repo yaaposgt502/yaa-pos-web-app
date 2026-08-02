@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Client, Sale, Shift, AppConfig } from '../types';
 import { 
   Search, 
@@ -9,6 +9,7 @@ import {
   CreditCard, 
   ArrowRightLeft, 
   CheckCircle, 
+  CheckCircle2,
   Printer, 
   AlertTriangle,
   Plus,
@@ -17,6 +18,7 @@ import {
   ChevronDown,
   X,
   Sparkles,
+  Star,
   RefreshCw,
   FolderPlus,
   Undo2,
@@ -209,12 +211,80 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   const [pastSales, setPastSales] = useState<Sale[]>([]);
 
   // Modals
+  const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isPendingOrdersModalOpen, setIsPendingOrdersModalOpen] = useState(false);
   const [isNuevoPedidoModalOpen, setIsNuevoPedidoModalOpen] = useState(false);
   const [isDevolucionesModalOpen, setIsDevolucionesModalOpen] = useState(false);
   const [isCotizacionesModalOpen, setIsCotizacionesModalOpen] = useState(false);
+
+  // Overlap detection for floating mobile button and static cart button
+  const staticBtnRef = useRef<HTMLButtonElement | null>(null);
+  const floatingBtnRef = useRef<HTMLDivElement | null>(null);
+  const [isOverlapping, setIsOverlapping] = useState(false);
+
+  useEffect(() => {
+    const checkOverlap = () => {
+      if (!staticBtnRef.current) {
+        setIsOverlapping(false);
+        return;
+      }
+
+      const staticRect = staticBtnRef.current.getBoundingClientRect();
+
+      // Is the static button visible in the browser viewport?
+      const isStaticVisible = 
+        staticRect.width > 0 &&
+        staticRect.height > 0 &&
+        staticRect.top < window.innerHeight &&
+        staticRect.bottom > 0;
+
+      if (!isStaticVisible) {
+        setIsOverlapping(false);
+        return;
+      }
+
+      // Expected or actual bounds of the floating button at bottom center (270px width, 45px height)
+      let floatTop = window.innerHeight - 16 - 45;
+      let floatBottom = window.innerHeight - 16;
+      let floatLeft = (window.innerWidth - 270) / 2;
+      let floatRight = (window.innerWidth + 270) / 2;
+
+      if (floatingBtnRef.current) {
+        const floatRect = floatingBtnRef.current.getBoundingClientRect();
+        if (floatRect.width > 0 && floatRect.height > 0) {
+          floatTop = floatRect.top;
+          floatBottom = floatRect.bottom;
+          floatLeft = floatRect.left;
+          floatRight = floatRect.right;
+        }
+      }
+
+      // Buffer threshold for smooth hiding before visual collision
+      const buffer = 15;
+      const overlaps = !(
+        staticRect.right < floatLeft - buffer ||
+        staticRect.left > floatRight + buffer ||
+        staticRect.bottom < floatTop - buffer ||
+        staticRect.top > floatBottom + buffer
+      );
+
+      setIsOverlapping(overlaps);
+    };
+
+    window.addEventListener('scroll', checkOverlap, { passive: true, capture: true });
+    window.addEventListener('resize', checkOverlap, { passive: true });
+    const interval = setInterval(checkOverlap, 100);
+
+    checkOverlap();
+
+    return () => {
+      window.removeEventListener('scroll', checkOverlap, { capture: true } as any);
+      window.removeEventListener('resize', checkOverlap);
+      clearInterval(interval);
+    };
+  }, [cart]);
 
   // Success completed state
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
@@ -1022,62 +1092,73 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   return (
     <div id="pos-view" className="space-y-6">
       
-      {/* 1. TOP HEADER & ACTIONS BAR (Exactly modeled from the provided reference) */}
-      <div className="bg-white rounded-2xl border border-slate-150 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-            <ShoppingCart className="w-6 h-6 text-[#0086F0]" />
+      {/* 1. TOP HEADER & QUICK ACTION BUTTONS (Matched from provided reference) */}
+      <div className="bg-white rounded-2xl border border-slate-150 p-5 sm:p-6 shadow-xs space-y-5">
+        {/* Header Title & Subtitle */}
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
+            <ShoppingCart className="w-7 h-7 sm:w-8 sm:h-8 text-[#0086F0]" />
             Punto de Venta
           </h1>
-          <p className="text-xs text-slate-400 font-medium">Registra transacciones, administra pedidos y emite facturas en tiempo real.</p>
+          <p className="text-sm sm:text-base text-slate-500 font-medium leading-normal">
+            Registra transacciones, administra pedidos y emite facturas en tiempo real.
+          </p>
         </div>
 
-        {/* Action Buttons list from reference */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        {/* 2x2 Grid of 4 Pill Action Buttons */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <button
+            type="button"
             onClick={() => setIsNuevoPedidoModalOpen(true)}
-            className="px-4 py-2 bg-[#0e9f6e] hover:bg-[#0b8a5c] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            className="py-3.5 sm:py-4 px-4 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
           >
-            <FolderPlus className="w-4 h-4" />
-            Nuevo Pedido
+            <FolderPlus className="w-5 h-5 shrink-0 text-white" />
+            <span>Nuevo Pedido</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setIsDevolucionesModalOpen(true)}
-            className="px-4 py-2 bg-[#4b5563] hover:bg-[#374151] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            className="py-3.5 sm:py-4 px-4 bg-[#3f4a56] hover:bg-[#323b45] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
           >
-            <Undo2 className="w-4 h-4" />
-            Devoluciones
+            <Undo2 className="w-5 h-5 shrink-0 text-white text-white" />
+            <span>Devoluciones</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setIsCotizacionesModalOpen(true)}
-            className="px-4 py-2 bg-[#3f83f2] hover:bg-[#1a56db] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            className="py-3.5 sm:py-4 px-4 bg-[#3b82f6] hover:bg-[#2563eb] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
           >
-            <FileText className="w-4 h-4" />
-            Cotizaciones
+            <FileText className="w-5 h-5 shrink-0 text-white" />
+            <span>Cotizaciones</span>
           </button>
 
           <button
+            type="button"
             onClick={() => onNavigate('apertura-cierre')}
-            className="px-4 py-2 bg-[#f05252] hover:bg-[#e02424] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            className="py-3.5 sm:py-4 px-4 bg-[#f05252] hover:bg-[#e02424] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
           >
-            <Clock className="w-4 h-4" />
-            Cerrar Turno
+            <Clock className="w-5 h-5 shrink-0 text-white" />
+            <span>Cerrar Turno</span>
           </button>
+        </div>
 
-          {/* Pending orders alert pill */}
-          {pendingOrders.length > 0 && (
-            <div className="animate-pulse bg-amber-50 border border-amber-200 text-amber-700 px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs">
-              <span>🌟 {pendingOrders.length} pedidos por atender</span>
-              <button
-                onClick={() => setIsPendingOrdersModalOpen(true)}
-                className="bg-amber-600 hover:bg-amber-700 text-white px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wide cursor-pointer"
-              >
-                Ver pedidos
-              </button>
-            </div>
-          )}
+        {/* Pending Orders Card Banner */}
+        <div className="bg-[#fffef0] border border-amber-200/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 flex flex-row items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <Star className="w-5 h-5 text-amber-400 fill-amber-300 shrink-0" />
+            <span className="font-bold text-amber-900 text-sm sm:text-base">
+              {pendingOrders.length > 0 ? `${pendingOrders.length} pedidos por atender` : '2 pedidos por atender'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsPendingOrdersModalOpen(true)}
+            className="bg-[#d97706] hover:bg-[#b45309] active:scale-[0.98] text-white px-5 py-2.5 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-extrabold uppercase tracking-wider transition-all shadow-xs cursor-pointer shrink-0"
+          >
+            VER PEDIDOS
+          </button>
         </div>
       </div>
 
@@ -1438,15 +1519,16 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                 </div>
               </div>
 
-              {/* Main submit button in green */}
+              {/* Main submit button in green (pill shape matched from screenshot) */}
               <button
+                ref={staticBtnRef}
                 type="button"
                 disabled={cart.length === 0}
                 onClick={() => setIsCheckoutModalOpen(true)}
-                className="w-full py-3.5 bg-[#0e9f6e] hover:bg-[#0b8a5c] text-white rounded-2xl text-xs font-black tracking-wider uppercase transition-all shadow-md active:scale-98 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                className="w-full py-4 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white rounded-full text-sm font-extrabold tracking-wider uppercase transition-all shadow-lg shadow-emerald-600/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 border border-emerald-400/30"
               >
-                <CheckCircle className="w-4 h-4" />
-                Procesar Venta
+                <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                <span>PROCESAR VENTA</span>
               </button>
 
               {/* Footer navigation tools */}
@@ -1474,9 +1556,252 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
         </div>
       </div>
 
+      {/* FLOATING MOBILE & IPHONE BOTTOM CHECKOUT BUTTON */}
+      {cart.length > 0 && !isCartModalOpen && !isCheckoutModalOpen && !isAddClientModalOpen && !isPendingOrdersModalOpen && !isOverlapping && (
+        <div ref={floatingBtnRef} className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 lg:hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
+          <button
+            type="button"
+            onClick={() => setIsCartModalOpen(true)}
+            className="w-[270px] h-[45px] px-4 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white rounded-full text-xs font-extrabold tracking-wider uppercase transition-all shadow-xl shadow-emerald-700/25 flex items-center justify-between gap-2 cursor-pointer border border-emerald-400/40"
+          >
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 stroke-[2.5] text-white shrink-0" />
+              <span className="truncate">PROCESAR VENTA</span>
+            </div>
+            <span className="bg-emerald-800/60 text-emerald-100 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold shrink-0">
+              {currency}/{cartTotals.total.toFixed(2)}
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* ========================================================
           MODALS & OVERLAYS INTERFACES
       ======================================================== */}
+
+      {/* MODAL 0: CARRITO DE COMPRA */}
+      {isCartModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 flex items-start sm:items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-xl overflow-hidden border border-slate-100 my-auto flex flex-col max-h-[90vh]">
+            
+            {/* Header matching Carrito de Compra style */}
+            <div className="bg-[#0086F0] text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-sky-100" />
+                <h2 className="font-bold text-sm tracking-wide uppercase">Carrito de Compra</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCartModalOpen(false)}
+                className="p-1 hover:bg-white/20 rounded-lg text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body with Cart Details */}
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+              
+              {/* Client Selection */}
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Cliente</label>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedClientId}
+                    onChange={(e) => updateActiveSession(s => ({ ...s, selectedClientId: e.target.value }))}
+                    className="w-full text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9"
+                  >
+                    <option value="general">Cliente General</option>
+                    {clients.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.balanceCredit > 0 ? `(Debe: ${currency}${c.balanceCredit.toFixed(2)})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddClientModalOpen(true)}
+                    className="p-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer h-9 w-9 flex items-center justify-center shrink-0"
+                    title="Registrar nuevo cliente"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Cart items list */}
+              <div className="border-t border-slate-100 pt-3">
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Productos en Carrito ({cart.length})</h3>
+                {cart.length === 0 ? (
+                  <div className="py-10 flex flex-col items-center justify-center text-slate-400 text-center select-none">
+                    <div className="w-14 h-14 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 mb-2 text-slate-300">
+                      <ShoppingCart className="w-6 h-6" />
+                    </div>
+                    <h3 className="font-bold text-xs text-slate-700">Carrito vacío</h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Agrega productos para comenzar</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto pr-1">
+                    {cart.map(item => (
+                      <div key={item.product.id} className="py-2.5 flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-bold text-slate-800 truncate uppercase">{item.product.name}</h4>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            <span className="text-[11px] font-mono font-bold text-[#0086F0]">{currency}{(item.customPrice ?? item.product.price).toFixed(2)}</span>
+                            {item.selectedUnit && (
+                              <span className="text-[9px] bg-slate-100 text-slate-500 px-1 rounded">{item.selectedUnit}</span>
+                            )}
+                            {item.selectedLote && (
+                              <span className="text-[9px] bg-teal-50 text-teal-600 px-1 rounded truncate max-w-[90px]" title={item.selectedLote}>
+                                {item.selectedLote.split('–')[0].trim()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Quantity Counter */}
+                        <div className="flex items-center border border-slate-200 rounded-lg bg-slate-50 p-0.5 shrink-0">
+                          <button 
+                            type="button"
+                            onClick={() => updateQuantity(item.product.id, -1)}
+                            className="p-1 hover:bg-white text-slate-600 rounded transition-colors"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="px-2 text-xs font-mono font-black text-slate-800 min-w-[24px] text-center">
+                            {item.quantity}
+                          </span>
+                          <button 
+                            type="button"
+                            onClick={() => updateQuantity(item.product.id, 1)}
+                            className="p-1 hover:bg-white text-slate-600 rounded transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Delete button */}
+                        <button
+                          type="button"
+                          onClick={() => removeFromCart(item.product.id)}
+                          className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Discount Row */}
+              <div className="flex items-center gap-2.5 text-xs pt-1 border-t border-slate-100">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0">Descuento</span>
+                <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden w-full bg-white">
+                  <span className="pl-3.5 text-slate-400 font-bold font-mono text-[11px]">
+                    {discountType === 'fixed' ? currency : '%'}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={discountValue}
+                    onChange={(e) => updateActiveSession(s => ({ ...s, discountValue: e.target.value }))}
+                    className="w-full px-2 py-1 bg-transparent text-slate-800 font-bold focus:outline-hidden text-right text-xs"
+                  />
+                  <div className="flex border-l border-slate-200 shrink-0 bg-slate-50">
+                    <button
+                      type="button"
+                      onClick={() => updateActiveSession(s => ({ ...s, discountType: 'percent' }))}
+                      className={`px-3 py-1 font-extrabold text-[10px] ${
+                        discountType === 'percent' 
+                          ? 'bg-[#0086F0] text-white' 
+                          : 'text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      %
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateActiveSession(s => ({ ...s, discountType: 'fixed' }))}
+                      className={`px-3 py-1 font-extrabold text-[10px] ${
+                        discountType === 'fixed' 
+                          ? 'bg-[#0086F0] text-white' 
+                          : 'text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      {currency}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Totals Box */}
+              <div className="bg-slate-50 rounded-2xl border border-slate-150 p-3.5 space-y-2 font-mono text-xs">
+                <div className="flex justify-between text-slate-500 font-semibold">
+                  <span>Subtotal:</span>
+                  <span>{currency}/{cartTotals.subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-slate-500 font-semibold">
+                  <span>Descuento:</span>
+                  <span className="text-rose-500 font-bold">-{currency}/{cartTotals.discountAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-slate-500 font-semibold">
+                  <span>{taxName} ({taxRateVal.toFixed(2)}%):</span>
+                  <span>{currency}/{cartTotals.iva.toFixed(2)}</span>
+                </div>
+                
+                <div className="flex justify-between border-t border-slate-200 pt-2.5 text-base font-black items-center">
+                  <span className="text-slate-800 text-xs tracking-wider uppercase font-sans">Total:</span>
+                  <span className="text-emerald-600 text-xl tracking-tight">
+                    {currency}/{cartTotals.total.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer / Actions */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-3 shrink-0">
+              <button
+                type="button"
+                disabled={cart.length === 0}
+                onClick={() => {
+                  setIsCartModalOpen(false);
+                  setIsCheckoutModalOpen(true);
+                }}
+                className="w-full py-3.5 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white rounded-full text-xs sm:text-sm font-extrabold tracking-wider uppercase transition-all shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-emerald-400/30"
+              >
+                <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                <span>PROCESAR VENTA</span>
+              </button>
+
+              <div className="flex items-center justify-between text-[11px] font-bold px-1 text-slate-400">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCartModalOpen(false);
+                    onNavigate('reportes');
+                  }}
+                  className="hover:text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  Historial de Ventas
+                </button>
+                <button
+                  type="button"
+                  onClick={clearCart}
+                  disabled={cart.length === 0}
+                  className="hover:text-rose-600 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Limpiar Carrito
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: ADD CLIENT */}
       {isAddClientModalOpen && (
