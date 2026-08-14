@@ -1106,70 +1106,70 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   return (
     <div id="pos-view" className="space-y-6">
       
-      {/* 1. TOP HEADER & QUICK ACTION BUTTONS (Matched from provided reference) */}
-      <div className="bg-white rounded-2xl border border-slate-150 p-5 sm:p-6 shadow-xs space-y-5">
+      {/* 1. TOP HEADER & QUICK ACTION BUTTONS (Minimized & Elegant for Mobile/iPhone) */}
+      <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200/90 p-3.5 sm:p-5 lg:p-6 shadow-xs space-y-3 sm:space-y-4">
         {/* Header Title & Subtitle */}
-        <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-            <ShoppingCart className="w-7 h-7 sm:w-8 sm:h-8 text-[#0086F0]" />
+        <div className="space-y-0.5 sm:space-y-1">
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2 sm:gap-2.5">
+            <ShoppingCart className="w-5 h-5 sm:w-7 sm:h-7 text-[#0086F0]" />
             Punto de Venta
           </h1>
-          <p className="text-sm sm:text-base text-slate-500 font-medium leading-normal">
+          <p className="text-xs sm:text-sm text-slate-500 font-medium leading-normal">
             Registra transacciones, administra pedidos y emite facturas en tiempo real.
           </p>
         </div>
 
-        {/* 2x2 Grid of 4 Pill Action Buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* 2x2 Grid of 4 Pill Action Buttons (Compact & Touch-optimized for Mobile / iPhone) */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
           <button
             type="button"
             onClick={() => setIsNuevoPedidoModalOpen(true)}
-            className="py-3.5 sm:py-4 px-4 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
           >
-            <FolderPlus className="w-5 h-5 shrink-0 text-white" />
-            <span>Nuevo Pedido</span>
+            <FolderPlus className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
+            <span className="truncate">Nuevo Pedido</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsDevolucionesModalOpen(true)}
-            className="py-3.5 sm:py-4 px-4 bg-[#3f4a56] hover:bg-[#323b45] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#3f4a56] hover:bg-[#323b45] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
           >
-            <Undo2 className="w-5 h-5 shrink-0 text-white text-white" />
-            <span>Devoluciones</span>
+            <Undo2 className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
+            <span className="truncate">Devoluciones</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsCotizacionesModalOpen(true)}
-            className="py-3.5 sm:py-4 px-4 bg-[#3b82f6] hover:bg-[#2563eb] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#3b82f6] hover:bg-[#2563eb] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
           >
-            <FileText className="w-5 h-5 shrink-0 text-white" />
-            <span>Cotizaciones</span>
+            <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
+            <span className="truncate">Cotizaciones</span>
           </button>
 
           <button
             type="button"
             onClick={() => onNavigate('apertura-cierre')}
-            className="py-3.5 sm:py-4 px-4 bg-[#f05252] hover:bg-[#e02424] active:scale-[0.98] text-white text-sm sm:text-base font-bold rounded-2xl sm:rounded-3xl flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#f05252] hover:bg-[#e02424] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
           >
-            <Clock className="w-5 h-5 shrink-0 text-white" />
-            <span>Cerrar Turno</span>
+            <Clock className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
+            <span className="truncate">Cerrar Turno</span>
           </button>
         </div>
 
-        {/* Pending Orders Card Banner */}
-        <div className="bg-[#fffef0] border border-amber-200/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 flex flex-row items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <Star className="w-5 h-5 text-amber-400 fill-amber-300 shrink-0" />
-            <span className="font-bold text-amber-900 text-sm sm:text-base">
+        {/* Pending Orders Card Banner (Compact on mobile) */}
+        <div className="bg-[#fffef0] border border-amber-200/90 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 flex flex-row items-center justify-between gap-2.5 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <Star className="w-4 h-4 text-amber-500 fill-amber-400 shrink-0" />
+            <span className="font-bold text-amber-900 text-xs sm:text-sm truncate">
               {pendingOrders.length > 0 ? `${pendingOrders.length} pedidos por atender` : '2 pedidos por atender'}
             </span>
           </div>
           <button
             type="button"
             onClick={() => setIsPendingOrdersModalOpen(true)}
-            className="bg-[#d97706] hover:bg-[#b45309] active:scale-[0.98] text-white px-5 py-2.5 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-extrabold uppercase tracking-wider transition-all shadow-xs cursor-pointer shrink-0"
+            className="bg-[#d97706] hover:bg-[#b45309] active:scale-[0.98] text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-extrabold uppercase tracking-wider transition-all shadow-2xs cursor-pointer shrink-0"
           >
             VER PEDIDOS
           </button>
@@ -1177,38 +1177,38 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       </div>
 
       {/* 2. MODE SELECTOR (Venta Clasica vs Venta Rapida) */}
-      <div className="flex border-b border-slate-200 gap-1.5">
+      <div className="flex border-b border-slate-200 gap-1">
         <button
           onClick={() => setPosMode('classica')}
-          className={`px-5 py-3 text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ${
+          className={`px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
             posMode === 'classica' 
               ? 'border-b-2 border-[#0086F0] text-[#0086F0] bg-white rounded-t-xl' 
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
-          <SlidersHorizontal className="w-4 h-4" />
+          <SlidersHorizontal className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           Venta Clásica
         </button>
         <button
           onClick={() => setPosMode('rapida')}
-          className={`px-5 py-3 text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ${
+          className={`px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
             posMode === 'rapida' 
               ? 'border-b-2 border-[#0086F0] text-[#0086F0] bg-white rounded-t-xl' 
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Sparkles className="w-4 h-4" />
+          <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           Venta Rápida
         </button>
       </div>
 
       {/* 3. SALES SESSIONS (Multiple Cart Sessions e.g., "1", "2", "+ Nueva Venta") */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         {sessions.map(s => (
           <button
             key={s.id}
             onClick={() => setActiveSessionId(s.id)}
-            className={`px-4.5 py-2 rounded-xl text-xs font-black tracking-wide flex items-center gap-2 transition-all shadow-xs border ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-xs font-black tracking-wide flex items-center gap-1.5 sm:gap-2 transition-all shadow-2xs border cursor-pointer ${
               activeSessionId === s.id
                 ? 'bg-[#0086F0] border-[#0086F0] text-white'
                 : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -1226,7 +1226,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
         ))}
         <button
           onClick={handleAddSession}
-          className="px-3.5 py-2 bg-white border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 flex items-center gap-1 transition-all cursor-pointer"
+          className="px-3 sm:px-3.5 py-1.5 sm:py-2 bg-white border border-dashed border-slate-300 rounded-lg sm:rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 flex items-center gap-1 transition-all cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           Nueva Venta
@@ -1234,37 +1234,37 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       </div>
 
       {/* 4. MAIN POS GRID LAYOUT */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-start">
         
         {/* Left Column: Product Search, Filter & Catalog Grid */}
-        <div className="lg:col-span-8 space-y-6">
+        <div className="lg:col-span-8 space-y-4 sm:space-y-6">
           
           {/* Search bar & Category dropdown (Exact match to reference) */}
-          <div className="bg-white rounded-2xl border border-slate-150 p-4 shadow-xs flex flex-col sm:flex-row gap-3 items-center">
+          <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200/90 p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row gap-2.5 sm:gap-3 items-center">
             
             {/* Search input */}
             <div className="relative w-full">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
-                <Search className="w-5 h-5" />
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <Search className="w-4 h-4 sm:w-5 sm:h-5" />
               </span>
               <input
                 type="text"
                 placeholder="Buscar por nombre, código, descripción o escanear..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0] text-xs font-semibold bg-white text-slate-800"
+                className="w-full pl-9 sm:pl-10 pr-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0] text-xs font-semibold bg-white text-slate-800"
               />
             </div>
 
             {/* Layout control and Category selector */}
-            <div className="flex items-center gap-2.5 shrink-0 w-full sm:w-auto justify-end">
-              <span className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer hidden sm:block">
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+              <span className="p-2 sm:p-2.5 bg-slate-50 rounded-lg sm:rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer hidden sm:block">
                 <SlidersHorizontal className="w-4 h-4" />
               </span>
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="border border-slate-200 rounded-xl px-4 py-2.5 bg-white text-slate-600 text-xs font-bold cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-[#0086F0] w-full sm:w-40"
+                className="border border-slate-200 rounded-lg sm:rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 bg-white text-slate-600 text-xs font-bold cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-[#0086F0] w-full sm:w-40"
               >
                 {categories.map(cat => (
                   <option key={cat} value={cat}>{cat}</option>

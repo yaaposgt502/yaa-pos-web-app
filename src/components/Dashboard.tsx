@@ -12,7 +12,14 @@ import {
   CheckCircle,
   Inbox,
   BarChart3,
-  PieChart
+  PieChart,
+  ChevronDown,
+  Banknote,
+  CreditCard,
+  ArrowRightLeft,
+  Wallet,
+  ShoppingBag,
+  ExternalLink
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -55,64 +62,147 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   // Current Shift Status
   const currentShift = shifts.find(s => s.state === 'open');
 
-  // --- Data computation for new charts ---
-  
-  // Top Selling Products
-  const topProductsData = React.useMemo(() => {
-    if (sales.length === 0) {
-      // Mock data matching the image when there is no sales history yet
-      return [
-        { name: "Whisky JackDaniel's", quantity: 32, color: '#1c3b69' },
-        { name: "Vodka Absolut", quantity: 11, color: '#fca366' },
-        { name: "Preparado", quantity: 8, color: '#59c2ce' }
+  // --- Sales Trend Data for Main Chart (matching screenshot) ---
+  const [timeframe, setTimeframe] = React.useState<'7days' | '14days' | '30days'>('7days');
+  const [hoveredPoint, setHoveredPoint] = React.useState<{ label: string; fullDate: string; total: number; count: number; x: number; y: number } | null>(null);
+
+  const salesTrendData = React.useMemo(() => {
+    const days = timeframe === '7days' ? 7 : timeframe === '14days' ? 14 : 30;
+    const result: { dateStr: string; label: string; fullDate: string; total: number; count: number }[] = [];
+    
+    const now = new Date();
+    // Default demo values if there are no sales in the system yet (matched to the reference image)
+    const demoValues = [4300, 5650, 3200, 5400, 6800, 8200, 7550];
+
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
+
+      // Format label: "Vie 17", "Sáb 18", "Dom 19", etc.
+      const rawDayName = d.toLocaleDateString('es-ES', { weekday: 'short' });
+      const cleanDayName = rawDayName.replace('.', '').trim();
+      const capitalized = cleanDayName.charAt(0).toUpperCase() + cleanDayName.slice(1);
+      const label = `${capitalized} ${d.getDate()}`;
+      const fullDate = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+      if (sales.length === 0) {
+        // Use demo values when no sales exist
+        const demoVal = demoValues[(days - 1 - i) % demoValues.length];
+        result.push({
+          dateStr: dateKey,
+          label,
+          fullDate,
+          total: demoVal,
+          count: Math.max(1, Math.round(demoVal / 450))
+        });
+      } else {
+        // Calculate real sales for this specific calendar day
+        const daySales = sales.filter(s => {
+          if (!s.date) return false;
+          const sDate = new Date(s.date);
+          return sDate.getFullYear() === d.getFullYear() &&
+                 sDate.getMonth() === d.getMonth() &&
+                 sDate.getDate() === d.getDate();
+        });
+
+        const total = daySales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+        result.push({
+          dateStr: dateKey,
+          label,
+          fullDate,
+          total,
+          count: daySales.length
+        });
+      }
+    }
+
+    return result;
+  }, [sales, timeframe]);
+
+  // Dynamic Scale and Ticks Calculation for Y-Axis
+  const trendScale = React.useMemo(() => {
+    const maxVal = Math.max(...salesTrendData.map(d => d.total), 0);
+    
+    // Target maximum
+    let targetMax = maxVal === 0 ? 10000 : maxVal * 1.18;
+    
+    // Choose clean step for tick marks
+    let step = 2000;
+    if (targetMax <= 100) step = 20;
+    else if (targetMax <= 500) step = 100;
+    else if (targetMax <= 1000) step = 200;
+    else if (targetMax <= 2500) step = 500;
+    else if (targetMax <= 5000) step = 1000;
+    else if (targetMax <= 10000) step = 2000;
+    else if (targetMax <= 25000) step = 5000;
+    else if (targetMax <= 50000) step = 10000;
+    else if (targetMax <= 100000) step = 20000;
+    else step = Math.ceil(targetMax / 5 / 10000) * 10000;
+
+    const tickSteps = 5;
+    let finalMax = step * tickSteps;
+    if (finalMax < maxVal) {
+      finalMax = Math.ceil(maxVal / step) * step;
+    }
+
+    const ticks: number[] = [];
+    for (let i = tickSteps; i >= 0; i--) {
+      ticks.push(Math.round((finalMax / tickSteps) * i));
+    }
+
+    return { max: finalMax, ticks };
+  }, [salesTrendData]);
+
+  // --- 4 Bottom Visual Cards State & Computation matching user screenshot ---
+  const [categoryTimeframe, setCategoryTimeframe] = React.useState<'today' | 'week' | 'month' | 'all'>('today');
+  const [topProductsTimeframe, setTopProductsTimeframe] = React.useState<'today' | 'week' | 'month' | 'all'>('today');
+
+  // Helper filter by timeframe
+  const filterSalesByTimeframe = (tf: 'today' | 'week' | 'month' | 'all') => {
+    const n = new Date();
+    if (tf === 'today') {
+      const todayStr = n.toDateString();
+      return sales.filter(s => new Date(s.date).toDateString() === todayStr);
+    }
+    if (tf === 'week') {
+      const cutoff = new Date(n);
+      cutoff.setDate(cutoff.getDate() - 7);
+      return sales.filter(s => new Date(s.date) >= cutoff);
+    }
+    if (tf === 'month') {
+      const cutoff = new Date(n);
+      cutoff.setDate(cutoff.getDate() - 30);
+      return sales.filter(s => new Date(s.date) >= cutoff);
+    }
+    return sales;
+  };
+
+  // 1. Top 5 Categories Data
+  const topCategoriesData = React.useMemo(() => {
+    const targetSales = filterSalesByTimeframe(categoryTimeframe);
+    
+    if (targetSales.length === 0) {
+      // Reference demo data matching screenshot
+      const items = [
+        { name: 'Bebidas', amount: 2450.00 },
+        { name: 'Abarrotes', amount: 1890.00 },
+        { name: 'Lácteos', amount: 1250.00 },
+        { name: 'Snacks', amount: 980.00 },
+        { name: 'Limpieza', amount: 760.00 }
       ];
+      return {
+        items,
+        max: 3000,
+        ticks: [0, 1000, 2000, 3000]
+      };
     }
 
-    const counts: { [name: string]: number } = {};
-    sales.forEach(sale => {
-      sale.items.forEach(item => {
-        counts[item.name] = (counts[item.name] || 0) + item.quantity;
-      });
-    });
-
-    const sorted = Object.entries(counts)
-      .map(([name, quantity]) => ({ name, quantity }))
-      .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 3);
-
-    const colors = ['#1c3b69', '#fca366', '#59c2ce'];
-    return sorted.map((item, index) => ({
-      ...item,
-      color: colors[index % colors.length]
-    }));
-  }, [sales]);
-
-  // Max value for Top Products chart scale
-  const barChartScale = React.useMemo(() => {
-    const maxVal = Math.max(...topProductsData.map(p => p.quantity), 10);
-    const roundedMax = Math.ceil(maxVal / 5) * 5;
-    const ticks = [];
-    for (let i = 5; i >= 0; i--) {
-      ticks.push(Math.round((roundedMax / 5) * i));
-    }
-    return { ticks, max: roundedMax };
-  }, [topProductsData]);
-
-  // Sales by Category
-  const categorySalesData = React.useMemo(() => {
-    if (sales.length === 0) {
-      // Mock categories matching the image when empty
-      return [
-        { name: 'Whisky', amount: 1800, pct: 55, color: '#1c3b69' },
-        { name: 'Vodka', amount: 750, pct: 23, color: '#59c2ce' },
-        { name: 'Preparado', amount: 460, pct: 14, color: '#fca366' },
-        { name: 'Sin categoría', amount: 100, pct: 3, color: '#fb7a75' },
-        { name: 'Otros', amount: 100, pct: 3, color: '#9bd1f4' },
-        { name: 'Promociones', amount: 70, pct: 2, color: '#fcc87d' }
-      ];
-    }
-
-    // Build product id/name to category lookup
     const prodToCat: { [idOrName: string]: string } = {};
     products.forEach(p => {
       const cat = p.category ? p.category.trim() : '';
@@ -123,47 +213,167 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
     });
 
     const catTotals: { [category: string]: number } = {};
-    sales.forEach(sale => {
+    targetSales.forEach(sale => {
       sale.items.forEach(item => {
-        const cat = prodToCat[item.productId] || prodToCat[item.name] || 'Sin categoría';
+        const cat = prodToCat[item.productId] || prodToCat[item.name] || 'General';
         catTotals[cat] = (catTotals[cat] || 0) + (item.quantity * item.price);
       });
     });
 
-    const list = Object.entries(catTotals)
+    const sorted = Object.entries(catTotals)
       .map(([name, amount]) => ({ name, amount }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
 
-    const totalAmount = list.reduce((acc, c) => acc + c.amount, 0) || 1;
+    const maxVal = Math.max(...sorted.map(s => s.amount), 100);
+    const step = maxVal > 5000 ? 2000 : maxVal > 2000 ? 1000 : maxVal > 1000 ? 500 : 100;
+    const roundedMax = Math.ceil((maxVal * 1.15) / step) * step;
+    const tickCount = 3;
+    const ticks = [];
+    for (let i = 0; i <= tickCount; i++) {
+      ticks.push(Math.round((roundedMax / tickCount) * i));
+    }
 
-    const colors = ['#1c3b69', '#59c2ce', '#fca366', '#fb7a75', '#9bd1f4', '#fcc87d'];
-    return list.map((item, index) => {
-      const pct = Math.round((item.amount / totalAmount) * 100);
+    return {
+      items: sorted,
+      max: roundedMax,
+      ticks
+    };
+  }, [sales, products, categoryTimeframe]);
+
+  // 2. Top 5 Products Data
+  const topProductsList = React.useMemo(() => {
+    const targetSales = filterSalesByTimeframe(topProductsTimeframe);
+
+    if (targetSales.length === 0) {
+      // Demo products matching screenshot
+      return [
+        { rank: 1, name: 'Coca Cola 600 ml', count: 32, image: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=100&auto=format&fit=crop&q=60' },
+        { rank: 2, name: 'Pan Bimbo Blanco', count: 28, image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=100&auto=format&fit=crop&q=60' },
+        { rank: 3, name: 'Agua Ciel 1 L', count: 24, image: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=100&auto=format&fit=crop&q=60' },
+        { rank: 4, name: 'Leche Lala Entera 1L', count: 20, image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=100&auto=format&fit=crop&q=60' },
+        { rank: 5, name: 'Sabritas Original 45g', count: 18, image: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?w=100&auto=format&fit=crop&q=60' }
+      ];
+    }
+
+    const counts: { [name: string]: { count: number; productId: string } } = {};
+    targetSales.forEach(sale => {
+      sale.items.forEach(item => {
+        if (!counts[item.name]) {
+          counts[item.name] = { count: 0, productId: item.productId };
+        }
+        counts[item.name].count += item.quantity;
+      });
+    });
+
+    const sorted = Object.entries(counts)
+      .map(([name, data]) => {
+        const prodMatch = products.find(p => p.id === data.productId || p.name === name);
+        return {
+          name,
+          count: data.count,
+          image: prodMatch?.imageUrl || ''
+        };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    return sorted.map((item, idx) => ({
+      rank: idx + 1,
+      ...item
+    }));
+  }, [sales, products, topProductsTimeframe]);
+
+  // 3. Recent Sales Data (Top 5)
+  const recentSalesList = React.useMemo(() => {
+    if (sales.length === 0) {
+      // Demo recent sales matching screenshot
+      return [
+        { ticket: '#T000125', client: 'Cliente general', total: 125.00, method: 'cash', time: '10:29 AM' },
+        { ticket: '#T000124', client: 'María López', total: 230.00, method: 'card', time: '10:23 AM' },
+        { ticket: '#T000123', client: 'Cliente general', total: 85.00, method: 'cash', time: '10:15 AM' },
+        { ticket: '#T000122', client: 'José Ramírez', total: 560.00, method: 'card', time: '10:10 AM' },
+        { ticket: '#T000121', client: 'Cliente general', total: 45.00, method: 'cash', time: '10:05 AM' }
+      ];
+    }
+
+    return sales.slice(-5).reverse().map((sale, idx) => {
+      const saleDate = new Date(sale.date);
+      const timeStr = saleDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const ticketNum = `#T${sale.id ? sale.id.slice(-5).toUpperCase() : String(sales.length - idx).padStart(6, '0')}`;
+
       return {
-        ...item,
-        pct,
-        color: colors[index % colors.length]
+        ticket: ticketNum,
+        client: 'Cliente general',
+        total: Number(sale.total) || 0,
+        method: sale.paymentMethod || 'cash',
+        time: timeStr
       };
     });
-  }, [sales, products]);
+  }, [sales]);
 
-  // Conic-gradient background for the donut chart
-  const donutGradient = React.useMemo(() => {
-    if (categorySalesData.length === 0) {
-      return 'conic-gradient(#e2e8f0 0% 100%)';
+  // 4. Payment Methods Breakdown Data
+  const paymentMethodsData = React.useMemo(() => {
+    const C = 2 * Math.PI * 35; // Circle circumference with radius 35 ≈ 219.91
+
+    if (sales.length === 0) {
+      // Demo payment breakdown matching screenshot
+      const items = [
+        { name: 'Efectivo', amount: 4120.00, pct: 47, color: '#0066FF' },
+        { name: 'Tarjeta', amount: 3150.00, pct: 36, color: '#10B981' },
+        { name: 'Transferencia', amount: 1200.00, pct: 14, color: '#8B5CF6' },
+        { name: 'Otro', amount: 280.00, pct: 3, color: '#F59E0B' }
+      ];
+      const total = 8750.00;
+
+      let cumulative = 0;
+      const donutSegments = items.map(it => {
+        const dash = (it.pct / 100) * C;
+        const offset = (cumulative / 100) * C;
+        cumulative += it.pct;
+        return { color: it.color, dash, offset };
+      });
+
+      return { items, total, donutSegments };
     }
-    const parts: string[] = [];
-    let cumulative = 0;
-    categorySalesData.forEach(cat => {
-      const start = cumulative;
-      cumulative += cat.pct;
-      parts.push(`${cat.color} ${start}% ${cumulative}%`);
+
+    const totals: { [method: string]: number } = {
+      cash: 0,
+      card: 0,
+      transfer: 0,
+      other: 0
+    };
+
+    sales.forEach(sale => {
+      const method = sale.paymentMethod === 'cash' ? 'cash' :
+                     sale.paymentMethod === 'card' ? 'card' :
+                     sale.paymentMethod === 'transfer' ? 'transfer' : 'other';
+      totals[method] += (Number(sale.total) || 0);
     });
-    if (cumulative < 100 && categorySalesData.length > 0) {
-      parts.push(`#e2e8f0 ${cumulative}% 100%`);
-    }
-    return `conic-gradient(${parts.join(', ')})`;
-  }, [categorySalesData]);
+
+    const totalSalesSum = Object.values(totals).reduce((sum, v) => sum + v, 0) || 1;
+
+    const items = [
+      { name: 'Efectivo', amount: totals.cash, pct: Math.round((totals.cash / totalSalesSum) * 100), color: '#0066FF' },
+      { name: 'Tarjeta', amount: totals.card, pct: Math.round((totals.card / totalSalesSum) * 100), color: '#10B981' },
+      { name: 'Transferencia', amount: totals.transfer, pct: Math.round((totals.transfer / totalSalesSum) * 100), color: '#8B5CF6' },
+      { name: 'Otro', amount: totals.other, pct: Math.max(0, 100 - Math.round((totals.cash / totalSalesSum) * 100) - Math.round((totals.card / totalSalesSum) * 100) - Math.round((totals.transfer / totalSalesSum) * 100)), color: '#F59E0B' }
+    ];
+
+    let cumulative = 0;
+    const donutSegments = items.map(it => {
+      const dash = (Math.max(it.pct, 0) / 100) * C;
+      const offset = (cumulative / 100) * C;
+      cumulative += Math.max(it.pct, 0);
+      return { color: it.color, dash, offset };
+    });
+
+    return {
+      items,
+      total: totalSalesSum,
+      donutSegments
+    };
+  }, [sales]);
 
   return (
     <div id="dashboard-view" className="space-y-6">
@@ -275,70 +485,192 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Sales (ColSpan: 2) */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-slate-800">Últimas Ventas de Hoy</h2>
-            <button 
-              onClick={() => onNavigate('reportes')} 
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
-            >
-              Ver todos los reportes
-            </button>
+        {/* Sales Trend Chart (ColSpan: 2) - Exactly matching user screenshot */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-6 lg:col-span-2 flex flex-col justify-between relative">
+          {/* Header with Title and Dropdown */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+            <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight">
+              Ventas de los {timeframe === '7days' ? 'últimos 7 días' : timeframe === '14days' ? 'últimos 14 días' : 'últimos 30 días'}
+            </h2>
+            
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <div className="relative">
+                <select
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value as any)}
+                  className="appearance-none bg-white border border-slate-200 hover:border-slate-300 rounded-xl pl-3.5 pr-8 py-1.5 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer transition-colors"
+                >
+                  <option value="7days">Últimos 7 días</option>
+                  <option value="14days">Últimos 14 días</option>
+                  <option value="30days">Últimos 30 días</option>
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
           </div>
 
-          {todaySales.length === 0 ? (
-            <div className="py-12 flex flex-col items-center justify-center text-slate-400 space-y-2">
-              <Inbox className="w-8 h-8 text-slate-300" />
-              <p className="text-sm">No se han registrado ventas el día de hoy.</p>
-              <button
-                onClick={() => onNavigate('punto-de-venta')}
-                className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+          {/* SVG Chart Container */}
+          <div className="relative w-full overflow-hidden mt-1 pt-2">
+            {/* Interactive Tooltip */}
+            {hoveredPoint && (
+              <div 
+                className="absolute pointer-events-none bg-slate-900/95 text-white px-3 py-2 rounded-xl shadow-xl border border-slate-700/50 backdrop-blur-xs text-xs z-30 transition-all transform -translate-x-1/2 -translate-y-full mb-3 animate-in fade-in zoom-in-95 duration-100"
+                style={{
+                  left: `${(hoveredPoint.x / 760) * 100}%`,
+                  top: `${(hoveredPoint.y / 290) * 100}%`
+                }}
               >
-                Ir a Punto de Venta
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100 text-slate-400 text-xs font-medium uppercase">
-                    <th className="py-2">Hora</th>
-                    <th className="py-2">Artículos</th>
-                    <th className="py-2">Pago</th>
-                    <th className="py-2 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {todaySales.slice(-5).reverse().map((sale) => (
-                    <tr key={sale.id} className="text-slate-700">
-                      <td className="py-3 font-mono text-xs">
-                        {new Date(sale.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td className="py-3 max-w-[200px] truncate font-medium">
-                        {sale.items.map(item => `${item.quantity}x ${item.name}`).join(', ')}
-                      </td>
-                      <td className="py-3 text-xs">
-                        <span className={`px-2 py-0.5 rounded-full font-medium capitalize ${
-                          sale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700' :
-                          sale.paymentMethod === 'card' ? 'bg-blue-50 text-blue-700' :
-                          sale.paymentMethod === 'transfer' ? 'bg-purple-50 text-purple-700' :
-                          'bg-amber-50 text-amber-700'
-                        }`}>
-                          {sale.paymentMethod === 'cash' ? 'Efectivo' :
-                           sale.paymentMethod === 'card' ? 'Tarjeta' :
-                           sale.paymentMethod === 'transfer' ? 'Transferencia' : 'Crédito'}
-                        </span>
-                      </td>
-                      <td className="py-3 text-right font-semibold font-mono">
-                        {currency}{sale.total.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                <div className="font-medium text-slate-300 capitalize text-[10px] pb-1 border-b border-slate-700/80">
+                  {hoveredPoint.fullDate}
+                </div>
+                <div className="pt-1.5 flex items-baseline gap-2">
+                  <span className="text-sm font-bold text-emerald-400 font-mono">
+                    {currency}{hoveredPoint.total.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    ({hoveredPoint.count} {hoveredPoint.count === 1 ? 'venta' : 'ventas'})
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <svg
+              viewBox="0 0 760 290"
+              className="w-full h-auto max-h-[320px] overflow-visible select-none"
+            >
+              <defs>
+                <linearGradient id="salesTrendGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0066FF" stopOpacity="0.20" />
+                  <stop offset="80%" stopColor="#0066FF" stopOpacity="0.04" />
+                  <stop offset="100%" stopColor="#0066FF" stopOpacity="0.00" />
+                </linearGradient>
+              </defs>
+
+              {/* Y-Axis Horizontal Gridlines and Currency Labels */}
+              {trendScale.ticks.map((tick, i) => {
+                const tickY = 25 + (i / (trendScale.ticks.length - 1)) * 220;
+                return (
+                  <g key={i}>
+                    <line
+                      x1="85"
+                      y1={tickY}
+                      x2="735"
+                      y2={tickY}
+                      stroke="#f1f5f9"
+                      strokeWidth="1.2"
+                    />
+                    <text
+                      x="75"
+                      y={tickY + 4}
+                      textAnchor="end"
+                      className="fill-slate-500 font-medium font-mono"
+                      style={{ fontSize: '11px' }}
+                    >
+                      {currency} {tick.toLocaleString('es-ES')}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Calculate dynamic points */}
+              {(() => {
+                const points = salesTrendData.map((d, index) => {
+                  const x = salesTrendData.length > 1
+                    ? 85 + (index / (salesTrendData.length - 1)) * 650
+                    : 85 + 325;
+                  const fraction = trendScale.max > 0 ? d.total / trendScale.max : 0;
+                  const y = 245 - fraction * 220;
+                  return { ...d, x, y };
+                });
+
+                const linePath = points.map((p, idx) => (idx === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)).join(' ');
+                const areaPath = points.length > 0
+                  ? `${linePath} L ${points[points.length - 1].x.toFixed(1)} 245 L ${points[0].x.toFixed(1)} 245 Z`
+                  : '';
+
+                return (
+                  <>
+                    {/* Area Under Curve */}
+                    {areaPath && (
+                      <path
+                        d={areaPath}
+                        fill="url(#salesTrendGradient)"
+                      />
+                    )}
+
+                    {/* Blue Stroke Line */}
+                    {linePath && (
+                      <path
+                        d={linePath}
+                        fill="none"
+                        stroke="#0066FF"
+                        strokeWidth="3.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+
+                    {/* X-Axis Day Labels */}
+                    {points.map((p, idx) => (
+                      <text
+                        key={`label-${idx}`}
+                        x={p.x}
+                        y="270"
+                        textAnchor="middle"
+                        className="fill-slate-600 font-semibold tracking-tight"
+                        style={{ fontSize: '11px' }}
+                      >
+                        {p.label}
+                      </text>
+                    ))}
+
+                    {/* Circle Nodes & Hover Interactions */}
+                    {points.map((p, idx) => {
+                      const isHovered = hoveredPoint?.label === p.label;
+                      return (
+                        <g
+                          key={`point-${idx}`}
+                          className="cursor-pointer"
+                          onMouseEnter={() => setHoveredPoint({ label: p.label, fullDate: p.fullDate, total: p.total, count: p.count, x: p.x, y: p.y })}
+                          onMouseLeave={() => setHoveredPoint(null)}
+                        >
+                          {/* Hitbox */}
+                          <circle
+                            cx={p.x}
+                            cy={p.y}
+                            r="15"
+                            fill="transparent"
+                          />
+                          
+                          {/* Halo on hover */}
+                          {isHovered && (
+                            <circle
+                              cx={p.x}
+                              cy={p.y}
+                              r="10"
+                              fill="#0066FF"
+                              fillOpacity="0.25"
+                            />
+                          )}
+
+                          {/* Data dot */}
+                          <circle
+                            cx={p.x}
+                            cy={p.y}
+                            r={isHovered ? "6.5" : "5"}
+                            fill="#0066FF"
+                            stroke="#ffffff"
+                            strokeWidth="2.5"
+                            className="transition-all duration-150"
+                          />
+                        </g>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+            </svg>
+          </div>
         </div>
 
         {/* Operational Highlights (ColSpan: 1) */}
@@ -404,103 +736,233 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
         </div>
       </div>
 
-      {/* Visual Charts Row matching user image */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
+      {/* 4 Cards Row strictly matching user image */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 pt-2">
         
-        {/* Chart 1: Productos Más Vendidos */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-          {/* Header */}
-          <div className="bg-[#0c5c3c] py-3.5 px-5 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-white" />
-            <h3 className="font-bold text-white text-xs sm:text-sm tracking-wide">Productos Más Vendidos</h3>
-          </div>
-          
-          {/* Content */}
-          <div className="p-6 flex-1 flex flex-col justify-between bg-white">
-            <div className="relative h-60 w-full mt-2 flex items-end">
-              {/* Y-Axis scale numbers & horizontal gridlines */}
-              <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-slate-400 font-bold pr-2">
-                {barChartScale.ticks.map((tick, i) => (
-                  <div key={i} className="w-full flex items-center gap-3">
-                    <span className="w-6 text-right font-mono">{tick}</span>
-                    <div className="flex-1 border-t border-slate-100" />
-                  </div>
-                ))}
+        {/* Card 1: Ventas por categoría (Top 5) */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+          <div>
+            {/* Header with Title and Dropdown */}
+            <div className="flex items-center justify-between gap-2 mb-5">
+              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Ventas por categoría (Top 5)</h3>
+              <div className="relative">
+                <select
+                  value={categoryTimeframe}
+                  onChange={(e) => setCategoryTimeframe(e.target.value as any)}
+                  className="appearance-none bg-white border border-slate-200 hover:border-slate-300 rounded-lg pl-2.5 pr-7 py-1 text-xs font-semibold text-slate-700 shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer transition-colors"
+                >
+                  <option value="today">Hoy</option>
+                  <option value="week">Esta semana</option>
+                  <option value="month">Este mes</option>
+                  <option value="all">Todo</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
+            </div>
 
-              {/* Bars container */}
-              <div className="flex-1 flex justify-around items-end h-full pl-10 pr-2 z-10">
-                {topProductsData.map((prod, index) => {
-                  const heightPercent = barChartScale.max > 0 ? (prod.quantity / barChartScale.max) * 100 : 0;
-                  return (
-                    <div key={index} className="flex flex-col items-center group relative w-1/3">
-                      {/* Tooltip on hover */}
-                      <div className="absolute -top-10 bg-slate-800 text-white text-[10px] font-bold px-2.5 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-20">
-                        {prod.quantity} unidades
-                      </div>
-
-                      {/* Bar */}
-                      <div 
-                        style={{ 
-                          height: `${Math.max(heightPercent, 4)}%`,
-                          backgroundColor: prod.color 
-                        }}
-                        className="w-16 rounded-t-lg transition-all duration-300 hover:opacity-90 shadow-2xs cursor-pointer"
+            {/* Horizontal Bar Chart List */}
+            <div className="space-y-4">
+              {topCategoriesData.items.map((cat, idx) => {
+                const widthPct = topCategoriesData.max > 0 ? (cat.amount / topCategoriesData.max) * 100 : 0;
+                return (
+                  <div key={idx} className="flex items-center gap-2.5">
+                    <span className="w-16 text-xs font-semibold text-slate-600 truncate text-left shrink-0">
+                      {cat.name}
+                    </span>
+                    <div className="flex-1 bg-transparent h-4 overflow-hidden flex items-center">
+                      <div
+                        className="bg-[#0066FF] h-full rounded-xs transition-all duration-500"
+                        style={{ width: `${Math.max(widthPct, 3)}%` }}
                       />
-
-                      {/* Label */}
-                      <span className="text-[10px] font-bold text-slate-500 mt-3 truncate w-full text-center px-1" title={prod.name}>
-                        {prod.name}
-                      </span>
                     </div>
-                  );
-                })}
+                    <span className="text-xs font-mono font-bold text-slate-800 shrink-0 text-right min-w-[70px]">
+                      {currency} {cat.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Scale Axis at bottom */}
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[10px] font-mono text-slate-400 font-semibold pl-16 pr-14 mt-4">
+            {topCategoriesData.ticks.map((tick, i) => (
+              <span key={i}>{currency} {tick >= 1000 ? `${(tick / 1000).toFixed(0)}K` : tick}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* Card 2: Productos más vendidos (Top 5) */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+          <div>
+            {/* Header with Title and Dropdown */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Productos más vendidos (Top 5)</h3>
+              <div className="relative">
+                <select
+                  value={topProductsTimeframe}
+                  onChange={(e) => setTopProductsTimeframe(e.target.value as any)}
+                  className="appearance-none bg-white border border-slate-200 hover:border-slate-300 rounded-lg pl-2.5 pr-7 py-1 text-xs font-semibold text-slate-700 shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer transition-colors"
+                >
+                  <option value="today">Hoy</option>
+                  <option value="week">Esta semana</option>
+                  <option value="month">Este mes</option>
+                  <option value="all">Todo</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
+            </div>
+
+            {/* Product List */}
+            <div className="divide-y divide-slate-100/90">
+              {topProductsList.map((prod, idx) => (
+                <div key={idx} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xs font-semibold text-slate-500 w-3 text-center shrink-0">
+                      {prod.rank}
+                    </span>
+                    <div className="w-7 h-7 rounded-md bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 border border-slate-200/60 p-0.5">
+                      {prod.image ? (
+                        <img src={prod.image} alt={prod.name} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <ShoppingBag className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                    </div>
+                    <span className="text-xs font-medium text-slate-700 truncate" title={prod.name}>
+                      {prod.name}
+                    </span>
+                  </div>
+                  <span className="text-xs font-semibold font-mono text-slate-800 shrink-0">
+                    {prod.count}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Chart 2: Ventas por Categoría */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-          {/* Header */}
-          <div className="bg-[#2b4260] py-3.5 px-5 flex items-center gap-2">
-            <PieChart className="w-4 h-4 text-white" />
-            <h3 className="font-bold text-white text-xs sm:text-sm tracking-wide">Ventas por Categoría</h3>
-          </div>
-          
-          {/* Content */}
-          <div className="p-6 flex-1 flex flex-col items-center justify-center bg-white">
-            <div className="flex flex-col items-center justify-center py-4 w-full">
-              {/* Donut container */}
-              <div 
-                className="relative w-44 h-44 rounded-full flex items-center justify-center shadow-xs" 
-                style={{ background: donutGradient }}
+        {/* Card 3: Ventas recientes */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+          <div>
+            {/* Header with Link */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Ventas recientes</h3>
+              <button
+                onClick={() => onNavigate('reportes')}
+                className="text-xs font-semibold text-[#0066FF] hover:text-blue-700 transition-colors cursor-pointer"
               >
-                {/* Donut center with the warm sand color from the user's image */}
-                <div className="absolute w-28 h-28 bg-[#fce9db] rounded-full flex flex-col items-center justify-center shadow-inner border border-slate-100">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block">Total</span>
-                  <span className="text-sm font-black text-slate-800 font-mono">
-                    {sales.length > 0 ? `${config.currency || 'Q'}${sales.reduce((acc, s) => acc + s.total, 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })}` : 'Demo'}
-                  </span>
-                </div>
-              </div>
+                Ver todas
+              </button>
+            </div>
 
-              {/* Legends matching image style */}
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-2.5 mt-8 w-full max-w-md">
-                {categorySalesData.map((item, index) => (
-                  <div key={index} className="flex items-center gap-2 text-[10px] font-bold text-slate-600 uppercase tracking-wide">
-                    <span 
-                      className="w-5 h-2.5 rounded-xs inline-block" 
-                      style={{ backgroundColor: item.color }} 
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 text-slate-400 font-semibold">
+                    <th className="pb-2 font-medium">Ticket</th>
+                    <th className="pb-2 font-medium">Cliente</th>
+                    <th className="pb-2 font-medium">Total</th>
+                    <th className="pb-2 font-medium text-center">Método</th>
+                    <th className="pb-2 font-medium text-right">Hora</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/70">
+                  {recentSalesList.map((sale, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-2.5 font-mono font-medium text-slate-700">
+                        {sale.ticket}
+                      </td>
+                      <td className="py-2.5 font-medium text-slate-700 max-w-[85px] truncate">
+                        {sale.client}
+                      </td>
+                      <td className="py-2.5 font-mono font-medium text-slate-800 whitespace-nowrap">
+                        {currency} {sale.total.toFixed(2)}
+                      </td>
+                      <td className="py-2.5 text-center">
+                        <div className="inline-flex items-center justify-center">
+                          {sale.method === 'cash' ? (
+                            <span className="p-0.5 text-emerald-600 rounded-sm" title="Efectivo">
+                              <Banknote className="w-4 h-4" />
+                            </span>
+                          ) : sale.method === 'card' ? (
+                            <span className="p-0.5 text-blue-600 rounded-sm" title="Tarjeta">
+                              <CreditCard className="w-4 h-4" />
+                            </span>
+                          ) : sale.method === 'transfer' ? (
+                            <span className="p-0.5 text-purple-600 rounded-sm" title="Transferencia">
+                              <ArrowRightLeft className="w-4 h-4" />
+                            </span>
+                          ) : (
+                            <span className="p-0.5 text-amber-600 rounded-sm" title="Otro">
+                              <Wallet className="w-4 h-4" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                        {sale.time}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 4: Ventas por método de pago */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+          <div>
+            {/* Header */}
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Ventas por método de pago</h3>
+            </div>
+
+            {/* Centered Donut Graphic */}
+            <div className="flex justify-center items-center py-3">
+              <div className="relative w-36 h-36 shrink-0 flex items-center justify-center">
+                <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                  {paymentMethodsData.donutSegments.map((seg, idx) => (
+                    <circle
+                      key={idx}
+                      cx="50"
+                      cy="50"
+                      r="35"
+                      fill="transparent"
+                      stroke={seg.color}
+                      strokeWidth="21"
+                      strokeDasharray={`${seg.dash} ${2 * Math.PI * 35 - seg.dash}`}
+                      strokeDashoffset={-seg.offset}
+                      className="transition-all duration-500"
                     />
-                    <span>{item.name}</span>
-                    {sales.length > 0 && (
-                      <span className="text-[10px] text-slate-400 font-mono font-medium">({item.pct}%)</span>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </svg>
               </div>
             </div>
+
+            {/* Vertical Legend List */}
+            <div className="space-y-2.5 text-xs pt-1">
+              {paymentMethodsData.items.map((m, idx) => (
+                <div key={idx} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: m.color }} />
+                    <span className="text-slate-700 font-medium truncate text-xs">{m.name}</span>
+                  </div>
+                  <span className="font-mono text-slate-700 font-semibold whitespace-nowrap text-xs">
+                    {currency} {m.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({m.pct}%)
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Bottom Total in bold blue */}
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-between mt-4">
+            <span className="text-xs font-bold text-slate-800">Total</span>
+            <span className="text-sm font-extrabold text-[#0066FF] font-mono">
+              {currency} {paymentMethodsData.total.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
           </div>
         </div>
 
