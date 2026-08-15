@@ -1926,7 +1926,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                           <div className="flex items-center justify-end gap-2.5">
                             <button
                               onClick={() => {
-                                const updated = combos.map(combo => combo.id === c.id ? { ...combo, status: combo.status === 'Activo' ? 'Inactivo' : 'Activo' as const } : combo);
+                                const updated = combos.map(combo => combo.id === c.id ? { ...combo, status: (combo.status === 'Activo' ? 'Inactivo' : 'Activo') as 'Activo' | 'Inactivo' } : combo);
                                 setCombos(updated);
                               }}
                               className="text-[11px] font-extrabold text-[#005e63] hover:text-[#004d52] bg-teal-50/50 hover:bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-100/40 transition-all cursor-pointer"
@@ -2056,7 +2056,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                   <div className="flex justify-end gap-2 pt-2 border-t border-slate-50 mt-2">
                     <button
                       onClick={() => {
-                        const updated = promos.map(item => item.id === p.id ? { ...item, status: item.status === 'Activo' ? 'Inactivo' : 'Activo' as const } : item);
+                        const updated = promos.map(item => item.id === p.id ? { ...item, status: (item.status === 'Activo' ? 'Inactivo' : 'Activo') as 'Activo' | 'Inactivo' } : item);
                         setPromos(updated);
                       }}
                       className="text-[10px] font-bold text-[#005e63] hover:underline cursor-pointer"
@@ -2089,9 +2089,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
           return p.code.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
         });
 
-        const previewProduct = selectedLabels.length > 0 
+        const previewProduct: Product = selectedLabels.length > 0 
           ? selectedLabels[0].product 
-          : (products[0] || { id: 'sample', name: 'Aceite Primor 1L', code: '7770000000027', price: 21.75, category: 'D210-PRCT', stock: 10, minStock: 2 });
+          : (products[0] || { id: 'sample', name: 'Aceite Primor 1L', code: '7770000000027', price: 21.75, category: 'D210-PRCT', stock: 10, minStock: 2, cost: 15, unit: 'Pza', detail: '' });
 
         const totalSelectedLabelsCount = selectedLabels.reduce((sum, item) => sum + item.quantity, 0);
 

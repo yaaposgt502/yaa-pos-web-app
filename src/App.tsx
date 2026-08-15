@@ -15,6 +15,7 @@ import CashRegister from './components/CashRegister';
 import DailyReports from './components/DailyReports';
 import Settings from './components/Settings';
 import AdminPanel from './components/AdminPanel';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Icons
 import { 
@@ -1325,7 +1326,9 @@ export default function App() {
 
         {/* 2. MAIN ACTIVE VIEWPORT (Right Column) */}
         <main className="flex-1 p-6 md:p-8 overflow-y-auto max-h-screen bg-white">
-          {renderActiveComponent()}
+          <ErrorBoundary key={activeTab}>
+            {renderActiveComponent()}
+          </ErrorBoundary>
         </main>
       </div>
 

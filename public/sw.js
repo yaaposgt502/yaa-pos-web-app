@@ -1,31 +1,30 @@
-const CACHE_NAME = 'yaa-pos-cache-v2';
-const ASSETS_TO_CACHE = [
+const CACHE_NAME = 'yaa-pos-cache-v3';
+const CORE_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icon.svg',
-  '/src/main.tsx',
-  '/src/index.css'
+  '/icon.svg'
 ];
 
-// Install Event
+// Install Event: Cache essential core shell only
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Pre-caching offline shell');
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(CORE_ASSETS).catch((err) => {
+        console.warn('[SW] Core assets pre-caching non-fatal warning:', err);
+      });
     }).then(() => self.skipWaiting())
   );
 });
 
-// Activate Event
+// Activate Event: Clean up outdated caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME) {
-            console.log('[Service Worker] Clearing old cache:', cache);
+            console.log('[SW] Clearing old cache version:', cache);
             return caches.delete(cache);
           }
         })
@@ -34,12 +33,12 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event
+// Fetch Event: Network-first for navigation/HTML, Stale-While-Revalidate for static assets
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests, hot reload, chrome-extension, and Firebase / API endpoints
+  // Skip non-GET, API requests, Firebase endpoints, Dev Server hot reload, Chrome extensions
   if (
     request.method !== 'GET' ||
     url.pathname.startsWith('/api') ||
@@ -56,23 +55,45 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Handle SPA navigation requests: Network first, fallback to cached index.html
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          const fallbackIndex = await caches.match('/index.html');
+          if (fallbackIndex) return fallbackIndex;
+          const rootCached = await caches.match('/');
+          if (rootCached) return rootCached;
+          return new Response('Offline - No connection available', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+          });
+        })
+    );
+    return;
+  }
+
+  // For static assets: Cache first, update in background (Stale-While-Revalidate)
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
-      // Return cached asset immediately if available, but fetch fresh copy in background to update cache (Stale-While-Revalidate)
       const fetchPromise = fetch(request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseToCache);
-            });
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           }
           return networkResponse;
         })
-        .catch(() => {
-          // Offline fallback
-          console.log('[Service Worker] Fetch failed, serving cached fallback');
-        });
+        .catch(() => cachedResponse);
 
       return cachedResponse || fetchPromise;
     })

@@ -6,7 +6,7 @@ export interface User {
   role?: string;
   isOperator?: boolean;
   operatorId?: string;
-  accountStatus?: 'Activa' | 'Suspendida';
+  accountStatus?: 'Activa' | 'Suspendida' | 'Desactivada';
   disabledTabs?: string[];
 }
 
@@ -55,6 +55,9 @@ export interface Client {
   address?: string;
   balanceCredit: number; // For credit accounts
   limitCredit: number;
+  totalSpent?: number;
+  loyaltyPoints?: number;
+  lastPurchaseDate?: string;
 }
 
 export interface Provider {
@@ -210,6 +213,6 @@ export interface License {
   application: string; // "Yaa POS"
   planType: string; // 'Premium Anual' | 'Mensual Básico' | 'Demo 15 días' | 'Gratuito'
   expirationDate: string; // YYYY-MM-DD
-  status: 'Pendiente' | 'Activa' | 'Vencida' | 'Suspendida' | 'Activo' | 'Por Vencer' | 'Expirada';
+  status: 'Pendiente' | 'Activa' | 'Vencida' | 'Suspendida' | 'Activo' | 'Por Vencer' | 'Por vencer' | 'Expirada' | 'Desactivada';
   licenseStartDate?: string; // YYYY-MM-DD
 }

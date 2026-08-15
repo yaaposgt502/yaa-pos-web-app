@@ -76,7 +76,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   const [formClientEmail, setFormClientEmail] = useState('');
   const [formPlanType, setFormPlanType] = useState('Mensual Básico');
   const [formExpirationDate, setFormExpirationDate] = useState('');
-  const [formStatus, setFormStatus] = useState<'Activo' | 'Por Vencer' | 'Suspendida' | 'Expirada'>('Activo');
+  const [formStatus, setFormStatus] = useState<License['status']>('Activo');
 
   // Plans modification state
   const [plans, setPlans] = useState(() => {
