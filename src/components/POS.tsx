@@ -16,6 +16,8 @@ import {
   Minus,
   SlidersHorizontal,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   X,
   Sparkles,
   Star,
@@ -1106,72 +1108,72 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   return (
     <div id="pos-view" className="space-y-6">
       
-      {/* 1. TOP HEADER & QUICK ACTION BUTTONS (Minimized & Elegant for Mobile/iPhone) */}
-      <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200/90 p-3.5 sm:p-5 lg:p-6 shadow-xs space-y-3 sm:space-y-4">
+      {/* 1. TOP HEADER & QUICK ACTION BUTTONS (Neat, minimized and elegant) */}
+      <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 lg:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
         {/* Header Title & Subtitle */}
-        <div className="space-y-0.5 sm:space-y-1">
-          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2 sm:gap-2.5">
-            <ShoppingCart className="w-5 h-5 sm:w-7 sm:h-7 text-[#0086F0]" />
-            Punto de Venta
+        <div className="space-y-0.5 min-w-0">
+          <h1 className="text-lg sm:text-xl lg:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2 sm:gap-2.5">
+            <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 text-[#0086F0] shrink-0" />
+            <span className="truncate">Punto de Venta</span>
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium leading-normal">
+          <p className="text-xs text-slate-500 font-medium truncate sm:whitespace-normal">
             Registra transacciones, administra pedidos y emite facturas en tiempo real.
           </p>
         </div>
 
-        {/* 2x2 Grid of 4 Pill Action Buttons (Compact & Touch-optimized for Mobile / iPhone) */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        {/* Minimized & Clean Action Buttons Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* 1. Nuevo Pedido */}
           <button
             type="button"
             onClick={() => setIsNuevoPedidoModalOpen(true)}
-            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
+            className="h-8.5 sm:h-9 px-2.5 sm:px-3 bg-[#0e9f6e] hover:bg-[#0b8a5c] active:scale-[0.98] text-white text-xs font-bold rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-2xs hover:shadow-xs cursor-pointer whitespace-nowrap"
           >
-            <FolderPlus className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
+            <FolderPlus className="w-3.5 h-3.5 shrink-0 text-white" />
             <span className="truncate">Nuevo Pedido</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setIsDevolucionesModalOpen(true)}
-            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#3f4a56] hover:bg-[#323b45] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
-          >
-            <Undo2 className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
-            <span className="truncate">Devoluciones</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsCotizacionesModalOpen(true)}
-            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#3b82f6] hover:bg-[#2563eb] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
-          >
-            <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
-            <span className="truncate">Cotizaciones</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onNavigate('apertura-cierre')}
-            className="py-2 sm:py-2.5 lg:py-3 px-2 sm:px-3.5 bg-[#f05252] hover:bg-[#e02424] active:scale-[0.98] text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl flex items-center justify-center gap-1.5 sm:gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
-          >
-            <Clock className="w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 text-white" />
-            <span className="truncate">Cerrar Turno</span>
-          </button>
-        </div>
-
-        {/* Pending Orders Card Banner (Compact on mobile) */}
-        <div className="bg-[#fffef0] border border-amber-200/90 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 flex flex-row items-center justify-between gap-2.5 shadow-2xs">
-          <div className="flex items-center gap-2">
-            <Star className="w-4 h-4 text-amber-500 fill-amber-400 shrink-0" />
-            <span className="font-bold text-amber-900 text-xs sm:text-sm truncate">
-              {pendingOrders.length > 0 ? `${pendingOrders.length} pedidos por atender` : '2 pedidos por atender'}
-            </span>
-          </div>
+          {/* 2. Ver Pedidos */}
           <button
             type="button"
             onClick={() => setIsPendingOrdersModalOpen(true)}
-            className="bg-[#d97706] hover:bg-[#b45309] active:scale-[0.98] text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-extrabold uppercase tracking-wider transition-all shadow-2xs cursor-pointer shrink-0"
+            className="h-8.5 sm:h-9 px-2.5 sm:px-3 bg-[#d97706] hover:bg-[#b45309] active:scale-[0.98] text-white text-xs font-bold rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-2xs hover:shadow-xs cursor-pointer whitespace-nowrap"
           >
-            VER PEDIDOS
+            <Star className="w-3.5 h-3.5 shrink-0 text-white fill-white/30" />
+            <span className="truncate">Ver Pedidos</span>
+            <span className="px-1.5 py-0.2 bg-black/20 text-white text-[10px] font-black rounded-full leading-tight">
+              {pendingOrders.length > 0 ? pendingOrders.length : 2}
+            </span>
+          </button>
+
+          {/* 3. Devoluciones */}
+          <button
+            type="button"
+            onClick={() => setIsDevolucionesModalOpen(true)}
+            className="h-8.5 sm:h-9 px-2.5 sm:px-3 bg-[#3f4a56] hover:bg-[#323b45] active:scale-[0.98] text-white text-xs font-bold rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-2xs hover:shadow-xs cursor-pointer whitespace-nowrap"
+          >
+            <Undo2 className="w-3.5 h-3.5 shrink-0 text-white" />
+            <span className="truncate">Devoluciones</span>
+          </button>
+
+          {/* 4. Cotizaciones */}
+          <button
+            type="button"
+            onClick={() => setIsCotizacionesModalOpen(true)}
+            className="h-8.5 sm:h-9 px-2.5 sm:px-3 bg-[#3b82f6] hover:bg-[#2563eb] active:scale-[0.98] text-white text-xs font-bold rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-2xs hover:shadow-xs cursor-pointer whitespace-nowrap"
+          >
+            <FileText className="w-3.5 h-3.5 shrink-0 text-white" />
+            <span className="truncate">Cotizaciones</span>
+          </button>
+
+          {/* 5. Cerrar Turno */}
+          <button
+            type="button"
+            onClick={() => onNavigate('apertura-cierre')}
+            className="col-span-2 sm:col-span-1 lg:col-span-auto h-8.5 sm:h-9 px-2.5 sm:px-3 bg-[#f05252] hover:bg-[#e02424] active:scale-[0.98] text-white text-xs font-bold rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-2xs hover:shadow-xs cursor-pointer whitespace-nowrap"
+          >
+            <Clock className="w-3.5 h-3.5 shrink-0 text-white" />
+            <span className="truncate">Cerrar Turno</span>
           </button>
         </div>
       </div>
@@ -1273,57 +1275,59 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
             </div>
           </div>
 
-          {/* VENTA CLASSICA: Visual Grid with Stock Badge & Images (Matches image spec) */}
+          {/* VENTA CLASSICA: Visual Grid with Smooth Scrollable Viewport & Stock Badge & Images */}
           {posMode === 'classica' && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredProducts.map(p => {
-                const effStock = getProductEffectiveStock(p);
-                const stockColor = effStock <= 0 ? 'bg-rose-500' : effStock <= p.minStock ? 'bg-amber-500' : 'bg-emerald-500';
-                return (
-                  <div 
-                    key={p.id}
-                    onClick={() => openAddToCartModal(p)}
-                    className="bg-white rounded-2xl border border-slate-150 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden cursor-pointer relative flex flex-col"
-                  >
-                    {/* Stock indicator badge exactly as shown in reference */}
-                    <div className={`absolute top-2.5 right-2.5 ${stockColor} text-white font-black text-[10px] px-2 py-0.5 rounded-lg shadow-sm z-10`}>
-                      {effStock}
-                    </div>
+            <div className="max-h-[620px] sm:max-h-[680px] overflow-y-auto pr-1 pb-3 scroll-smooth">
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+                {filteredProducts.map(p => {
+                  const effStock = getProductEffectiveStock(p);
+                  const stockColor = effStock <= 0 ? 'bg-rose-500' : effStock <= p.minStock ? 'bg-amber-500' : 'bg-emerald-500';
+                  return (
+                    <div 
+                      key={p.id}
+                      onClick={() => openAddToCartModal(p)}
+                      className="bg-white rounded-2xl border border-slate-150 shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden cursor-pointer relative flex flex-col"
+                    >
+                      {/* Stock indicator badge exactly as shown in reference */}
+                      <div className={`absolute top-2.5 right-2.5 ${stockColor} text-white font-black text-[10px] px-2 py-0.5 rounded-lg shadow-sm z-10`}>
+                        {effStock}
+                      </div>
 
-                    {/* Image space (using matching Unsplash photography for real visuals) */}
-                    <div className="h-32 bg-slate-50 flex items-center justify-center p-3 relative select-none">
-                      <img 
-                        src={getProductImage(p)} 
-                        alt={p.name}
-                        referrerPolicy="no-referrer"
-                        className="max-h-full max-w-full object-contain mix-blend-multiply"
-                      />
-                    </div>
+                      {/* Image space (using matching Unsplash photography for real visuals) */}
+                      <div className="h-32 bg-slate-50 flex items-center justify-center p-3 relative select-none">
+                        <img 
+                          src={getProductImage(p)} 
+                          alt={p.name}
+                          referrerPolicy="no-referrer"
+                          className="max-h-full max-w-full object-contain mix-blend-multiply"
+                        />
+                      </div>
 
-                    {/* Description & Name */}
-                    <div className="p-3 text-center flex-1 flex flex-col justify-between">
-                      <div>
-                        <h4 className="text-[11px] font-bold text-slate-800 line-clamp-2 uppercase min-h-[32px]">
-                          {p.name}
-                        </h4>
-                        <div className="text-[13px] font-extrabold text-[#0086F0] font-mono mt-1">
-                          {currency}/{p.price.toFixed(2)}
+                      {/* Description & Name */}
+                      <div className="p-3 text-center flex-1 flex flex-col justify-between">
+                        <div>
+                          <h4 className="text-[11px] font-bold text-slate-800 line-clamp-2 uppercase min-h-[32px]">
+                            {p.name}
+                          </h4>
+                          <div className="text-[13px] font-extrabold text-[#0086F0] font-mono mt-1">
+                            {currency}/{p.price.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="text-[9px] font-black tracking-wide text-slate-400 uppercase mt-2">
+                          {p.category}
                         </div>
                       </div>
-                      <div className="text-[9px] font-black tracking-wide text-slate-400 uppercase mt-2">
-                        {p.category}
-                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
 
-              {filteredProducts.length === 0 && (
-                <div className="col-span-full py-16 text-center bg-white rounded-2xl border border-slate-100 p-8 text-slate-400">
-                  <SlidersHorizontal className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-                  <p className="text-sm">No se encontraron productos coincidentes en esta categoría.</p>
-                </div>
-              )}
+                {filteredProducts.length === 0 && (
+                  <div className="col-span-full py-16 text-center bg-white rounded-2xl border border-slate-100 p-8 text-slate-400">
+                    <SlidersHorizontal className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+                    <p className="text-sm">No se encontraron productos coincidentes en esta categoría.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
