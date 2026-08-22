@@ -167,20 +167,20 @@ export default function CashRegister({
         /* ACTIVE OPEN SHIFT VIEW - MATCHING THE DESIGN OF THE USER IMAGE */
         <div className="bg-white rounded-3xl shadow-xl border border-slate-150/80 overflow-hidden animate-in fade-in duration-200">
           
-          {/* Gradient Purple Header */}
-          <div className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white px-6 py-5 relative flex justify-between items-center shadow-xs">
+          {/* Header */}
+          <div className="bg-[#0084FF] text-white px-6 py-5 relative flex justify-between items-center shadow-xs">
             <div className="space-y-0.5">
               <h2 className="font-extrabold text-lg flex items-center gap-2">
                 <span className="p-1 bg-white/10 rounded-lg">
-                  <CheckCircle2 className="w-5 h-5 text-indigo-100" />
+                  <CheckCircle2 className="w-5 h-5 text-blue-100" />
                 </span>
                 Cierre de Turno y Arqueo
               </h2>
-              <p className="text-xs text-indigo-100 font-medium">Verifique los montos antes de cerrar el turno</p>
+              <p className="text-xs text-blue-100 font-medium">Verifique los montos antes de cerrar el turno</p>
             </div>
             <button 
               onClick={() => onNavigate?.('dashboard')} 
-              className="p-2 hover:bg-white/15 rounded-full text-indigo-100 hover:text-white transition-all cursor-pointer"
+              className="p-2 hover:bg-white/15 rounded-full text-blue-100 hover:text-white transition-all cursor-pointer"
               title="Volver al Dashboard"
             >
               <X className="w-5 h-5" />

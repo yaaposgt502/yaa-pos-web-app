@@ -918,19 +918,19 @@ export default function DailyReports({ sales, expenses, clients, config, product
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-5xl w-full overflow-hidden shadow-2xl border border-slate-150 flex flex-col animate-in zoom-in-95 duration-200">
             
-            {/* Purple/Indigo Banner Header */}
-            <div className="bg-gradient-to-r from-purple-700 via-indigo-700 to-blue-700 text-white px-6 py-4.5 relative flex justify-between items-center shadow-md">
+            {/* Header */}
+            <div className="bg-[#0084FF] text-white px-6 py-4.5 relative flex justify-between items-center shadow-md">
               <div className="space-y-1">
                 <h3 className="font-extrabold text-base flex items-center gap-2">
                   <span className="p-1.5 bg-white/10 rounded-lg">
-                    <BarChart className="w-5 h-5 text-indigo-100" />
+                    <BarChart className="w-5 h-5 text-blue-100" />
                   </span>
                   Resumen detallado de ingresos
                 </h3>
               </div>
               <button 
                 onClick={() => setShowDetailedModal(false)} 
-                className="p-1.5 hover:bg-white/15 rounded-full text-indigo-100 hover:text-white transition-all cursor-pointer"
+                className="p-1.5 hover:bg-white/15 rounded-full text-blue-100 hover:text-white transition-all cursor-pointer"
                 title="Cerrar"
               >
                 <X className="w-5 h-5" />

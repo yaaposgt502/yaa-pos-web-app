@@ -3,6 +3,7 @@ import { Product, AppConfig, Sale, Purchase } from '../types';
 import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
 import { 
   Plus, 
+  PlusCircle,
   Search, 
   Edit, 
   Trash2, 
@@ -959,21 +960,68 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     }
   };
 
-  // Quick plus stock button (+1)
-  const handleQuickAddStock = async (product: Product) => {
-    const currentStock = getProductStock(product);
-    const newStock = currentStock + 1;
-    let updatedExpirationDates = product.expirationDates;
-    if (updatedExpirationDates && updatedExpirationDates.length > 0) {
-      updatedExpirationDates = updatedExpirationDates.map((r, i) => i === 0 ? { ...r, stock: (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) + 1 } : r);
+  // Manual Stock Modal State (matches user screenshot)
+  const [isManualStockModalOpen, setIsManualStockModalOpen] = useState(false);
+  const [manualStockProduct, setManualStockProduct] = useState<Product | null>(null);
+  const [manualStockQty, setManualStockQty] = useState('');
+  const [manualStockReason, setManualStockReason] = useState('');
+  const [manualStockLocation, setManualStockLocation] = useState('Almacén Principal');
+
+  // Open "Aumentar Stock Manual" modal
+  const handleOpenManualStockModal = (product: Product) => {
+    setManualStockProduct(product);
+    setManualStockQty('');
+    setManualStockReason('');
+    setManualStockLocation(product.location || 'Almacén Principal');
+    setIsManualStockModalOpen(true);
+  };
+
+  // Confirm manual stock increase
+  const handleConfirmManualStock = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!manualStockProduct) return;
+
+    const qty = parseInt(manualStockQty) || 0;
+    if (qty <= 0) {
+      alert('Por favor ingrese una cantidad mayor a 0 para agregar al stock.');
+      return;
     }
+
+    const currentStock = getProductStock(manualStockProduct);
+    const newStock = currentStock + qty;
+
+    let updatedExpirationDates = manualStockProduct.expirationDates;
+    if (updatedExpirationDates && updatedExpirationDates.length > 0) {
+      updatedExpirationDates = updatedExpirationDates.map((r, i) =>
+        i === 0 ? { ...r, stock: (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) + qty } : r
+      );
+    }
+
+    // Save adjustment to Kardex history
+    const savedAdjustmentsKey = `kardex_adjustments_${manualStockProduct.id}`;
+    const savedAdjustmentsStr = localStorage.getItem(savedAdjustmentsKey);
+    const adjustments = savedAdjustmentsStr ? JSON.parse(savedAdjustmentsStr) : [];
+    const newAdj = {
+      id: `adj-manual-${Date.now()}`,
+      date: new Date().toISOString(),
+      type: 'entrada',
+      quantity: qty,
+      reference: manualStockReason.trim() || 'Aumento manual de stock'
+    };
+    adjustments.push(newAdj);
+    localStorage.setItem(savedAdjustmentsKey, JSON.stringify(adjustments));
+
     const updated: Product = {
-      ...product,
+      ...manualStockProduct,
       stock: newStock,
+      location: manualStockLocation || manualStockProduct.location || 'Almacén Principal',
       expirationDates: updatedExpirationDates
     };
+
     try {
       await onSaveProduct(updated);
+      setIsManualStockModalOpen(false);
+      setManualStockProduct(null);
       onRefreshData();
     } catch (err: any) {
       alert(err.message || 'Error al actualizar el stock');
@@ -1803,11 +1851,11 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                           </td>
                           <td className="py-3 px-5">
                             <div className="flex items-center justify-end gap-1.5">
-                              {/* Quick stock +1 action */}
+                              {/* Aumentar Stock Manual */}
                               <button
-                                onClick={() => handleQuickAddStock(p)}
-                                className="p-1 text-slate-500 hover:text-white hover:bg-teal-600 rounded-md border border-slate-200 hover:border-teal-600 transition-colors cursor-pointer"
-                                title="Agregar +1 al Stock"
+                                onClick={() => handleOpenManualStockModal(p)}
+                                className="p-1 text-slate-500 hover:text-white hover:bg-[#26c6da] rounded-md border border-slate-200 hover:border-[#26c6da] transition-colors cursor-pointer"
+                                title="Aumentar Stock Manual"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                               </button>
@@ -2395,8 +2443,8 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150 overflow-y-auto">
           <div className={`bg-white rounded-xl ${config.businessType === 'pharmacy' ? 'max-w-4xl' : 'max-w-lg'} w-full shadow-xl border border-slate-100 overflow-hidden flex flex-col my-8 max-h-[90vh]`}>
-            {/* Header styled like the image with deep blue / azul royal */}
-            <div className="bg-[#1E88E5] text-white p-4 flex items-center justify-between shrink-0 shadow-sm">
+            {/* Header */}
+            <div className="bg-[#0084FF] text-white p-4 flex items-center justify-between shrink-0 shadow-sm">
               <h3 className="font-bold text-white text-base flex items-center gap-2">
                 <Boxes className="w-5 h-5 text-blue-100" />
                 {editingProduct ? 'Editar Producto' : 'Registrar Nuevo Producto'}
@@ -3439,9 +3487,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
             onSubmit={handleAddCombo}
             className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 flex flex-col my-auto max-h-[90vh] min-h-0"
           >
-            {/* Header: Gradient background with title & close button */}
-            <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-700 text-white px-6 py-4.5 flex items-center justify-between shrink-0">
-              <h3 className="text-lg font-black tracking-tight text-white font-display">
+            {/* Header: Title & close button */}
+            <div className="bg-[#f8faff] text-slate-800 px-6 py-4.5 flex items-center justify-between shrink-0 border-b border-slate-100">
+              <h3 className="text-lg font-black tracking-tight text-slate-800 font-display">
                 Combo
               </h3>
               <button
@@ -3453,7 +3501,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                   setSelectedComponentQuantity('');
                   setIsComboModalOpen(false);
                 }}
-                className="text-white/80 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-all cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-full transition-all cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -3578,7 +3626,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
             <div className="pt-4 border-t border-slate-100 flex justify-end shrink-0 bg-slate-50/50 px-6 py-4 rounded-b-3xl">
               <button
                 type="submit"
-                className="px-8 py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-700 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-800 text-white rounded-2xl font-bold shadow-md hover:shadow-lg active:scale-98 transition-all text-sm cursor-pointer"
+                className="px-8 py-3 bg-[#005e63] hover:bg-[#004b4f] text-white rounded-2xl font-bold shadow-md hover:shadow-lg active:scale-98 transition-all text-sm cursor-pointer"
               >
                 Guardar
               </button>
@@ -3748,8 +3796,8 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
           <div className="bg-white rounded-xl max-w-5xl w-full shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
             
-            {/* Header with Sky Blue Background */}
-            <div className="flex items-center justify-between bg-sky-500 text-white px-6 py-4 shrink-0 shadow-sm">
+            {/* Header with #0084FF Background */}
+            <div className="flex items-center justify-between bg-[#0084FF] text-white px-6 py-4 shrink-0 shadow-sm">
               <div className="flex items-center gap-2">
                 <Folder className="w-5 h-5" />
                 <div>
@@ -3970,6 +4018,154 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Aumentar Stock Manual (matches exact user design) */}
+      {isManualStockModalOpen && manualStockProduct && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-100 flex flex-col animate-in zoom-in-95 duration-150">
+            
+            {/* Top Header */}
+            <div className="bg-[#0084FF] px-6 py-3.5 flex items-center justify-between text-white shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <PlusCircle className="w-5 h-5 stroke-[2.5] text-white" />
+                <h3 className="font-bold text-base text-white tracking-wide">Aumentar Stock Manual</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsManualStockModalOpen(false);
+                  setManualStockProduct(null);
+                }}
+                className="text-white/80 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5 stroke-[2.5]" />
+              </button>
+            </div>
+
+            {/* Modal Body Form */}
+            <form onSubmit={handleConfirmManualStock} className="flex flex-col">
+              <div className="p-6 md:p-8 flex flex-col md:flex-row gap-6 md:gap-8 items-start">
+                
+                {/* Left Column: Product Image Box */}
+                <div className="w-full md:w-52 shrink-0 aspect-square rounded-2xl bg-slate-50 border border-slate-200/80 p-3 flex items-center justify-center overflow-hidden shadow-inner">
+                  {manualStockProduct.imageUrl ? (
+                    <img
+                      src={manualStockProduct.imageUrl}
+                      alt={manualStockProduct.name}
+                      className="w-full h-full object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="text-center text-slate-300 flex flex-col items-center gap-2">
+                      <Package className="w-16 h-16 stroke-[1.2] text-slate-300" />
+                      <span className="text-[11px] font-bold text-slate-400">Sin imagen</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Product details & fields */}
+                <div className="flex-1 w-full space-y-3.5">
+                  <div>
+                    <h2 className="text-xl font-black text-slate-800 tracking-tight leading-tight">
+                      {manualStockProduct.name}
+                    </h2>
+                    <p className="text-xs text-slate-400 font-semibold mt-0.5 flex items-center gap-1.5 font-mono">
+                      <span>{manualStockProduct.code}</span>
+                      <span>•</span>
+                      <span className="text-slate-500 font-sans">{manualStockProduct.category || 'General'}</span>
+                    </p>
+                  </div>
+
+                  {/* Stock Actual Box */}
+                  <div className="bg-[#f0f8ff] border border-[#d8ecff] rounded-xl px-4 py-2.5 flex items-center gap-3">
+                    <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">STOCK ACTUAL</span>
+                    <span className="text-2xl font-black text-[#1e40af] font-mono leading-none">
+                      {getProductStock(manualStockProduct)}
+                    </span>
+                    <span className="text-xs font-medium text-slate-500">
+                      ({manualStockProduct.unit || 'Unidad'})
+                    </span>
+                  </div>
+
+                  {/* Ubicación */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">Ubicación</label>
+                    <select
+                      value={manualStockLocation}
+                      onChange={(e) => setManualStockLocation(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-700 font-medium focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden cursor-pointer"
+                    >
+                      <option value={manualStockProduct.location || 'Almacén Principal'}>
+                        {manualStockProduct.location || 'Almacén Principal'} -- Stock: {getProductStock(manualStockProduct)}
+                      </option>
+                      <option value="Almacén Secundario">Almacén Secundario</option>
+                      <option value="Vitrina Principal">Vitrina Principal</option>
+                      <option value="Bodega">Bodega</option>
+                    </select>
+                  </div>
+
+                  {/* Cantidad a agregar */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">Cantidad a agregar</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      autoFocus
+                      placeholder="0"
+                      value={manualStockQty}
+                      onChange={(e) => setManualStockQty(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden"
+                    />
+                  </div>
+
+                  {/* Motivo (opcional) */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">Motivo (opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Ajuste por conteo físico"
+                      value={manualStockReason}
+                      onChange={(e) => setManualStockReason(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden"
+                    />
+                  </div>
+
+                  {/* Nuevo stock estimado Box */}
+                  <div className="bg-[#f0fdf4] border border-[#bbf7d0] rounded-xl px-4 py-3 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#166534]">Nuevo stock estimado</span>
+                    <span className="text-xl font-black text-[#166534] font-mono leading-none">
+                      {getProductStock(manualStockProduct) + (parseInt(manualStockQty) || 0)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 flex items-center justify-end gap-4 rounded-b-3xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsManualStockModalOpen(false);
+                    setManualStockProduct(null);
+                  }}
+                  className="text-xs font-bold text-slate-700 hover:text-slate-900 px-3 py-2 cursor-pointer transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#10b981] hover:bg-[#059669] active:scale-98 text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Check className="w-4 h-4 stroke-[3]" />
+                  <span>Confirmar aumento</span>
+                </button>
+              </div>
+            </form>
+
           </div>
         </div>
       )}

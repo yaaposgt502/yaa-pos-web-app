@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Product, Provider, Purchase, PurchaseItem } from '../types';
+import { Product, Provider, Purchase, PurchaseItem, AppConfig } from '../types';
 import { 
   Plus, 
   Search, 
@@ -17,7 +17,8 @@ import {
   Calendar,
   Filter,
   RotateCcw,
-  Eye
+  Eye,
+  Pill
 } from 'lucide-react';
 
 interface PurchasingProps {
@@ -25,6 +26,7 @@ interface PurchasingProps {
   providers: Provider[];
   purchases: Purchase[];
   currency: string;
+  config?: AppConfig;
   onSavePurchase: (purchase: Purchase) => Promise<Purchase>;
   onSaveProduct: (product: Product) => Promise<Product>;
   onRefreshData: () => void;
@@ -35,10 +37,12 @@ export default function Purchasing({
   providers, 
   purchases, 
   currency, 
+  config,
   onSavePurchase, 
   onSaveProduct,
   onRefreshData 
 }: PurchasingProps) {
+  const isPharmacy = config?.businessType === 'pharmacy';
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [purchaseStatus, setPurchaseStatus] = useState<'completed' | 'pending'>('completed');
@@ -65,6 +69,11 @@ export default function Purchasing({
   const [currentCost, setCurrentCost] = useState<string>('');
   const [currentLote, setCurrentLote] = useState<string>('');
   const [currentVencimiento, setCurrentVencimiento] = useState<string>('');
+
+  // Pharmacy specific selling prices states
+  const [currentPriceUnit, setCurrentPriceUnit] = useState<string>('');
+  const [currentPriceBlister, setCurrentPriceBlister] = useState<string>('');
+  const [currentPriceBox, setCurrentPriceBox] = useState<string>('');
 
   // Filtering states for the purchase history
   const [filterProvider, setFilterProvider] = useState('all');
@@ -93,6 +102,9 @@ export default function Purchasing({
     cost: number;
     lote: string;
     expirationDate: string;
+    pricePerUnit?: number;
+    pricePerBlister?: number;
+    pricePerBox?: number;
   }
   const [purchaseItems, setPurchaseItems] = useState<DraftPurchaseItem[]>([]);
 
@@ -235,7 +247,10 @@ export default function Purchasing({
         quantity: item.quantity,
         cost: item.cost,
         lote: item.lote,
-        expirationDate: item.expirationDate
+        expirationDate: item.expirationDate,
+        pricePerUnit: item.pricePerUnit,
+        pricePerBlister: item.pricePerBlister,
+        pricePerBox: item.pricePerBox
       })),
       total: calculations.total,
       providerId: selectedProviderId,
@@ -320,8 +335,8 @@ export default function Purchasing({
         /* Purchase Entry Form Card */
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-200">
           
-          {/* Header Gradient */}
-          <div className="bg-gradient-to-r from-[#0d3b66] to-[#0086F0] text-white p-4 flex justify-between items-center">
+          {/* Header */}
+          <div className="bg-[#0084FF] text-white p-4 flex justify-between items-center">
             <div className="flex items-center gap-2 font-bold text-sm">
               <ShoppingBag className="w-4 h-4" />
               <span>Nueva Compra</span>
@@ -438,223 +453,371 @@ export default function Purchasing({
             </div>
 
             {/* Product Quick Form Input Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-slate-50/50 p-4 rounded-xl border border-slate-100">
-              
-              {/* Product input search */}
-              <div className="sm:col-span-4 space-y-1 relative">
-                <label className="block text-xs font-bold text-slate-500">Producto</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Buscar producto..."
-                    value={prodSearch}
-                    onChange={(e) => {
-                      setProdSearch(e.target.value);
-                      if (currentProduct && e.target.value !== currentProduct.name) {
-                        setCurrentProduct(null);
-                      }
-                    }}
-                    className="w-full text-xs border border-slate-200 rounded-xl pl-3 pr-8 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 uppercase"
-                  />
-                  {currentProduct && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCurrentProduct(null);
-                        setProdSearch('');
-                        setCurrentCost('');
-                        setCurrentLote('');
-                        setCurrentVencimiento('');
+            <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-4">
+              {/* Row 1: Product, Quantity, Cost, Batch, Expiration */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                {/* Product input search */}
+                <div className="sm:col-span-4 space-y-1 relative">
+                  <label className="block text-xs font-bold text-slate-700">Producto</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="BUSCAR PRODUCTO..."
+                      value={prodSearch}
+                      onChange={(e) => {
+                        setProdSearch(e.target.value);
+                        if (currentProduct && e.target.value !== currentProduct.name) {
+                          setCurrentProduct(null);
+                        }
                       }}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                      className="w-full text-xs border border-slate-200 rounded-xl pl-3 pr-8 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 uppercase font-medium"
+                    />
+                    {currentProduct && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentProduct(null);
+                          setProdSearch('');
+                          setCurrentCost('');
+                          setCurrentLote('');
+                          setCurrentVencimiento('');
+                          setCurrentPriceUnit('');
+                          setCurrentPriceBlister('');
+                          setCurrentPriceBox('');
+                        }}
+                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Dropdown list for search */}
+                  {prodSearch.trim() !== '' && !currentProduct && (
+                    <div className="absolute z-20 w-full bg-white border border-slate-200 rounded-xl mt-1 shadow-xl p-1.5 divide-y divide-slate-50 max-h-56 overflow-y-auto left-0">
+                      {filteredProdList.map(p => (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            setCurrentProduct(p);
+                            setProdSearch(p.name);
+                            setCurrentCost(p.cost.toString());
+                            setCurrentPriceUnit(p.pricePerUnit?.toString() || p.price?.toString() || '');
+                            setCurrentPriceBlister(p.pricePerBlister?.toString() || '');
+                            setCurrentPriceBox(p.pricePerBox?.toString() || '');
+
+                            const initialBatchName = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].batch)
+                              ? p.expirationDates[p.expirationDates.length - 1].batch
+                              : (p.initialBatch || '00101');
+                            const initialExpDate = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].date)
+                              ? p.expirationDates[p.expirationDates.length - 1].date
+                              : (p.expirationDate || '');
+                            
+                            let formattedExp = initialExpDate;
+                            if (initialExpDate && initialExpDate.includes('/')) {
+                              const parts = initialExpDate.split('/');
+                              if (parts.length === 3) {
+                                formattedExp = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                              }
+                            }
+
+                            setCurrentLote(initialBatchName);
+                            setCurrentVencimiento(formattedExp);
+                          }}
+                          className="p-2 hover:bg-blue-50/60 rounded-lg cursor-pointer flex justify-between items-center text-xs"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-slate-800 uppercase truncate">{p.name}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">Código: {p.code} | Stock: {p.stock}</p>
+                          </div>
+                          <span className="text-[10px] font-bold text-[#0086F0] bg-blue-50 px-2 py-0.5 rounded-sm shrink-0 border border-blue-100">Seleccionar</span>
+                        </div>
+                      ))}
+
+                      <div
+                        onClick={() => {
+                          const cleanName = prodSearch.trim().toUpperCase();
+                          const newProd: Product = {
+                            id: `NEW_${Date.now()}`,
+                            code: `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
+                            name: cleanName,
+                            category: 'General',
+                            cost: 0,
+                            price: 0,
+                            stock: 0,
+                            minStock: 5,
+                            unit: 'Pza',
+                            initialBatch: '00101',
+                            expirationDate: '',
+                            manageBatchAndExpiration: true,
+                            expirationDates: []
+                          };
+                          setCurrentProduct(newProd);
+                          setProdSearch(cleanName);
+                          setCurrentCost('');
+                          setCurrentLote('00101');
+                          setCurrentVencimiento('');
+                          setCurrentPriceUnit('');
+                          setCurrentPriceBlister('');
+                          setCurrentPriceBox('');
+                        }}
+                        className="p-2.5 hover:bg-blue-50 rounded-lg cursor-pointer flex items-center justify-between text-xs text-[#0086F0] font-bold bg-blue-50/40 mt-1"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Plus className="w-4 h-4 shrink-0" />
+                          <span className="truncate">Registrar nuevo producto "{prodSearch.trim().toUpperCase()}"</span>
+                        </div>
+                        <span className="text-[10px] bg-[#0086F0] text-white px-2 py-0.5 rounded-md shrink-0">Nuevo</span>
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                {/* Dropdown list for search */}
-                {prodSearch.trim() !== '' && !currentProduct && (
-                  <div className="absolute z-10 w-full bg-white border border-slate-200 rounded-xl mt-1 shadow-lg p-1.5 divide-y divide-slate-50 max-h-56 overflow-y-auto">
-                    {filteredProdList.map(p => (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          setCurrentProduct(p);
-                          setProdSearch(p.name);
-                          setCurrentCost(p.cost.toString());
-                          const initialBatchName = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].batch)
-                            ? p.expirationDates[p.expirationDates.length - 1].batch
-                            : (p.initialBatch || '00101');
-                          const initialExpDate = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].date)
-                            ? p.expirationDates[p.expirationDates.length - 1].date
-                            : (p.expirationDate || '');
-                          
-                          let formattedExp = initialExpDate;
-                          if (initialExpDate && initialExpDate.includes('/')) {
-                            const parts = initialExpDate.split('/');
-                            if (parts.length === 3) {
-                              formattedExp = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                            }
-                          }
+                {/* Cantidad */}
+                <div className="sm:col-span-1 space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 text-center">Cant.</label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Cant."
+                    value={currentQuantity}
+                    onChange={(e) => setCurrentQuantity(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-2 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 font-mono font-bold text-center"
+                  />
+                </div>
 
-                          setCurrentLote(initialBatchName);
-                          setCurrentVencimiento(formattedExp);
-                        }}
-                        className="p-2 hover:bg-blue-50/60 rounded-lg cursor-pointer flex justify-between items-center text-xs"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-slate-800 uppercase truncate">{p.name}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">Código: {p.code} | Stock: {p.stock}</p>
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-sm shrink-0">Insertar</span>
-                      </div>
-                    ))}
+                {/* Precio Costo */}
+                <div className="sm:col-span-2 space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 text-right">Precio Costo ({currency})</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={currentCost}
+                    onChange={(e) => setCurrentCost(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 font-mono text-right"
+                  />
+                </div>
 
-                    <div
+                {/* Precio Venta x Unidad (Visible en todos los giros) */}
+                <div className="sm:col-span-2 space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 text-right">Precio Venta x Unidad ({currency})</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={currentPriceUnit}
+                    onChange={(e) => setCurrentPriceUnit(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-800 font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 text-right"
+                  />
+                </div>
+
+                {/* Lote */}
+                <div className={isPharmacy ? "sm:col-span-2 space-y-1" : "sm:col-span-1 space-y-1"}>
+                  <label className="block text-xs font-bold text-slate-700">Lote</label>
+                  <input
+                    type="text"
+                    placeholder="Lote (opc.)"
+                    value={currentLote}
+                    onChange={(e) => setCurrentLote(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-2 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 font-mono"
+                  />
+                </div>
+
+                {/* Vencimiento */}
+                <div className="sm:col-span-2 space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Vencimiento</label>
+                  <input
+                    type="date"
+                    value={currentVencimiento}
+                    onChange={(e) => setCurrentVencimiento(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 text-slate-600"
+                  />
+                </div>
+
+                {/* Add Button for standard mode (non-pharmacy) */}
+                {!isPharmacy && (
+                  <div className="sm:col-span-1">
+                    <button
+                      type="button"
                       onClick={() => {
-                        const cleanName = prodSearch.trim().toUpperCase();
-                        const newProd: Product = {
-                          id: `NEW_${Date.now()}`,
-                          code: `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
-                          name: cleanName,
-                          category: 'General',
-                          cost: 0,
-                          price: 0,
-                          stock: 0,
-                          minStock: 5,
-                          unit: 'Pza',
-                          initialBatch: '00101',
-                          expirationDate: '',
-                          manageBatchAndExpiration: true,
-                          expirationDates: []
-                        };
-                        setCurrentProduct(newProd);
-                        setProdSearch(cleanName);
+                        if (!currentProduct) {
+                          alert('Por favor seleccione un producto de la búsqueda');
+                          return;
+                        }
+                        const q = parseInt(currentQuantity);
+                        if (isNaN(q) || q <= 0) {
+                          alert('Por favor ingrese una cantidad válida mayor a 0');
+                          return;
+                        }
+                        const c = parseFloat(currentCost);
+                        if (isNaN(c) || c < 0) {
+                          alert('Por favor ingrese un costo unitario válido');
+                          return;
+                        }
+
+                        const pUnit = parseFloat(currentPriceUnit);
+
+                        setPurchaseItems(prev => {
+                          const existingIdx = prev.findIndex(item => item.product.id === currentProduct.id && item.lote === currentLote);
+                          if (existingIdx > -1) {
+                            const updated = [...prev];
+                            updated[existingIdx].quantity += q;
+                            if (!isNaN(pUnit) && pUnit > 0) updated[existingIdx].pricePerUnit = pUnit;
+                            return updated;
+                          }
+                          const effectiveLote = currentLote.trim() || currentProduct.initialBatch || '00101';
+                          return [...prev, {
+                            product: currentProduct,
+                            quantity: q,
+                            cost: c,
+                            lote: effectiveLote,
+                            pricePerUnit: !isNaN(pUnit) && pUnit > 0 ? pUnit : (currentProduct.pricePerUnit || currentProduct.price || 0),
+                            expirationDate: currentVencimiento 
+                              ? (() => {
+                                  const parts = currentVencimiento.split('-');
+                                  if (parts.length === 3) {
+                                    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                                  }
+                                  return currentVencimiento;
+                                })()
+                              : (currentProduct.expirationDate || '—')
+                          }];
+                        });
+
+                        // Reset fields
+                        setCurrentProduct(null);
+                        setProdSearch('');
+                        setCurrentQuantity('');
                         setCurrentCost('');
-                        setCurrentLote('00101');
+                        setCurrentLote('');
                         setCurrentVencimiento('');
+                        setCurrentPriceUnit('');
+                        setCurrentPriceBlister('');
+                        setCurrentPriceBox('');
                       }}
-                      className="p-2.5 hover:bg-blue-50 rounded-lg cursor-pointer flex items-center justify-between text-xs text-[#0086F0] font-bold bg-blue-50/40 mt-1"
+                      className="w-full h-9 bg-[#0086F0] text-white rounded-xl flex items-center justify-center hover:bg-[#0074D0] active:scale-95 transition-all cursor-pointer shadow-sm"
+                      title="Agregar producto a la lista"
                     >
-                      <div className="flex items-center gap-1.5 truncate">
-                        <Plus className="w-4 h-4 shrink-0" />
-                        <span className="truncate">Registrar nuevo producto "{prodSearch.trim().toUpperCase()}"</span>
-                      </div>
-                      <span className="text-[10px] bg-[#0086F0] text-white px-2 py-0.5 rounded-md shrink-0">Nuevo</span>
-                    </div>
+                      <Plus className="w-5 h-5" />
+                    </button>
                   </div>
                 )}
               </div>
 
-              {/* Cantidad */}
-              <div className="sm:col-span-1 space-y-1">
-                <label className="block text-xs font-bold text-slate-500 text-center">Cant.</label>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Can"
-                  value={currentQuantity}
-                  onChange={(e) => setCurrentQuantity(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-2 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 font-mono font-bold text-center"
-                />
-              </div>
+              {/* Pharmacy Specific Selling Prices Row (Visible only when businessType is pharmacy) */}
+              {isPharmacy && (
+                <div className="pt-3 border-t border-slate-200/80 mt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                    {/* Precio Venta x Blister */}
+                    <div className="sm:col-span-4 space-y-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Precio Venta x Blister ({currency})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={currentPriceBlister}
+                        onChange={(e) => setCurrentPriceBlister(e.target.value)}
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-800 font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 text-right"
+                      />
+                    </div>
 
-              {/* Precio Costo */}
-              <div className="sm:col-span-2 space-y-1">
-                <label className="block text-xs font-bold text-slate-500 text-right">Precio Costo</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={currentCost}
-                  onChange={(e) => setCurrentCost(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 font-mono text-right"
-                />
-              </div>
+                    {/* Precio Venta x Caja */}
+                    <div className="sm:col-span-4 space-y-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Precio Venta x Caja ({currency})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={currentPriceBox}
+                        onChange={(e) => setCurrentPriceBox(e.target.value)}
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-800 font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 text-right"
+                      />
+                    </div>
 
-              {/* Lote */}
-              <div className="sm:col-span-2 space-y-1">
-                <label className="block text-xs font-bold text-slate-500">Lote</label>
-                <input
-                  type="text"
-                  placeholder="Lote (opc.)"
-                  value={currentLote}
-                  onChange={(e) => setCurrentLote(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 font-mono"
-                />
-              </div>
+                    {/* Add Product to Purchase button */}
+                    <div className="sm:col-span-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!currentProduct) {
+                            alert('Por favor seleccione un producto de la búsqueda');
+                            return;
+                          }
+                          const q = parseInt(currentQuantity);
+                          if (isNaN(q) || q <= 0) {
+                            alert('Por favor ingrese una cantidad válida mayor a 0');
+                            return;
+                          }
+                          const c = parseFloat(currentCost);
+                          if (isNaN(c) || c < 0) {
+                            alert('Por favor ingrese un costo unitario válido');
+                            return;
+                          }
 
-              {/* Vencimiento */}
-              <div className="sm:col-span-2 space-y-1">
-                <label className="block text-xs font-bold text-slate-500">Vencimiento</label>
-                <input
-                  type="date"
-                  value={currentVencimiento}
-                  onChange={(e) => setCurrentVencimiento(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 text-slate-600"
-                />
-              </div>
+                          const pUnit = parseFloat(currentPriceUnit);
+                          const pBlister = parseFloat(currentPriceBlister);
+                          const pBox = parseFloat(currentPriceBox);
 
-              {/* Add Button */}
-              <div className="sm:col-span-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!currentProduct) {
-                      alert('Por favor seleccione un producto de la búsqueda');
-                      return;
-                    }
-                    const q = parseInt(currentQuantity);
-                    if (isNaN(q) || q <= 0) {
-                      alert('Por favor ingrese una cantidad válida mayor a 0');
-                      return;
-                    }
-                    const c = parseFloat(currentCost);
-                    if (isNaN(c) || c < 0) {
-                      alert('Por favor ingrese un costo unitario válido');
-                      return;
-                    }
+                          setPurchaseItems(prev => {
+                            const existingIdx = prev.findIndex(item => item.product.id === currentProduct.id && item.lote === currentLote);
+                            if (existingIdx > -1) {
+                              const updated = [...prev];
+                              updated[existingIdx].quantity += q;
+                              if (!isNaN(pUnit) && pUnit > 0) updated[existingIdx].pricePerUnit = pUnit;
+                              if (!isNaN(pBlister) && pBlister >= 0) updated[existingIdx].pricePerBlister = pBlister;
+                              if (!isNaN(pBox) && pBox >= 0) updated[existingIdx].pricePerBox = pBox;
+                              return updated;
+                            }
+                            const effectiveLote = currentLote.trim() || currentProduct.initialBatch || '00101';
+                            return [...prev, {
+                              product: currentProduct,
+                              quantity: q,
+                              cost: c,
+                              lote: effectiveLote,
+                              pricePerUnit: !isNaN(pUnit) && pUnit > 0 ? pUnit : (currentProduct.pricePerUnit || currentProduct.price || 0),
+                              pricePerBlister: !isNaN(pBlister) && pBlister >= 0 ? pBlister : (currentProduct.pricePerBlister || 0),
+                              pricePerBox: !isNaN(pBox) && pBox >= 0 ? pBox : (currentProduct.pricePerBox || 0),
+                              expirationDate: currentVencimiento 
+                                ? (() => {
+                                    const parts = currentVencimiento.split('-');
+                                    if (parts.length === 3) {
+                                      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                                    }
+                                    return currentVencimiento;
+                                  })()
+                                : (currentProduct.expirationDate || '—')
+                            }];
+                          });
 
-                    setPurchaseItems(prev => {
-                      const existingIdx = prev.findIndex(item => item.product.id === currentProduct.id && item.lote === currentLote);
-                      if (existingIdx > -1) {
-                        const updated = [...prev];
-                        updated[existingIdx].quantity += q;
-                        return updated;
-                      }
-                      const effectiveLote = currentLote.trim() || currentProduct.initialBatch || '00101';
-                      return [...prev, {
-                        product: currentProduct,
-                        quantity: q,
-                        cost: c,
-                        lote: effectiveLote,
-                        expirationDate: currentVencimiento 
-                          ? (() => {
-                              const parts = currentVencimiento.split('-');
-                              if (parts.length === 3) {
-                                return `${parts[2]}/${parts[1]}/${parts[0]}`;
-                              }
-                              return currentVencimiento;
-                            })()
-                          : (currentProduct.expirationDate || '—')
-                      }];
-                    });
-
-                    // Reset fields
-                    setCurrentProduct(null);
-                    setProdSearch('');
-                    setCurrentQuantity('');
-                    setCurrentCost('');
-                    setCurrentLote('');
-                    setCurrentVencimiento('');
-                  }}
-                  className="w-full h-9 bg-[#0086F0] text-white rounded-xl flex items-center justify-center hover:bg-[#0074D0] active:scale-95 transition-all cursor-pointer shadow-sm"
-                >
-                  <Plus className="w-5 h-5" />
-                </button>
-              </div>
+                          // Reset fields
+                          setCurrentProduct(null);
+                          setProdSearch('');
+                          setCurrentQuantity('');
+                          setCurrentCost('');
+                          setCurrentLote('');
+                          setCurrentVencimiento('');
+                          setCurrentPriceUnit('');
+                          setCurrentPriceBlister('');
+                          setCurrentPriceBox('');
+                        }}
+                        className="w-full h-9 bg-[#0086F0] text-white rounded-xl flex items-center justify-center gap-1.5 font-bold text-xs hover:bg-[#0074D0] active:scale-95 transition-all cursor-pointer shadow-sm"
+                      >
+                        <Plus className="w-4 h-4 stroke-[2.5]" />
+                        <span>Agregar a Compra</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Purchase Items List Table */}
@@ -666,7 +829,14 @@ export default function Purchasing({
                     <th className="py-2.5 px-3 font-bold text-center">LOTE</th>
                     <th className="py-2.5 px-3 font-bold text-center">VENCE</th>
                     <th className="py-2.5 px-3 font-bold text-center">CANTIDAD</th>
-                    <th className="py-2.5 px-3 font-bold text-right">P. UNITARIO</th>
+                    <th className="py-2.5 px-3 font-bold text-right">P. COSTO</th>
+                    <th className="py-2.5 px-3 font-bold text-right">P. VTA UNIDAD</th>
+                    {isPharmacy && (
+                      <>
+                        <th className="py-2.5 px-2 font-bold text-right">P. VTA BLISTER</th>
+                        <th className="py-2.5 px-2 font-bold text-right">P. VTA CAJA</th>
+                      </>
+                    )}
                     <th className="py-2.5 px-3 font-bold text-right">SUBTOTAL</th>
                     <th className="py-2.5 px-4 font-bold text-center w-12">ACCIONES</th>
                   </tr>
@@ -674,7 +844,7 @@ export default function Purchasing({
                 <tbody className="divide-y divide-slate-100">
                   {purchaseItems.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                      <td colSpan={isPharmacy ? 10 : 8} className="py-12 text-center text-slate-400 font-medium">
                         No se han agregado productos para comprar todavía. Utilice el formulario superior.
                       </td>
                     </tr>
@@ -715,6 +885,52 @@ export default function Purchasing({
                             className="w-20 text-right border border-slate-200 rounded-lg py-1 px-2 text-xs font-mono font-bold text-slate-800 bg-white focus:ring-1 focus:ring-blue-500 focus:outline-hidden"
                           />
                         </td>
+                        <td className="py-3 px-3 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={item.pricePerUnit !== undefined ? item.pricePerUnit : ''}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              setPurchaseItems(prev => prev.map((it, i) => i === idx ? { ...it, pricePerUnit: isNaN(val) ? 0 : val } : it));
+                            }}
+                            className="w-20 text-right border border-slate-200 rounded-lg py-1 px-2 text-xs font-mono font-bold text-slate-800 bg-white focus:ring-1 focus:ring-blue-500 focus:outline-hidden"
+                          />
+                        </td>
+                        {isPharmacy && (
+                          <>
+                            <td className="py-3 px-2 text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                value={item.pricePerBlister !== undefined ? item.pricePerBlister : ''}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  setPurchaseItems(prev => prev.map((it, i) => i === idx ? { ...it, pricePerBlister: isNaN(val) ? 0 : val } : it));
+                                }}
+                                className="w-16 text-right border border-blue-200 rounded-lg py-1 px-1.5 text-xs font-mono font-bold text-blue-700 bg-blue-50/40 focus:ring-1 focus:ring-blue-500 focus:outline-hidden"
+                              />
+                            </td>
+                            <td className="py-3 px-2 text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                value={item.pricePerBox !== undefined ? item.pricePerBox : ''}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  setPurchaseItems(prev => prev.map((it, i) => i === idx ? { ...it, pricePerBox: isNaN(val) ? 0 : val } : it));
+                                }}
+                                className="w-16 text-right border border-blue-200 rounded-lg py-1 px-1.5 text-xs font-mono font-bold text-blue-700 bg-blue-50/40 focus:ring-1 focus:ring-blue-500 focus:outline-hidden"
+                              />
+                            </td>
+                          </>
+                        )}
                         <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">
                           {currency}{(item.quantity * item.cost).toFixed(2)}
                         </td>
@@ -1022,7 +1238,7 @@ export default function Purchasing({
           <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-[#0d3b66] to-[#0086F0] text-white p-4 flex justify-between items-center">
+            <div className="bg-[#0084FF] text-white p-4 flex justify-between items-center">
               <div className="flex items-center gap-2 font-bold text-sm">
                 <FileText className="w-4 h-4" />
                 <span>Detalle de Compra N° {selectedPurchaseDetails.purchaseNumber}</span>

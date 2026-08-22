@@ -106,6 +106,9 @@ export interface PurchaseItem {
   cost: number;
   lote?: string;
   expirationDate?: string;
+  pricePerUnit?: number;
+  pricePerBlister?: number;
+  pricePerBox?: number;
 }
 
 export interface Purchase {

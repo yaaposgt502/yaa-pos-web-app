@@ -91,7 +91,15 @@ const calculateDaysRemaining = (expirationDate: string): number => {
 
 export function applyPurchaseItemToProduct(
   product: Product,
-  item: { quantity: number; cost: number; lote?: string; expirationDate?: string }
+  item: {
+    quantity: number;
+    cost: number;
+    lote?: string;
+    expirationDate?: string;
+    pricePerUnit?: number;
+    pricePerBlister?: number;
+    pricePerBox?: number;
+  }
 ): Product {
   let dateStr = '';
   if (item.expirationDate && item.expirationDate !== '—') {
@@ -150,6 +158,18 @@ export function applyPurchaseItemToProduct(
   const lotesSum = currentLotes.reduce((sum, r) => sum + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
   const nextStock = Math.max(existingProductStock + item.quantity, lotesSum);
 
+  const updatedPrices: Partial<Product> = {};
+  if (typeof item.pricePerUnit === 'number' && item.pricePerUnit > 0) {
+    updatedPrices.pricePerUnit = item.pricePerUnit;
+    updatedPrices.price = item.pricePerUnit;
+  }
+  if (typeof item.pricePerBlister === 'number' && item.pricePerBlister >= 0) {
+    updatedPrices.pricePerBlister = item.pricePerBlister;
+  }
+  if (typeof item.pricePerBox === 'number' && item.pricePerBox >= 0) {
+    updatedPrices.pricePerBox = item.pricePerBox;
+  }
+
   return {
     ...product,
     stock: nextStock,
@@ -157,7 +177,8 @@ export function applyPurchaseItemToProduct(
     expirationDate: dateStr || product.expirationDate,
     initialBatch: product.initialBatch || batchName,
     expirationDates: currentLotes,
-    manageBatchAndExpiration: true
+    manageBatchAndExpiration: true,
+    ...updatedPrices
   };
 }
 
@@ -764,13 +785,17 @@ export default function App() {
 
         if (!product) {
           const itemAny = item as any;
+          const initialUnitPrice = item.pricePerUnit || itemAny.price || (item.cost ? Number((item.cost * 1.3).toFixed(2)) : 0);
           const newProd: Product = {
             id: item.productId && !item.productId.startsWith('NEW_') ? item.productId : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             code: itemAny.productCode || `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
             name: item.name,
             category: itemAny.productCategory || 'General',
             cost: item.cost || 0,
-            price: itemAny.price || (item.cost ? Number((item.cost * 1.3).toFixed(2)) : 0),
+            price: initialUnitPrice,
+            pricePerUnit: initialUnitPrice,
+            pricePerBlister: item.pricePerBlister || 0,
+            pricePerBox: item.pricePerBox || 0,
             stock: 0,
             minStock: 5,
             unit: 'Pza',
@@ -1092,6 +1117,7 @@ export default function App() {
             providers={providers} 
             purchases={purchases} 
             currency={config.currency} 
+            config={config}
             onSavePurchase={onSavePurchase} 
             onSaveProduct={onSaveProduct}
             onRefreshData={loadAllData} 
