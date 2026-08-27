@@ -191,6 +191,9 @@ export interface AppConfig {
   showLogoInTicket?: boolean;
   showOperatorInTicket?: boolean;
   ticketFontSize?: 'sm' | 'md' | 'lg';
+  ticketPaperSize?: '80mm' | '58mm' | 'media_carta' | 'carta';
+  facturaPaperSize?: '80mm' | '58mm' | 'media_carta' | 'carta';
+  comprobantePaperSize?: '80mm' | '58mm' | 'media_carta' | 'carta';
 
   // Digital certificate
   certificateName?: string;
@@ -207,6 +210,7 @@ export interface AppConfig {
   // Master lists
   categories?: string[];
   units?: string[];
+  operators?: { id: string; name: string; email?: string; role?: string; active?: boolean }[];
 }
 
 export interface License {

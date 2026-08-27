@@ -13,6 +13,7 @@ import ClientsProviders from './components/ClientsProviders';
 import Expenses from './components/Expenses';
 import CashRegister from './components/CashRegister';
 import DailyReports from './components/DailyReports';
+import { SalesLedger } from './components/SalesLedger';
 import Settings from './components/Settings';
 import AdminPanel from './components/AdminPanel';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -23,6 +24,7 @@ import {
   LayoutGrid,
   ShoppingCart, 
   Package, 
+  FileSpreadsheet,
   ShoppingBag, 
   Calendar, 
   Sparkles, 
@@ -71,6 +73,9 @@ const defaultAppConfig: AppConfig = {
   showLogoInTicket: true,
   showOperatorInTicket: true,
   ticketFontSize: 'sm',
+  ticketPaperSize: '80mm',
+  facturaPaperSize: '80mm',
+  comprobantePaperSize: '80mm',
   certificateName: '',
   certificatePassword: '',
   certificateExpiration: '',
@@ -1034,6 +1039,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'punto-de-venta', label: 'Punto de Venta', icon: <ShoppingCart className="w-4 h-4" /> },
     { id: 'inventario', label: 'Inventario', icon: <Package className="w-4 h-4" /> },
+    { id: 'libro-ventas', label: 'Libro Auxiliar de Ventas', icon: <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> },
     { id: 'compras', label: 'Gestión Compras', icon: <ShoppingBag className="w-4 h-4" /> },
     { id: 'vencimientos', label: 'Vencimientos', icon: <Calendar className="w-4 h-4" /> },
     { id: 'complementos', label: 'Complementos', icon: <Sparkles className="w-4 h-4 text-amber-400" /> },
@@ -1108,6 +1114,15 @@ export default function App() {
             onRefreshData={loadAllData} 
             sales={sales}
             purchases={purchases}
+          />
+        );
+      case 'libro-ventas':
+        return (
+          <SalesLedger 
+            sales={sales}
+            clients={clients}
+            config={config}
+            products={products}
           />
         );
       case 'compras':
@@ -1194,7 +1209,7 @@ export default function App() {
           />
         );
       case 'reportes':
-        return <DailyReports sales={sales} expenses={expenses} clients={clients} config={config} products={products} />;
+        return <DailyReports sales={sales} expenses={expenses} clients={clients} config={config} products={products} onNavigate={setActiveTab} />;
       case 'configuracion':
         return <Settings config={config} user={user} onSaveConfig={onSaveConfig} />;
       default:

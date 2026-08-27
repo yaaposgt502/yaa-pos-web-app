@@ -1565,11 +1565,11 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
               <div className="flex items-center justify-between text-[11px] font-bold px-1 text-slate-400">
                 <button
                   type="button"
-                  onClick={() => onNavigate('reportes')}
+                  onClick={() => onNavigate('libro-ventas')}
                   className="hover:text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  Historial de Ventas
+                  Libro / Historial de Ventas
                 </button>
                 <button
                   type="button"

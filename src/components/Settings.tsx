@@ -95,6 +95,10 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
   const [showLogoInTicket, setShowLogoInTicket] = useState(config.showLogoInTicket ?? true);
   const [showOperatorInTicket, setShowOperatorInTicket] = useState(config.showOperatorInTicket ?? true);
   const [ticketFontSize, setTicketFontSize] = useState<'sm' | 'md' | 'lg'>(config.ticketFontSize || 'sm');
+  const [ticketPaperSize, setTicketPaperSize] = useState<'80mm' | '58mm' | 'media_carta' | 'carta'>(config.ticketPaperSize || '80mm');
+  const [facturaPaperSize, setFacturaPaperSize] = useState<'80mm' | '58mm' | 'media_carta' | 'carta'>(config.facturaPaperSize || '80mm');
+  const [comprobantePaperSize, setComprobantePaperSize] = useState<'80mm' | '58mm' | 'media_carta' | 'carta'>(config.comprobantePaperSize || '80mm');
+  const [previewDocType, setPreviewDocType] = useState<'ticket' | 'factura' | 'comprobante'>('ticket');
 
   // Tab 6: Certificado Digital States
   const [certificateName, setCertificateName] = useState(config.certificateName || '');
@@ -141,6 +145,9 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       setShowLogoInTicket(config.showLogoInTicket ?? true);
       setShowOperatorInTicket(config.showOperatorInTicket ?? true);
       setTicketFontSize(config.ticketFontSize || 'sm');
+      setTicketPaperSize(config.ticketPaperSize || '80mm');
+      setFacturaPaperSize(config.facturaPaperSize || '80mm');
+      setComprobantePaperSize(config.comprobantePaperSize || '80mm');
       setCertificateName(config.certificateName || '');
       setCertificatePassword(config.certificatePassword || '');
       setCertificateExpiration(config.certificateExpiration || '');
@@ -291,6 +298,9 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       showLogoInTicket,
       showOperatorInTicket,
       ticketFontSize,
+      ticketPaperSize,
+      facturaPaperSize,
+      comprobantePaperSize,
       certificateName,
       certificatePassword,
       certificateExpiration,
@@ -325,7 +335,7 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
         storeName, logo, address, phone, currency, alertDaysBeforeExpiration: parseInt(alertDays), businessType,
         nit, razonSocial, email, facturaSeries, facturaCorrelativo, boletaSeries, boletaCorrelativo,
         notaVentaSeries, notaVentaCorrelativo, ticketHeader, ticketFooter, showLogoInTicket, showOperatorInTicket,
-        ticketFontSize, certificateName, certificateExpiration
+        ticketFontSize, ticketPaperSize, facturaPaperSize, comprobantePaperSize, certificateName, certificateExpiration
       },
       exportedAt: new Date().toISOString(),
       systemVersion: '1.2.0',
@@ -1179,159 +1189,369 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
           {/* TAB 5: VISTA DE COMPROBANTE */}
           {activeTab === 'vista' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-150 rounded-xl px-4 py-3 text-slate-800">
-                <Printer className="w-4 h-4 shrink-0 text-slate-600" />
-                <span className="text-xs font-black uppercase tracking-wider">Diseño y Personalización de Ticket de Impresión</span>
+              <div className="flex items-center justify-between bg-slate-50 border border-slate-150 rounded-xl px-4 py-3 text-slate-800">
+                <div className="flex items-center gap-2">
+                  <Printer className="w-4 h-4 shrink-0 text-blue-600" />
+                  <span className="text-xs font-black uppercase tracking-wider">Diseño y Personalización de Ticket de Impresión</span>
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline-block">
+                  Formatos Térmicos y Hojas Estándar
+                </span>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 
                 {/* Customizers (Left column) */}
-                <div className="lg:col-span-7 bg-white border border-slate-150 rounded-2xl p-5 space-y-4 shadow-xs">
-                  <span className="text-xs font-black text-slate-700 uppercase tracking-wide block border-b border-slate-100 pb-2">
-                    Ajustes de Ticket Térmico
-                  </span>
-
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-600">Cabecera de Ticket (Saludo)</label>
-                      <input 
-                        type="text" 
-                        value={ticketHeader} 
-                        onChange={(e) => setTicketHeader(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2"
-                        placeholder="Ej: ¡Gracias por su preferencia!"
-                      />
+                <div className="lg:col-span-7 space-y-5">
+                  
+                  {/* SECCIÓN 1: SELECCIÓN DE MEDIDAS DE PAPEL */}
+                  <div className="bg-white border border-slate-150 rounded-2xl p-5 space-y-4 shadow-xs">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                      <span className="text-xs font-black text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Medidas de Impresión por Documento
+                      </span>
+                      <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                        Seleccione el formato
+                      </span>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-600">Pie de Ticket (Leyenda / Notas)</label>
-                      <input 
-                        type="text" 
-                        value={ticketFooter} 
-                        onChange={(e) => setTicketFooter(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2"
-                        placeholder="Ej: No se aceptan devoluciones sin ticket."
-                      />
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Configure el ancho del rollo térmico o formato de papel que utiliza su impresora para cada tipo de comprobante emitido:
+                    </p>
+
+                    {/* 1. Medida de Ticket */}
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-slate-500" />
+                          Medida de Ticket de Venta
+                        </label>
+                        <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
+                          Actual: {ticketPaperSize === '80mm' ? '80 mm' : ticketPaperSize === '58mm' ? '58 mm' : ticketPaperSize === 'media_carta' ? 'Media Carta' : 'Carta/A4'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          { id: '80mm', label: '80 mm', desc: 'Rollo Térmico 3 ⅛"' },
+                          { id: '58mm', label: '58 mm', desc: 'Mini Rollo 2 ¼"' },
+                          { id: 'media_carta', label: 'Media Carta', desc: '140 × 216 mm' },
+                          { id: 'carta', label: 'Carta / A4', desc: 'Hoja Estándar' }
+                        ].map(opt => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setTicketPaperSize(opt.id as any)}
+                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                              ticketPaperSize === opt.id
+                                ? 'bg-blue-50/80 border-blue-600 text-blue-900 shadow-xs ring-1 ring-blue-500'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className="text-xs font-bold block">{opt.label}</span>
+                            <span className="text-[9px] text-slate-400 block leading-tight">{opt.desc}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-600 block">Tamaño de letra</label>
-                        <div className="flex gap-2">
-                          {(['sm', 'md', 'lg'] as const).map((sz) => (
-                            <button
-                              key={sz}
-                              type="button"
-                              onClick={() => setTicketFontSize(sz)}
-                              className={`flex-1 text-xs py-1.5 rounded-lg border font-bold uppercase transition-all ${
-                                ticketFontSize === sz 
-                                  ? 'bg-blue-600 border-blue-600 text-white' 
-                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                              }`}
-                            >
-                              {sz}
-                            </button>
-                          ))}
-                        </div>
+                    {/* 2. Medida de Factura */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                          Medida de Factura (FEL / Fiscal)
+                        </label>
+                        <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
+                          Actual: {facturaPaperSize === '80mm' ? '80 mm' : facturaPaperSize === '58mm' ? '58 mm' : facturaPaperSize === 'media_carta' ? 'Media Carta' : 'Carta/A4'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          { id: '80mm', label: '80 mm', desc: 'Ticket Fiscal Térmico' },
+                          { id: '58mm', label: '58 mm', desc: 'Mini Ticket Fiscal' },
+                          { id: 'media_carta', label: 'Media Carta', desc: 'Formato Mitad Página' },
+                          { id: 'carta', label: 'Carta / A4', desc: 'Estándar Oficial SAT' }
+                        ].map(opt => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setFacturaPaperSize(opt.id as any)}
+                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                              facturaPaperSize === opt.id
+                                ? 'bg-blue-50/80 border-blue-600 text-blue-900 shadow-xs ring-1 ring-blue-500'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className="text-xs font-bold block">{opt.label}</span>
+                            <span className="text-[9px] text-slate-400 block leading-tight">{opt.desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 3. Medida de Comprobante / Boleta / Recibo */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
+                          Medida de Comprobante / Boleta / Recibo
+                        </label>
+                        <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
+                          Actual: {comprobantePaperSize === '80mm' ? '80 mm' : comprobantePaperSize === '58mm' ? '58 mm' : comprobantePaperSize === 'media_carta' ? 'Media Carta' : 'Carta/A4'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          { id: '80mm', label: '80 mm', desc: 'Rollo Térmico 3 ⅛"' },
+                          { id: '58mm', label: '58 mm', desc: 'Mini Rollo 2 ¼"' },
+                          { id: 'media_carta', label: 'Media Carta', desc: '140 × 216 mm' },
+                          { id: 'carta', label: 'Carta / A4', desc: 'Hoja Estándar' }
+                        ].map(opt => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setComprobantePaperSize(opt.id as any)}
+                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                              comprobantePaperSize === opt.id
+                                ? 'bg-blue-50/80 border-blue-600 text-blue-900 shadow-xs ring-1 ring-blue-500'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className="text-xs font-bold block">{opt.label}</span>
+                            <span className="text-[9px] text-slate-400 block leading-tight">{opt.desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECCIÓN 2: AJUSTES DE CONTENIDO Y TIPOGRAFÍA */}
+                  <div className="bg-white border border-slate-150 rounded-2xl p-5 space-y-4 shadow-xs">
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-wide block border-b border-slate-100 pb-2">
+                      Personalización de Textos y Encabezados
+                    </span>
+
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-600">Cabecera de Ticket (Saludo o Lema)</label>
+                        <input 
+                          type="text" 
+                          value={ticketHeader} 
+                          onChange={(e) => setTicketHeader(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                          placeholder="Ej: ¡Gracias por su preferencia!"
+                        />
                       </div>
 
-                      <div className="space-y-3 font-medium text-xs text-slate-600 pt-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={showLogoInTicket} 
-                            onChange={(e) => setShowLogoInTicket(e.target.checked)}
-                            className="rounded text-blue-600 focus:ring-blue-500"
-                          />
-                          <span>Incluir logotipo en cabecera</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={showOperatorInTicket} 
-                            onChange={(e) => setShowOperatorInTicket(e.target.checked)}
-                            className="rounded text-blue-600 focus:ring-blue-500"
-                          />
-                          <span>Mostrar nombre del cajero</span>
-                        </label>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-600">Pie de Ticket (Leyenda / Políticas de Devolución)</label>
+                        <input 
+                          type="text" 
+                          value={ticketFooter} 
+                          onChange={(e) => setTicketFooter(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                          placeholder="Ej: No se aceptan devoluciones sin comprobante."
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-600 block">Tamaño de letra en ticket</label>
+                          <div className="flex gap-2">
+                            {(['sm', 'md', 'lg'] as const).map((sz) => (
+                              <button
+                                key={sz}
+                                type="button"
+                                onClick={() => setTicketFontSize(sz)}
+                                className={`flex-1 text-xs py-1.5 rounded-lg border font-bold uppercase transition-all ${
+                                  ticketFontSize === sz 
+                                    ? 'bg-blue-600 border-blue-600 text-white shadow-xs' 
+                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                {sz === 'sm' ? 'Pequeño' : sz === 'md' ? 'Mediano' : 'Grande'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 font-medium text-xs text-slate-600 pt-2">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input 
+                              type="checkbox" 
+                              checked={showLogoInTicket} 
+                              onChange={(e) => setShowLogoInTicket(e.target.checked)}
+                              className="rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>Incluir logotipo en cabecera</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input 
+                              type="checkbox" 
+                              checked={showOperatorInTicket} 
+                              onChange={(e) => setShowOperatorInTicket(e.target.checked)}
+                              className="rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>Mostrar nombre del cajero</span>
+                          </label>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Thermal Ticket simulator (Right column) */}
+                {/* Real-time Simulator (Right column) */}
                 <div className="lg:col-span-5 flex flex-col items-center">
-                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-3">Previsualización en tiempo real</span>
-                  
-                  <div className="w-68 bg-amber-50/40 border-2 border-dashed border-slate-300 p-5 font-mono text-slate-800 shadow-md rounded-2xl relative space-y-4">
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 w-10 h-4 bg-slate-100 border border-slate-200 rounded-full flex items-center justify-center text-[8px] font-bold text-slate-400 uppercase font-sans">
-                      80mm
-                    </div>
-
-                    <div className="text-center space-y-1 pt-1">
-                      {showLogoInTicket && (
-                        <div className="flex justify-center pb-2">
-                          <svg viewBox="0 0 100 30" className="w-20 h-auto text-slate-700" fill="none">
-                            <path d="M10 10h6l4 12h12l3-8H16" stroke="currentColor" strokeWidth="2"/>
-                            <circle cx="20" cy="25" r="1.5" fill="currentColor"/>
-                            <circle cx="28" cy="25" r="1.5" fill="currentColor"/>
-                            <text x="36" y="18" fill="currentColor" fontSize="10" fontWeight="bold">Yaa POS</text>
-                          </svg>
-                        </div>
-                      )}
-                      <h4 className="font-extrabold text-xs uppercase leading-tight">{razonSocial || 'Razón Social de la Empresa'}</h4>
-                      <p className="text-[10px]">NIT: {nit || 'NIT'}</p>
-                      <p className="text-[9px] leading-tight text-slate-600">{address || 'Dirección de la empresa'}</p>
-                      <p className="text-[9px]">TEL: {phone || 'Teléfono'}</p>
-                    </div>
-
-                    <div className="border-t border-b border-dashed border-slate-300 py-2.5 text-[9px] space-y-1.5 text-slate-600">
-                      <p>FECHA: {new Date().toLocaleDateString()} - {new Date().toLocaleTimeString()}</p>
-                      {showOperatorInTicket && <p>CAJERO: {user?.name || 'Administrador Yaa POS'}</p>}
-                      <p>DOCUMENTO: FACTURA {facturaSeries}-000042</p>
-                    </div>
-
-                    {/* Simulated Items list */}
-                    <div className={`space-y-1 text-slate-800 ${ticketFontSize === 'sm' ? 'text-[9px]' : ticketFontSize === 'md' ? 'text-[11px]' : 'text-[13px]'}`}>
-                      <div className="flex justify-between font-bold border-b border-slate-200 pb-1">
-                        <span>DESCRIPCIÓN</span>
-                        <span>TOTAL</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>1x Alicate de Presión Truper</span>
-                        <span>{currency} 85.00</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>2x Cinta Aislante 3M Negra</span>
-                        <span>{currency} 24.00</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>5x Clavo de Acero 2 Pulgadas</span>
-                        <span>{currency} 10.00</span>
-                      </div>
-                    </div>
-
-                    <div className="border-t border-dashed border-slate-300 pt-2 text-[10px] space-y-1">
-                      <div className="flex justify-between">
-                        <span>SUBTOTAL:</span>
-                        <span>{currency} 100.85</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>I.V.A. (12%):</span>
-                        <span>{currency} 12.15</span>
-                      </div>
-                      <div className="flex justify-between font-bold text-xs border-t border-slate-200 pt-1">
-                        <span>TOTAL A PAGAR:</span>
-                        <span>{currency} 113.00</span>
-                      </div>
-                    </div>
-
-                    <div className="text-center pt-3 border-t border-dashed border-slate-300 text-[9px] text-slate-600 leading-relaxed italic">
-                      <p className="font-bold">{ticketHeader}</p>
-                      <p>{ticketFooter}</p>
+                  <div className="w-full flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
+                      Previsualización en Vivo
+                    </span>
+                    
+                    {/* Selector de vista previa */}
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDocType('ticket')}
+                        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                          previewDocType === 'ticket' 
+                            ? 'bg-white text-blue-700 shadow-xs font-extrabold' 
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Ticket
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDocType('factura')}
+                        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                          previewDocType === 'factura' 
+                            ? 'bg-white text-blue-700 shadow-xs font-extrabold' 
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Factura
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDocType('comprobante')}
+                        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                          previewDocType === 'comprobante' 
+                            ? 'bg-white text-blue-700 shadow-xs font-extrabold' 
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Comprobante
+                      </button>
                     </div>
                   </div>
+
+                  {/* Dynamic Paper Simulator container */}
+                  {(() => {
+                    const currentPaper = previewDocType === 'ticket' 
+                      ? ticketPaperSize 
+                      : previewDocType === 'factura' 
+                        ? facturaPaperSize 
+                        : comprobantePaperSize;
+                    
+                    const is58mm = currentPaper === '58mm';
+                    const isMediaCarta = currentPaper === 'media_carta';
+                    const isCarta = currentPaper === 'carta';
+
+                    const widthClass = is58mm 
+                      ? 'w-56' 
+                      : (isMediaCarta || isCarta) 
+                        ? 'w-80' 
+                        : 'w-72';
+
+                    return (
+                      <div className={`${widthClass} bg-amber-50/40 border-2 border-dashed border-slate-300 p-4 sm:p-5 font-mono text-slate-800 shadow-md rounded-2xl relative space-y-4 transition-all duration-200`}>
+                        {/* Paper size badge indicator */}
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2.5 px-2.5 h-5 bg-slate-800 text-white rounded-full flex items-center justify-center text-[9px] font-extrabold uppercase font-sans tracking-wider shadow-xs">
+                          {is58mm ? '58 mm (Mini)' : currentPaper === '80mm' ? '80 mm (Estándar POS)' : isMediaCarta ? 'Media Carta' : 'Carta / A4'}
+                        </div>
+
+                        <div className="text-center space-y-1 pt-1.5">
+                          {showLogoInTicket && (
+                            <div className="flex justify-center pb-1.5">
+                              {logo ? (
+                                <img src={logo} alt="Logo" className="h-10 max-w-full object-contain mix-blend-multiply" />
+                              ) : (
+                                <svg viewBox="0 0 100 30" className="w-20 h-auto text-slate-700" fill="none">
+                                  <path d="M10 10h6l4 12h12l3-8H16" stroke="currentColor" strokeWidth="2"/>
+                                  <circle cx="20" cy="25" r="1.5" fill="currentColor"/>
+                                  <circle cx="28" cy="25" r="1.5" fill="currentColor"/>
+                                  <text x="36" y="18" fill="currentColor" fontSize="10" fontWeight="bold">Yaa POS</text>
+                                </svg>
+                              )}
+                            </div>
+                          )}
+                          <h4 className="font-extrabold text-xs uppercase leading-tight">{razonSocial || storeName || 'Razón Social de la Empresa'}</h4>
+                          <p className="text-[10px]">NIT: {nit || 'CF (Consumidor Final)'}</p>
+                          <p className="text-[9px] leading-tight text-slate-600">{address || 'Dirección de la empresa'}</p>
+                          <p className="text-[9px]">TEL: {phone || 'Teléfono'}</p>
+                        </div>
+
+                        <div className="border-t border-b border-dashed border-slate-300 py-2.5 text-[9px] space-y-1 text-slate-600">
+                          <p>FECHA: {new Date().toLocaleDateString()} - {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          {showOperatorInTicket && <p>CAJERO: {user?.name || 'Administrador Yaa POS'}</p>}
+                          <p className="font-bold text-slate-800 uppercase">
+                            DOCUMENTO: {previewDocType === 'factura' ? `FACTURA ${facturaSeries}-000042` : previewDocType === 'comprobante' ? `BOLETA ${boletaSeries}-000018` : `TICKET NV-${notaVentaSeries}-000095`}
+                          </p>
+                          {previewDocType === 'factura' && felEnabled && (
+                            <p className="text-[8px] text-blue-700 font-bold truncate">AUT. FEL SAT: 7C8E24B1-39F2-4EA8-90D1-B42</p>
+                          )}
+                        </div>
+
+                        {/* Simulated Items list */}
+                        <div className={`space-y-1 text-slate-800 ${ticketFontSize === 'sm' || is58mm ? 'text-[9px]' : ticketFontSize === 'md' ? 'text-[11px]' : 'text-[12.5px]'}`}>
+                          <div className="flex justify-between font-bold border-b border-slate-200 pb-1">
+                            <span>DESCRIPCIÓN</span>
+                            <span>TOTAL</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="truncate pr-1">{is58mm ? '1x Alicate Truper' : '1x Alicate de Presión Truper'}</span>
+                            <span className="shrink-0">{currency} 85.00</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="truncate pr-1">{is58mm ? '2x Cinta 3M Neg' : '2x Cinta Aislante 3M Negra'}</span>
+                            <span className="shrink-0">{currency} 24.00</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="truncate pr-1">{is58mm ? '5x Clavo Acero 2"' : '5x Clavo de Acero 2 Pulgadas'}</span>
+                            <span className="shrink-0">{currency} 10.00</span>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-dashed border-slate-300 pt-2 text-[10px] space-y-1">
+                          <div className="flex justify-between text-slate-600">
+                            <span>SUBTOTAL:</span>
+                            <span>{currency} 100.85</span>
+                          </div>
+                          <div className="flex justify-between text-slate-600">
+                            <span>{taxName} ({taxRate}%):</span>
+                            <span>{currency} 12.15</span>
+                          </div>
+                          <div className="flex justify-between font-bold text-xs border-t border-slate-200 pt-1 text-slate-900">
+                            <span>TOTAL A PAGAR:</span>
+                            <span>{currency} 113.00</span>
+                          </div>
+                        </div>
+
+                        <div className="text-center pt-2.5 border-t border-dashed border-slate-300 text-[9px] text-slate-600 leading-relaxed italic">
+                          <p className="font-bold text-slate-700">{ticketHeader}</p>
+                          <p>{ticketFooter}</p>
+                        </div>
+
+                        {previewDocType === 'factura' && felEnabled && (
+                          <div className="text-center pt-2 border-t border-slate-200 text-[8px] text-slate-500 space-y-0.5">
+                            <p className="font-bold uppercase">CERTIFICADOR: {felCertifierName || 'INFILE, S.A.'}</p>
+                            <p>Sujeto a pagos trimestrales ISR</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
               </div>
@@ -1763,6 +1983,7 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                   { id: 'dashboard', label: 'Dashboard' },
                   { id: 'punto-de-venta', label: 'Punto de Venta' },
                   { id: 'inventario', label: 'Inventario' },
+                  { id: 'libro-ventas', label: 'Libro Auxiliar de Ventas' },
                   { id: 'compras', label: 'Gestión Compras' },
                   { id: 'vencimientos', label: 'Vencimientos' },
                   { id: 'complementos', label: 'Complementos' },

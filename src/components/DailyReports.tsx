@@ -32,6 +32,7 @@ interface DailyReportsProps {
   clients: Client[];
   config: AppConfig;
   products?: Product[];
+  onNavigate?: (tab: string) => void;
 }
 
 const getLocalDateStr = (d: Date) => {
@@ -41,7 +42,7 @@ const getLocalDateStr = (d: Date) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-export default function DailyReports({ sales, expenses, clients, config, products = [] }: DailyReportsProps) {
+export default function DailyReports({ sales, expenses, clients, config, products = [], onNavigate }: DailyReportsProps) {
   const currency = config.currency || 'Q';
   
   // Toggles detailed transactional ledger & other financial sheets
@@ -390,15 +391,28 @@ export default function DailyReports({ sales, expenses, clients, config, product
           <p className="text-sm text-slate-500">Analiza tus ventas y desempeño en tiempo real</p>
         </div>
 
-        {/* Dynamic Detail Sheet Toggle Button */}
-        <button
-          type="button"
-          onClick={() => setShowDetailedModal(true)}
-          className="px-4.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all cursor-pointer shadow-xs bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          Más Detalles
-        </button>
+        {/* Header Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('libro-ventas')}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all cursor-pointer shadow-xs bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              Libro Auxiliar de Ventas
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowDetailedModal(true)}
+            className="px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all cursor-pointer shadow-xs bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-blue-600" />
+            Ver Resumen Detallado
+          </button>
+        </div>
       </div>
 
       {/* 2. FILTERS CONTAINER */}
@@ -558,7 +572,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
       </div>
 
       {/* 3. CORE SUMMARY STATS CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         
         {/* VENTAS TOTALES */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between relative overflow-hidden group">
@@ -572,6 +586,23 @@ export default function DailyReports({ sales, expenses, clients, config, product
           </div>
           <div className="p-4 bg-slate-50 text-[#005F73] rounded-2xl group-hover:scale-105 transition-transform duration-200 shadow-3xs">
             <DollarSign className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* GANANCIA DE LAS VENTAS */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between relative overflow-hidden group">
+          <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-[#059669]" />
+          <div className="space-y-1.5 pl-2">
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">GANANCIA DE LAS VENTAS</span>
+            <h3 className="text-2xl font-black text-emerald-600 font-mono">
+              {currency} {stats.profitSum.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h3>
+            <span className="text-[11px] text-emerald-600 font-medium block">
+              Margen: ~{stats.salesSum > 0 ? ((stats.profitSum / stats.salesSum) * 100).toFixed(1) : '0.0'}%
+            </span>
+          </div>
+          <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:scale-105 transition-transform duration-200 shadow-3xs">
+            <TrendingUp className="w-5 h-5" />
           </div>
         </div>
 
@@ -601,7 +632,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
             <span className="text-[11px] text-slate-400 font-medium block">Promedio por venta</span>
           </div>
           <div className="p-4 bg-slate-50 text-amber-600 rounded-2xl group-hover:scale-105 transition-transform duration-200 shadow-3xs">
-            <TrendingUp className="w-5 h-5" />
+            <BarChart className="w-5 h-5" />
           </div>
         </div>
 
@@ -1481,22 +1512,38 @@ export default function DailyReports({ sales, expenses, clients, config, product
                   <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b-2 border-slate-800 pb-5">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <Building2 className="w-6 h-6 text-purple-700" />
+                        <Building2 className={`w-6 h-6 ${config.felEnabled ? 'text-purple-700' : 'text-blue-700'}`} />
                         <h4 className="font-black text-xl text-slate-900 tracking-tight uppercase">{config.storeName || 'MI NEGOCIO, S.A.'}</h4>
                       </div>
                       {config.address && <p className="text-slate-500 font-medium">{config.address}</p>}
                       {config.phone && <p className="text-slate-500 font-medium">Teléfono: {config.phone}</p>}
                       <p className="font-bold text-slate-700">NIT Emisor: {config.nit || '12345678-9'}</p>
-                      <p className="text-[10px] text-slate-400 font-medium">Régimen: Pequeño Contribuyente / Sujeto a Retención Definitiva</p>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        {config.felEnabled 
+                          ? 'Régimen: Pequeño Contribuyente / Sujeto a Retención Definitiva' 
+                          : 'Régimen: Venta Comercial y Control Interno'}
+                      </p>
                     </div>
 
-                    <div className="bg-purple-50 border-2 border-purple-200 p-4 rounded-xl text-center min-w-[200px] space-y-1 shrink-0">
-                      <span className="block text-[10px] font-black text-purple-800 uppercase tracking-widest">FACTURA ELECTRÓNICA FEL</span>
-                      <span className="block font-mono text-xs font-bold text-slate-700">Serie: FEL-A1</span>
-                      <span className="block font-mono text-sm font-black text-purple-900">No. 00{documentModalSale.id.slice(-6).toUpperCase()}</span>
-                      <div className="pt-1 text-[9px] text-purple-700 font-mono border-t border-purple-200">
-                        AUT: 4E82B1C9-{documentModalSale.id.slice(0, 8).toUpperCase()}
-                      </div>
+                    <div className={`${config.felEnabled ? 'bg-purple-50 border-purple-200 text-purple-900' : 'bg-slate-50 border-slate-200 text-slate-800'} border-2 p-4 rounded-xl text-center min-w-[200px] space-y-1 shrink-0`}>
+                      <span className={`block text-[10px] font-black uppercase tracking-widest ${config.felEnabled ? 'text-purple-800' : 'text-slate-700'}`}>
+                        {config.felEnabled ? 'FACTURA ELECTRÓNICA FEL' : 'FACTURA COMERCIAL'}
+                      </span>
+                      <span className="block font-mono text-xs font-bold text-slate-700">
+                        Serie: {config.facturaSeries || (config.felEnabled ? 'FEL-A1' : 'F001')}
+                      </span>
+                      <span className={`block font-mono text-sm font-black ${config.felEnabled ? 'text-purple-900' : 'text-slate-900'}`}>
+                        No. 00{documentModalSale.id.slice(-6).toUpperCase()}
+                      </span>
+                      {config.felEnabled ? (
+                        <div className="pt-1 text-[9px] text-purple-700 font-mono border-t border-purple-200">
+                          AUT: 4E82B1C9-{documentModalSale.id.slice(0, 8).toUpperCase()}
+                        </div>
+                      ) : (
+                        <div className="pt-1 text-[9px] text-slate-400 font-medium border-t border-slate-200">
+                          Emisión Estándar
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1518,7 +1565,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className="bg-purple-900 text-white font-bold uppercase text-[10px]">
+                        <tr className={`${config.felEnabled ? 'bg-purple-900' : 'bg-slate-800'} text-white font-bold uppercase text-[10px]`}>
                           <th className="py-2.5 px-3 rounded-l-lg">Cant.</th>
                           <th className="py-2.5 px-3">Descripción / Producto</th>
                           <th className="py-2.5 px-3 text-right">P. Unitario</th>
@@ -1541,12 +1588,25 @@ export default function DailyReports({ sales, expenses, clients, config, product
                   {/* Totals Section */}
                   <div className="flex justify-between items-end border-t border-slate-200 pt-4">
                     <div className="space-y-1 max-w-xs">
-                      <p className="text-[10px] text-slate-400 leading-tight">
-                        Sujeto a pagos trimestrales ISR / Documento Tributario Electrónico emitido conforme a la resolución de la SAT.
-                      </p>
-                      <div className="flex items-center gap-1.5 text-purple-700 font-bold text-[10px] pt-1">
-                        <QrCode className="w-4 h-4" /> Certificado Digitalmente por la SAT
-                      </div>
+                      {config.felEnabled ? (
+                        <>
+                          <p className="text-[10px] text-slate-500 leading-tight">
+                            Sujeto a pagos trimestrales ISR / Documento Tributario Electrónico emitido conforme a la resolución de la SAT.
+                          </p>
+                          <div className="flex items-center gap-1.5 text-purple-700 font-bold text-[10px] pt-1">
+                            <QrCode className="w-4 h-4" /> Certificado Digitalmente por la SAT ({config.felCertifierName || 'Certificador Autorizado'})
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[10px] text-slate-500 leading-tight">
+                            {config.ticketFooter || 'Comprobante de venta y factura comercial emitida para control contable interno.'}
+                          </p>
+                          <div className="flex items-center gap-1.5 text-slate-500 font-bold text-[10px] pt-1">
+                            <FileText className="w-4 h-4 text-slate-400" /> Factura Comercial Estándar
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl min-w-[220px] space-y-1.5 font-mono">
@@ -1560,7 +1620,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
                       </div>
                       <div className="flex justify-between font-black text-sm text-slate-900 border-t border-slate-200 pt-1.5">
                         <span>TOTAL FACTURA:</span>
-                        <span className="text-purple-700">{currency} {documentModalSale.total.toFixed(2)}</span>
+                        <span className={config.felEnabled ? 'text-purple-700' : 'text-blue-700'}>{currency} {documentModalSale.total.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
