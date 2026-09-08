@@ -19,7 +19,8 @@ import {
   ArrowRightLeft,
   Wallet,
   ShoppingBag,
-  ExternalLink
+  ExternalLink,
+  Receipt
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -62,7 +63,7 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   // Current Shift Status
   const currentShift = shifts.find(s => s.state === 'open');
 
-  // --- Sales Trend Data for Main Chart (matching screenshot) ---
+  // --- Sales Trend Data for Main Chart ---
   const [timeframe, setTimeframe] = React.useState<'7days' | '14days' | '30days'>('7days');
   const [hoveredPoint, setHoveredPoint] = React.useState<{ label: string; fullDate: string; total: number; count: number; x: number; y: number } | null>(null);
 
@@ -71,8 +72,6 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
     const result: { dateStr: string; label: string; fullDate: string; total: number; count: number }[] = [];
     
     const now = new Date();
-    // Default demo values if there are no sales in the system yet (matched to the reference image)
-    const demoValues = [4300, 5650, 3200, 5400, 6800, 8200, 7550];
 
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now);
@@ -91,35 +90,23 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
       const label = `${capitalized} ${d.getDate()}`;
       const fullDate = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-      if (sales.length === 0) {
-        // Use demo values when no sales exist
-        const demoVal = demoValues[(days - 1 - i) % demoValues.length];
-        result.push({
-          dateStr: dateKey,
-          label,
-          fullDate,
-          total: demoVal,
-          count: Math.max(1, Math.round(demoVal / 450))
-        });
-      } else {
-        // Calculate real sales for this specific calendar day
-        const daySales = sales.filter(s => {
-          if (!s.date) return false;
-          const sDate = new Date(s.date);
-          return sDate.getFullYear() === d.getFullYear() &&
-                 sDate.getMonth() === d.getMonth() &&
-                 sDate.getDate() === d.getDate();
-        });
+      // Calculate real sales for this specific calendar day
+      const daySales = sales.filter(s => {
+        if (!s.date) return false;
+        const sDate = new Date(s.date);
+        return sDate.getFullYear() === d.getFullYear() &&
+               sDate.getMonth() === d.getMonth() &&
+               sDate.getDate() === d.getDate();
+      });
 
-        const total = daySales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-        result.push({
-          dateStr: dateKey,
-          label,
-          fullDate,
-          total,
-          count: daySales.length
-        });
-      }
+      const total = daySales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+      result.push({
+        dateStr: dateKey,
+        label,
+        fullDate,
+        total,
+        count: daySales.length
+      });
     }
 
     return result;
@@ -130,10 +117,10 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
     const maxVal = Math.max(...salesTrendData.map(d => d.total), 0);
     
     // Target maximum
-    let targetMax = maxVal === 0 ? 10000 : maxVal * 1.18;
+    let targetMax = maxVal === 0 ? 100 : maxVal * 1.18;
     
     // Choose clean step for tick marks
-    let step = 2000;
+    let step = 20;
     if (targetMax <= 100) step = 20;
     else if (targetMax <= 500) step = 100;
     else if (targetMax <= 1000) step = 200;
@@ -159,7 +146,7 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
     return { max: finalMax, ticks };
   }, [salesTrendData]);
 
-  // --- 4 Bottom Visual Cards State & Computation matching user screenshot ---
+  // --- 4 Bottom Visual Cards State & Computation ---
   const [categoryTimeframe, setCategoryTimeframe] = React.useState<'today' | 'week' | 'month' | 'all'>('today');
   const [topProductsTimeframe, setTopProductsTimeframe] = React.useState<'today' | 'week' | 'month' | 'all'>('today');
 
@@ -186,22 +173,6 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   // 1. Top 5 Categories Data
   const topCategoriesData = React.useMemo(() => {
     const targetSales = filterSalesByTimeframe(categoryTimeframe);
-    
-    if (targetSales.length === 0) {
-      // Reference demo data matching screenshot
-      const items = [
-        { name: 'Bebidas', amount: 2450.00 },
-        { name: 'Abarrotes', amount: 1890.00 },
-        { name: 'Lácteos', amount: 1250.00 },
-        { name: 'Snacks', amount: 980.00 },
-        { name: 'Limpieza', amount: 760.00 }
-      ];
-      return {
-        items,
-        max: 3000,
-        ticks: [0, 1000, 2000, 3000]
-      };
-    }
 
     const prodToCat: { [idOrName: string]: string } = {};
     products.forEach(p => {
@@ -214,9 +185,9 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
 
     const catTotals: { [category: string]: number } = {};
     targetSales.forEach(sale => {
-      sale.items.forEach(item => {
+      (sale.items || []).forEach(item => {
         const cat = prodToCat[item.productId] || prodToCat[item.name] || 'General';
-        catTotals[cat] = (catTotals[cat] || 0) + (item.quantity * item.price);
+        catTotals[cat] = (catTotals[cat] || 0) + (Number(item.quantity || 1) * Number(item.price || 0));
       });
     });
 
@@ -225,7 +196,15 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 5);
 
-    const maxVal = Math.max(...sorted.map(s => s.amount), 100);
+    if (sorted.length === 0) {
+      return {
+        items: [],
+        max: 0,
+        ticks: []
+      };
+    }
+
+    const maxVal = Math.max(...sorted.map(s => s.amount), 10);
     const step = maxVal > 5000 ? 2000 : maxVal > 2000 ? 1000 : maxVal > 1000 ? 500 : 100;
     const roundedMax = Math.ceil((maxVal * 1.15) / step) * step;
     const tickCount = 3;
@@ -245,24 +224,13 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   const topProductsList = React.useMemo(() => {
     const targetSales = filterSalesByTimeframe(topProductsTimeframe);
 
-    if (targetSales.length === 0) {
-      // Demo products matching screenshot
-      return [
-        { rank: 1, name: 'Coca Cola 600 ml', count: 32, image: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=100&auto=format&fit=crop&q=60' },
-        { rank: 2, name: 'Pan Bimbo Blanco', count: 28, image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=100&auto=format&fit=crop&q=60' },
-        { rank: 3, name: 'Agua Ciel 1 L', count: 24, image: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=100&auto=format&fit=crop&q=60' },
-        { rank: 4, name: 'Leche Lala Entera 1L', count: 20, image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=100&auto=format&fit=crop&q=60' },
-        { rank: 5, name: 'Sabritas Original 45g', count: 18, image: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?w=100&auto=format&fit=crop&q=60' }
-      ];
-    }
-
     const counts: { [name: string]: { count: number; productId: string } } = {};
     targetSales.forEach(sale => {
-      sale.items.forEach(item => {
+      (sale.items || []).forEach(item => {
         if (!counts[item.name]) {
           counts[item.name] = { count: 0, productId: item.productId };
         }
-        counts[item.name].count += item.quantity;
+        counts[item.name].count += Number(item.quantity) || 1;
       });
     });
 
@@ -287,24 +255,17 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   // 3. Recent Sales Data (Top 5)
   const recentSalesList = React.useMemo(() => {
     if (sales.length === 0) {
-      // Demo recent sales matching screenshot
-      return [
-        { ticket: '#T000125', client: 'Cliente general', total: 125.00, method: 'cash', time: '10:29 AM' },
-        { ticket: '#T000124', client: 'María López', total: 230.00, method: 'card', time: '10:23 AM' },
-        { ticket: '#T000123', client: 'Cliente general', total: 85.00, method: 'cash', time: '10:15 AM' },
-        { ticket: '#T000122', client: 'José Ramírez', total: 560.00, method: 'card', time: '10:10 AM' },
-        { ticket: '#T000121', client: 'Cliente general', total: 45.00, method: 'cash', time: '10:05 AM' }
-      ];
+      return [];
     }
 
     return sales.slice(-5).reverse().map((sale, idx) => {
       const saleDate = new Date(sale.date);
-      const timeStr = saleDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const timeStr = isNaN(saleDate.getTime()) ? '' : saleDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true });
       const ticketNum = `#T${sale.id ? sale.id.slice(-5).toUpperCase() : String(sales.length - idx).padStart(6, '0')}`;
 
       return {
         ticket: ticketNum,
-        client: 'Cliente general',
+        client: (sale as any).clientName || 'Cliente general',
         total: Number(sale.total) || 0,
         method: sale.paymentMethod || 'cash',
         time: timeStr
@@ -315,27 +276,6 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   // 4. Payment Methods Breakdown Data
   const paymentMethodsData = React.useMemo(() => {
     const C = 2 * Math.PI * 35; // Circle circumference with radius 35 ≈ 219.91
-
-    if (sales.length === 0) {
-      // Demo payment breakdown matching screenshot
-      const items = [
-        { name: 'Efectivo', amount: 4120.00, pct: 47, color: '#0066FF' },
-        { name: 'Tarjeta', amount: 3150.00, pct: 36, color: '#10B981' },
-        { name: 'Transferencia', amount: 1200.00, pct: 14, color: '#8B5CF6' },
-        { name: 'Otro', amount: 280.00, pct: 3, color: '#F59E0B' }
-      ];
-      const total = 8750.00;
-
-      let cumulative = 0;
-      const donutSegments = items.map(it => {
-        const dash = (it.pct / 100) * C;
-        const offset = (cumulative / 100) * C;
-        cumulative += it.pct;
-        return { color: it.color, dash, offset };
-      });
-
-      return { items, total, donutSegments };
-    }
 
     const totals: { [method: string]: number } = {
       cash: 0,
@@ -351,7 +291,20 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
       totals[method] += (Number(sale.total) || 0);
     });
 
-    const totalSalesSum = Object.values(totals).reduce((sum, v) => sum + v, 0) || 1;
+    const totalSalesSum = Object.values(totals).reduce((sum, v) => sum + v, 0);
+
+    if (totalSalesSum === 0) {
+      return {
+        items: [
+          { name: 'Efectivo', amount: 0, pct: 0, color: '#0066FF' },
+          { name: 'Tarjeta', amount: 0, pct: 0, color: '#10B981' },
+          { name: 'Transferencia', amount: 0, pct: 0, color: '#8B5CF6' },
+          { name: 'Otro', amount: 0, pct: 0, color: '#F59E0B' }
+        ],
+        total: 0,
+        donutSegments: [{ color: '#e2e8f0', dash: C, offset: 0 }]
+      };
+    }
 
     const items = [
       { name: 'Efectivo', amount: totals.cash, pct: Math.round((totals.cash / totalSalesSum) * 100), color: '#0066FF' },
@@ -764,36 +717,46 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
               </div>
             </div>
 
-            {/* Horizontal Bar Chart List */}
-            <div className="space-y-4">
-              {topCategoriesData.items.map((cat, idx) => {
-                const widthPct = topCategoriesData.max > 0 ? (cat.amount / topCategoriesData.max) * 100 : 0;
-                return (
-                  <div key={idx} className="flex items-center gap-2.5">
-                    <span className="w-16 text-xs font-semibold text-slate-600 truncate text-left shrink-0">
-                      {cat.name}
-                    </span>
-                    <div className="flex-1 bg-transparent h-4 overflow-hidden flex items-center">
-                      <div
-                        className="bg-[#0066FF] h-full rounded-xs transition-all duration-500"
-                        style={{ width: `${Math.max(widthPct, 3)}%` }}
-                      />
+            {/* Horizontal Bar Chart List or Empty State */}
+            {topCategoriesData.items.length > 0 ? (
+              <div className="space-y-4">
+                {topCategoriesData.items.map((cat, idx) => {
+                  const widthPct = topCategoriesData.max > 0 ? (cat.amount / topCategoriesData.max) * 100 : 0;
+                  return (
+                    <div key={idx} className="flex items-center gap-2.5">
+                      <span className="w-16 text-xs font-semibold text-slate-600 truncate text-left shrink-0">
+                        {cat.name}
+                      </span>
+                      <div className="flex-1 bg-transparent h-4 overflow-hidden flex items-center">
+                        <div
+                          className="bg-[#0066FF] h-full rounded-xs transition-all duration-500"
+                          style={{ width: `${Math.max(widthPct, 3)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-mono font-bold text-slate-800 shrink-0 text-right min-w-[70px]">
+                        {currency} {cat.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
                     </div>
-                    <span className="text-xs font-mono font-bold text-slate-800 shrink-0 text-right min-w-[70px]">
-                      {currency} {cat.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-slate-400">
+                <PieChart className="w-7 h-7 mx-auto mb-2 opacity-30 text-slate-400" />
+                <p className="text-xs font-medium text-slate-500">Sin ventas en este período</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Se actualizará al registrar ventas por categoría</p>
+              </div>
+            )}
           </div>
 
           {/* Scale Axis at bottom */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[10px] font-mono text-slate-400 font-semibold pl-16 pr-14 mt-4">
-            {topCategoriesData.ticks.map((tick, i) => (
-              <span key={i}>{currency} {tick >= 1000 ? `${(tick / 1000).toFixed(0)}K` : tick}</span>
-            ))}
-          </div>
+          {topCategoriesData.items.length > 0 && topCategoriesData.ticks.length > 0 && (
+            <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[10px] font-mono text-slate-400 font-semibold pl-16 pr-14 mt-4">
+              {topCategoriesData.ticks.map((tick, i) => (
+                <span key={i}>{currency} {tick >= 1000 ? `${(tick / 1000).toFixed(0)}K` : tick}</span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Card 2: Productos más vendidos (Top 5) */}
@@ -817,31 +780,39 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
               </div>
             </div>
 
-            {/* Product List */}
-            <div className="divide-y divide-slate-100/90">
-              {topProductsList.map((prod, idx) => (
-                <div key={idx} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xs font-semibold text-slate-500 w-3 text-center shrink-0">
-                      {prod.rank}
-                    </span>
-                    <div className="w-7 h-7 rounded-md bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 border border-slate-200/60 p-0.5">
-                      {prod.image ? (
-                        <img src={prod.image} alt={prod.name} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                      ) : (
-                        <ShoppingBag className="w-3.5 h-3.5 text-slate-400" />
-                      )}
+            {/* Product List or Empty State */}
+            {topProductsList.length > 0 ? (
+              <div className="divide-y divide-slate-100/90">
+                {topProductsList.map((prod, idx) => (
+                  <div key={idx} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-xs font-semibold text-slate-500 w-3 text-center shrink-0">
+                        {prod.rank}
+                      </span>
+                      <div className="w-7 h-7 rounded-md bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 border border-slate-200/60 p-0.5">
+                        {prod.image ? (
+                          <img src={prod.image} alt={prod.name} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                        ) : (
+                          <ShoppingBag className="w-3.5 h-3.5 text-slate-400" />
+                        )}
+                      </div>
+                      <span className="text-xs font-medium text-slate-700 truncate" title={prod.name}>
+                        {prod.name}
+                      </span>
                     </div>
-                    <span className="text-xs font-medium text-slate-700 truncate" title={prod.name}>
-                      {prod.name}
+                    <span className="text-xs font-semibold font-mono text-slate-800 shrink-0">
+                      {prod.count}
                     </span>
                   </div>
-                  <span className="text-xs font-semibold font-mono text-slate-800 shrink-0">
-                    {prod.count}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-slate-400">
+                <Package className="w-7 h-7 mx-auto mb-2 opacity-30 text-slate-400" />
+                <p className="text-xs font-medium text-slate-500">Sin ventas en este período</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Los artículos vendidos aparecerán en este ranking</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -859,59 +830,67 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
               </button>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 text-slate-400 font-semibold">
-                    <th className="pb-2 font-medium">Ticket</th>
-                    <th className="pb-2 font-medium">Cliente</th>
-                    <th className="pb-2 font-medium">Total</th>
-                    <th className="pb-2 font-medium text-center">Método</th>
-                    <th className="pb-2 font-medium text-right">Hora</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100/70">
-                  {recentSalesList.map((sale, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-2.5 font-mono font-medium text-slate-700">
-                        {sale.ticket}
-                      </td>
-                      <td className="py-2.5 font-medium text-slate-700 max-w-[85px] truncate">
-                        {sale.client}
-                      </td>
-                      <td className="py-2.5 font-mono font-medium text-slate-800 whitespace-nowrap">
-                        {currency} {sale.total.toFixed(2)}
-                      </td>
-                      <td className="py-2.5 text-center">
-                        <div className="inline-flex items-center justify-center">
-                          {sale.method === 'cash' ? (
-                            <span className="p-0.5 text-emerald-600 rounded-sm" title="Efectivo">
-                              <Banknote className="w-4 h-4" />
-                            </span>
-                          ) : sale.method === 'card' ? (
-                            <span className="p-0.5 text-blue-600 rounded-sm" title="Tarjeta">
-                              <CreditCard className="w-4 h-4" />
-                            </span>
-                          ) : sale.method === 'transfer' ? (
-                            <span className="p-0.5 text-purple-600 rounded-sm" title="Transferencia">
-                              <ArrowRightLeft className="w-4 h-4" />
-                            </span>
-                          ) : (
-                            <span className="p-0.5 text-amber-600 rounded-sm" title="Otro">
-                              <Wallet className="w-4 h-4" />
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2.5 text-right font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                        {sale.time}
-                      </td>
+            {/* Table or Empty State */}
+            {recentSalesList.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-slate-400 font-semibold">
+                      <th className="pb-2 font-medium">Ticket</th>
+                      <th className="pb-2 font-medium">Cliente</th>
+                      <th className="pb-2 font-medium">Total</th>
+                      <th className="pb-2 font-medium text-center">Método</th>
+                      <th className="pb-2 font-medium text-right">Hora</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100/70">
+                    {recentSalesList.map((sale, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-2.5 font-mono font-medium text-slate-700">
+                          {sale.ticket}
+                        </td>
+                        <td className="py-2.5 font-medium text-slate-700 max-w-[85px] truncate">
+                          {sale.client}
+                        </td>
+                        <td className="py-2.5 font-mono font-medium text-slate-800 whitespace-nowrap">
+                          {currency} {sale.total.toFixed(2)}
+                        </td>
+                        <td className="py-2.5 text-center">
+                          <div className="inline-flex items-center justify-center">
+                            {sale.method === 'cash' ? (
+                              <span className="p-0.5 text-emerald-600 rounded-sm" title="Efectivo">
+                                <Banknote className="w-4 h-4" />
+                              </span>
+                            ) : sale.method === 'card' ? (
+                              <span className="p-0.5 text-blue-600 rounded-sm" title="Tarjeta">
+                                <CreditCard className="w-4 h-4" />
+                              </span>
+                            ) : sale.method === 'transfer' ? (
+                              <span className="p-0.5 text-purple-600 rounded-sm" title="Transferencia">
+                                <ArrowRightLeft className="w-4 h-4" />
+                              </span>
+                            ) : (
+                              <span className="p-0.5 text-amber-600 rounded-sm" title="Otro">
+                                <Wallet className="w-4 h-4" />
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 text-right font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                          {sale.time}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-8 text-center text-slate-400">
+                <Receipt className="w-7 h-7 mx-auto mb-2 opacity-30 text-slate-400" />
+                <p className="text-xs font-medium text-slate-500">Sin ventas recientes</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Tus ventas del POS aparecerán aquí</p>
+              </div>
+            )}
           </div>
         </div>
 

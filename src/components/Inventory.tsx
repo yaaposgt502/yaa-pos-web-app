@@ -820,8 +820,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     setFormExpirationAlertDays((p.expirationAlertDays ?? 15).toString());
     setFormInitialBatch(p.initialBatch || '00101');
 
-    if (p.expirationDates && p.expirationDates.length > 0) {
-      setFormExpirationRows(p.expirationDates.map(r => ({
+    const validRows = (p.expirationDates || []).filter(r => (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) > 0);
+    if (validRows.length > 0) {
+      setFormExpirationRows(validRows.map(r => ({
         date: r.date,
         stock: r.stock.toString(),
         batch: r.batch || ''
@@ -889,8 +890,12 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       }
     }
 
+    const validPreparedRows = formManageBatchAndExpiration 
+      ? preparedRows.filter(r => (parseInt(r.stock) || 0) > 0)
+      : [];
+
     const computedStock = (formManageBatchAndExpiration && preparedRows.length > 0)
-      ? preparedRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0)
+      ? validPreparedRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0)
       : stockNum;
 
     const productData: Product = {
@@ -903,8 +908,8 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       stock: computedStock,
       minStock: minStockNum,
       unit: formUnit || 'Pza',
-      expirationDate: formManageBatchAndExpiration && preparedRows.length > 0 
-        ? (preparedRows.find(r => r.date)?.date || formExpirationDate || undefined) 
+      expirationDate: formManageBatchAndExpiration && validPreparedRows.length > 0 
+        ? (validPreparedRows.find(r => r.date)?.date || formExpirationDate || undefined) 
         : (formExpirationDate || undefined),
       location: formLocation || 'Almacén Principal',
       detail: formDetail || '',
@@ -928,9 +933,11 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
       status: formStatus,
       manageBatchAndExpiration: formManageBatchAndExpiration,
       expirationAlertDays: parseInt(formExpirationAlertDays) || 0,
-      initialBatch: formInitialBatch,
-      expirationDates: formManageBatchAndExpiration && preparedRows.length > 0
-        ? preparedRows.map(r => ({
+      initialBatch: formManageBatchAndExpiration && validPreparedRows.length > 0
+        ? (validPreparedRows.find(r => r.batch)?.batch || formInitialBatch || '00101')
+        : formInitialBatch,
+      expirationDates: formManageBatchAndExpiration && validPreparedRows.length > 0
+        ? validPreparedRows.map(r => ({
             date: r.date,
             stock: parseInt(r.stock) || 0,
             batch: r.batch || formInitialBatch || '00101'
@@ -3283,11 +3290,12 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                 const totalProdStock = getProductStock(detailProduct);
                 let lotesList: { batch: string; date: string; stock: number }[] = [];
                 if (detailProduct.expirationDates && detailProduct.expirationDates.length > 0) {
-                  const sumLotes = detailProduct.expirationDates.reduce((s, r) => s + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
-                  lotesList = detailProduct.expirationDates.map((r, idx) => {
+                  const validExpDates = detailProduct.expirationDates.filter(r => (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) > 0);
+                  const sumLotes = validExpDates.reduce((s, r) => s + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+                  lotesList = validExpDates.map((r, idx) => {
                     const rawStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
                     let calculatedStock = rawStock;
-                    if (detailProduct.expirationDates.length === 1) {
+                    if (validExpDates.length === 1 && totalProdStock > 0) {
                       calculatedStock = totalProdStock;
                     } else if (sumLotes !== totalProdStock && sumLotes > 0) {
                       const ratio = rawStock / sumLotes;
@@ -3301,7 +3309,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                       stock: calculatedStock
                     };
                   });
-                } else if (detailProduct.manageBatchAndExpiration || detailProduct.initialBatch || detailProduct.expirationDate) {
+                } else if (totalProdStock > 0 && (detailProduct.manageBatchAndExpiration || detailProduct.initialBatch || detailProduct.expirationDate)) {
                   lotesList = [{
                     batch: detailProduct.initialBatch || '00101',
                     date: detailProduct.expirationDate || '—',

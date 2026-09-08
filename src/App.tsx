@@ -735,12 +735,28 @@ export default function App() {
               return { ...r, stock: currentLoteStock - deduct };
             });
           }
+
+          // Eliminar automáticamente los lotes y fechas de vencimiento sin stock (stock <= 0) para no confundir en punto de venta
+          updatedExpirationDates = updatedExpirationDates.filter(r => {
+            const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+            return currentLoteStock > 0;
+          });
         }
+
+        const survivingLotes = (updatedExpirationDates && updatedExpirationDates.length > 0) ? updatedExpirationDates : undefined;
+        const nextExpirationDate = survivingLotes && survivingLotes.length > 0 
+          ? survivingLotes[0].date 
+          : (nextStock > 0 ? product.expirationDate : undefined);
+        const nextInitialBatch = survivingLotes && survivingLotes.length > 0 
+          ? (survivingLotes[0].batch || product.initialBatch) 
+          : product.initialBatch;
 
         await api.saveProduct({
           ...product,
           stock: nextStock,
-          expirationDates: updatedExpirationDates
+          expirationDate: nextExpirationDate,
+          initialBatch: nextInitialBatch,
+          expirationDates: survivingLotes
         });
       }
     }

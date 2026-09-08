@@ -31,11 +31,23 @@ import {
   X,
   CreditCard,
   Building,
+  Building2,
   Activity,
   Trash2,
   Play,
   Pause,
-  RefreshCw
+  RefreshCw,
+  Globe,
+  Percent,
+  Layers,
+  Store,
+  DollarSign,
+  Wallet,
+  CheckCircle,
+  XCircle,
+  TrendingUp,
+  MapPin,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -82,43 +94,72 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   const [plans, setPlans] = useState(() => {
     const saved = localStorage.getItem('yaa_pos_plans');
     if (saved) {
-      try { return JSON.parse(saved); } catch {}
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((p: any) => ({
+            ...p,
+            price: typeof p.price === 'string' ? p.price.replace('S/', 'Q').replace('PEN', 'GTQ') : p.price
+          }));
+        }
+      } catch {}
     }
     return [
       {
-        id: 'demo',
-        name: 'Demo 15 días',
-        price: 'Q 0.00',
-        period: ' / 15 días',
-        badge: 'Prueba',
-        desc: 'Evaluación completa y acceso ilimitado a todas las herramientas operativas durante dos semanas.',
-        features: ['1 Sucursal', 'Base de datos compartida', 'Soporte vía chat']
+        id: 'basico',
+        name: 'Básico',
+        price: 'Q 199.00',
+        period: '/mes',
+        status: 'Activo',
+        badge: 'Activo',
+        features: ['1000 productos', '2 usuarios', '100.000 ventas/mes']
       },
       {
-        id: 'basic',
-        name: 'Mensual Básico',
-        price: 'Q 250.00',
-        period: ' / mes',
-        badge: 'Mensual',
-        desc: 'Ideal para comercios minoristas, farmacias medianas y emprendimientos de facturación diaria.',
-        features: ['Usuarios ilimitados del turno', 'Punto de venta e inventario', 'Cierres de caja y arqueos', 'Soporte técnico 24/7']
+        id: 'profesional',
+        name: 'Profesional',
+        price: 'Q 349.00',
+        period: '/mes',
+        status: 'Activo',
+        badge: 'Activo',
+        features: ['Productos ilimitados', '5 usuarios', 'Ventas ilimitadas', 'Facturación electrónica']
       },
       {
-        id: 'premium',
-        name: 'Premium Anual',
-        price: 'Q 2,400.00',
-        period: ' / año',
-        badge: 'Anual',
-        desc: 'Plan empresarial con descuento de dos meses incluidos para máxima estabilidad de tu negocio.',
-        features: ['Todas las funciones habilitadas', 'Respaldos automáticos en la nube', 'Reportes de utilidades y ganancias', 'API para sincronización externa']
+        id: 'empresarial',
+        name: 'Empresarial',
+        price: 'Q 599.00',
+        period: '/mes',
+        status: 'Activo',
+        badge: 'Activo',
+        features: ['Multi-sucursal', 'Usuarios ilimitados', 'API y sincronización', 'Soporte 24/7 dedicado']
       }
     ];
   });
 
+  // Plan creation & editing modal states
+  const [isNewPlanModalOpen, setIsNewPlanModalOpen] = useState(false);
   const [isEditPlanModalOpen, setIsEditPlanModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any>(null);
+  const [planName, setPlanName] = useState('');
   const [planPrice, setPlanPrice] = useState('');
-  const [planDesc, setPlanDesc] = useState('');
+  const [planPeriod, setPlanPeriod] = useState('/mes');
+  const [planFeaturesText, setPlanFeaturesText] = useState('');
+  const [planStatus, setPlanStatus] = useState('Activo');
+  const [countries, setCountries] = useState([
+    { id: 'GT', name: 'Guatemala', currency: 'Q (GTQ)', defaultTax: 12, taxName: 'IVA', isDefault: true },
+    { id: 'PE', name: 'Perú', currency: 'S/ (PEN)', defaultTax: 18, taxName: 'IGV', isDefault: false },
+    { id: 'MX', name: 'México', currency: '$ (MXN)', defaultTax: 16, taxName: 'IVA', isDefault: false },
+    { id: 'CO', name: 'Colombia', currency: '$ (COP)', defaultTax: 19, taxName: 'IVA', isDefault: false },
+    { id: 'US', name: 'Estados Unidos', currency: '$ (USD)', defaultTax: 0, taxName: 'Sales Tax', isDefault: false },
+  ]);
+
+  // Payment methods state
+  const [paymentMethods, setPaymentMethods] = useState([
+    { id: 'efectivo', name: 'Efectivo', type: 'Local', enabled: true, fee: '0%' },
+    { id: 'tarjeta', name: 'Tarjeta Débito / Crédito (Visa / Mastercard)', type: 'Pasarela', enabled: true, fee: '3.5%' },
+    { id: 'transferencia', name: 'Transferencia Bancaria Directa', type: 'Local', enabled: true, fee: '0%' },
+    { id: 'qr', name: 'Pago con QR / Billetera Digital', type: 'Digital', enabled: true, fee: '1.5%' },
+    { id: 'credito', name: 'Crédito / Cuenta Corriente', type: 'Interno', enabled: true, fee: '0%' },
+  ]);
 
   // Config states
   const [appName, setAppName] = useState(() => localStorage.getItem('yaa_pos_admin_app_name') || 'Yaa POS');
@@ -711,7 +752,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     alert(`Licencia renovada exitosamente por ${days} días.`);
   };
 
-  // Dynamic calculations for cards
+  // Dynamic calculations for cards matching the dashboard
   const stats = useMemo(() => {
     const totalUsers = users.length;
     
@@ -720,6 +761,11 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       const norm = normalizeLicenseStatus(l.status);
       const days = calculateDaysRemaining(l.expirationDate);
       return norm === 'Activa' && days > 0;
+    }).length;
+
+    const enPrueba = licenses.filter(l => {
+      const isDemo = l.planType?.toLowerCase().includes('demo') || l.planType?.toLowerCase().includes('prueba');
+      return isDemo || l.status === 'Pendiente';
     }).length;
 
     const proximasAVencer = licenses.filter(l => {
@@ -736,12 +782,26 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
     const suspendidos = users.filter(u => u.accountStatus === 'Suspendida').length;
 
+    // Monthly Recurring Revenue (MRR)
+    let mrr = 0;
+    licenses.forEach(l => {
+      if (normalizeLicenseStatus(l.status) === 'Activa') {
+        if (l.planType?.includes('Básico') || l.planType?.includes('Mensual')) {
+          mrr += 250;
+        } else if (l.planType?.includes('Anual') || l.planType?.includes('Premium')) {
+          mrr += 200; // 2400 / 12
+        }
+      }
+    });
+
     return {
       totalUsers,
       activeLic,
+      enPrueba,
       proximasAVencer,
       vencidas,
-      suspendidos
+      suspendidos,
+      mrr
     };
   }, [licenses, users]);
 
@@ -755,28 +815,59 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     }
   };
 
-  // Edit plans handlers
+  // Plans handlers (Nuevo, Editar, Eliminar)
+  const handleOpenNewPlan = () => {
+    setPlanName('');
+    setPlanPrice('Q 199.00');
+    setPlanPeriod('/mes');
+    setPlanFeaturesText('1000 productos\n2 usuarios\n100.000 ventas/mes');
+    setPlanStatus('Activo');
+    setIsNewPlanModalOpen(true);
+  };
+
+  const handleCreatePlan = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newFeatures = planFeaturesText.split('\n').map(s => s.trim()).filter(Boolean);
+    const newPlan = {
+      id: `plan_${Date.now()}`,
+      name: planName || 'Nuevo Plan',
+      price: planPrice || 'Q 0.00',
+      period: planPeriod || '/mes',
+      status: planStatus || 'Activo',
+      badge: planStatus || 'Activo',
+      features: newFeatures.length > 0 ? newFeatures : ['Acceso al sistema']
+    };
+    const updated = [...plans, newPlan];
+    setPlans(updated);
+    localStorage.setItem('yaa_pos_plans', JSON.stringify(updated));
+    setIsNewPlanModalOpen(false);
+  };
+
   const handleEditPlanClick = (plan: any) => {
     setEditingPlan(plan);
+    setPlanName(plan.name);
     setPlanPrice(plan.price);
-    setPlanDesc(plan.desc);
+    setPlanPeriod(plan.period || '/mes');
+    setPlanFeaturesText((plan.features || []).join('\n'));
+    setPlanStatus(plan.status || 'Activo');
     setIsEditPlanModalOpen(true);
   };
 
   const handleSavePlan = (e: React.FormEvent) => {
     e.preventDefault();
-    if (user.id !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
-      alert('Acceso Denegado: Su usuario no tiene permisos para realizar esta acción.');
-      return;
-    }
     if (!editingPlan) return;
 
+    const newFeatures = planFeaturesText.split('\n').map(s => s.trim()).filter(Boolean);
     const updated = plans.map(p => {
       if (p.id === editingPlan.id) {
         return {
           ...p,
+          name: planName,
           price: planPrice,
-          desc: planDesc
+          period: planPeriod,
+          status: planStatus,
+          badge: planStatus,
+          features: newFeatures
         };
       }
       return p;
@@ -786,6 +877,13 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     localStorage.setItem('yaa_pos_plans', JSON.stringify(updated));
     setIsEditPlanModalOpen(false);
     setEditingPlan(null);
+  };
+
+  const handleDeletePlan = (planId: string) => {
+    if (!confirm('¿Estás seguro de eliminar este plan de suscripción?')) return;
+    const updated = plans.filter(p => p.id !== planId);
+    setPlans(updated);
+    localStorage.setItem('yaa_pos_plans', JSON.stringify(updated));
   };
 
   // Save Config handler
@@ -837,150 +935,138 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   };
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5] text-slate-800 flex font-sans select-none antialiased">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex font-sans select-none antialiased">
       
-      {/* 1. LEFT SIDEBAR */}
-      <aside className="w-68 bg-[#001529] text-slate-300 flex flex-col shrink-0 border-r border-slate-900 shadow-2xl z-20">
+      {/* 1. LEFT SIDEBAR - Original Dark Palette (#0A1221) */}
+      <aside className="w-64 bg-[#0A1221] text-slate-300 flex flex-col justify-between shrink-0 border-r border-slate-800 shadow-2xl z-20">
         
-        {/* LOGO */}
-        <div className="px-6 py-6 border-b border-slate-800/60 flex items-center gap-3">
-          <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl">
-            <ShoppingCart className="w-6 h-6 text-[#00a86b]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xl font-black text-white tracking-tight font-display">Yaa</span>
-              <span className="text-xl font-black text-[#00a86b] tracking-tight font-display uppercase">POS</span>
+        {/* LOGO & APP NAME */}
+        <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-black text-white tracking-wider font-display block">Yaa POS</span>
             </div>
-            <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Admin Console</p>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-blue-400 font-bold tracking-widest uppercase">Consola Admin</span>
+            </div>
+          </div>
+          <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+            <ShieldCheck className="w-5 h-5" />
           </div>
         </div>
 
         {/* NAVIGATION MENUS */}
-        <nav className="flex-1 px-3 py-6 space-y-1.5 overflow-y-auto">
-          <div className="px-3 mb-3">
-            <button
-              type="button"
-              onClick={onViewPOS}
-              className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-[#0050b3] hover:bg-[#096dd9] text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all cursor-pointer uppercase tracking-wider"
-            >
-              <ShoppingCart className="w-4 h-4 text-blue-100" />
-              <span>Ir a mi Tienda POS</span>
-            </button>
-          </div>
-
-          <div className="px-3 mb-2 text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-            Control de Licencias
-          </div>
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           
           {/* TAB: DASHBOARD */}
           <button
             type="button"
             onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               activeTab === 'dashboard'
-                ? 'bg-[#00a86b] text-white shadow-lg shadow-emerald-900/25'
-                : 'hover:bg-slate-850/55 hover:text-slate-100 text-slate-400'
+                ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
             }`}
           >
             <LayoutDashboard className="w-4 h-4 shrink-0" />
             <span>Dashboard</span>
           </button>
 
-          {/* TAB: CLIENTES / ARCHIVOS */}
+          {/* TAB: EMPRESAS */}
           <button
             type="button"
-            onClick={() => setActiveTab('clientes')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'clientes'
-                ? 'bg-[#00a86b] text-white shadow-lg shadow-emerald-900/25'
-                : 'hover:bg-slate-850/55 hover:text-slate-100 text-slate-400'
+            onClick={() => setActiveTab('empresas')}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'empresas' || activeTab === 'clientes' || activeTab === 'usuarios' || activeTab === 'licencias_activas'
+                ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
             }`}
           >
-            <Users className="w-4 h-4 shrink-0" />
-            <span>Clientes / Repositorio</span>
+            <Building2 className="w-4 h-4 shrink-0" />
+            <span>Empresas</span>
           </button>
 
-          {/* TAB: USUARIOS REGISTRADOS */}
+          {/* TAB: PAISES / IMPUESTOS */}
           <button
             type="button"
-            onClick={() => setActiveTab('usuarios')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'usuarios'
-                ? 'bg-[#00a86b] text-white shadow-lg shadow-emerald-900/25'
-                : 'hover:bg-slate-850/55 hover:text-slate-100 text-slate-400'
+            onClick={() => setActiveTab('paises_impuestos')}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'paises_impuestos'
+                ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
             }`}
           >
-            <UserIcon className="w-4 h-4 shrink-0" />
-            <span>Usuarios Registrados</span>
+            <Globe className="w-4 h-4 shrink-0" />
+            <span>Países / Impuestos</span>
           </button>
 
-          {/* TAB: LICENCIAS ACTIVAS */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('licencias_activas')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'licencias_activas'
-                ? 'bg-[#00a86b] text-white shadow-lg shadow-emerald-900/25'
-                : 'hover:bg-slate-850/55 hover:text-slate-100 text-slate-400'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span>Licencias Activas</span>
-          </button>
-
-          <div className="px-3 pt-6 mb-2 text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-            Comercial
-          </div>
-
-          {/* TAB: PLANES Y PRECIOS */}
+          {/* TAB: PLANES */}
           <button
             type="button"
             onClick={() => setActiveTab('planes')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               activeTab === 'planes'
-                ? 'bg-[#00a86b] text-white shadow-lg shadow-emerald-900/25'
-                : 'hover:bg-slate-850/55 hover:text-slate-100 text-slate-400'
+                ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
+            }`}
+          >
+            <Layers className="w-4 h-4 shrink-0" />
+            <span>Planes</span>
+          </button>
+
+          {/* TAB: METODOS DE PAGO */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('metodos_pago')}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'metodos_pago'
+                ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
             }`}
           >
             <CreditCard className="w-4 h-4 shrink-0" />
-            <span>Planes y Precios</span>
+            <span>Métodos de pago</span>
           </button>
 
-          {/* TAB: CONFIGURACION */}
+          {/* TAB: MI PERFIL */}
           <button
             type="button"
-            onClick={() => setActiveTab('configuracion')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'configuracion'
-                ? 'bg-[#00a86b] text-white shadow-lg shadow-emerald-900/25'
-                : 'hover:bg-slate-850/55 hover:text-slate-100 text-slate-400'
+            onClick={() => setActiveTab('perfil')}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'perfil' || activeTab === 'configuracion'
+                ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
             }`}
           >
-            <Settings className="w-4 h-4 shrink-0" />
-            <span>Configuración</span>
+            <UserIcon className="w-4 h-4 shrink-0" />
+            <span>Mi Perfil</span>
           </button>
         </nav>
 
-        {/* LOGGED IN USER PROFILE FOOTER */}
-        <div className="p-4 border-t border-slate-800/70 bg-slate-950/40 space-y-3">
-          <div className="flex items-center gap-2.5">
-            <div className="relative shrink-0">
-              <div className="w-9 h-9 bg-emerald-600 text-white font-black text-xs rounded-xl flex items-center justify-center border border-emerald-500/20">
-                {user.name ? user.name[0].toUpperCase() : 'A'}
-              </div>
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-[#001529] rounded-full animate-pulse"></span>
+        {/* LOGGED IN USER PROFILE FOOTER & LOGOUT BUTTON */}
+        <div className="border-t border-slate-800 px-3 py-4 space-y-3 shrink-0 bg-[#070D18]">
+          <div className="flex items-center gap-2.5 px-3">
+            <div className="p-1.5 bg-slate-800 text-blue-400 rounded-full shrink-0">
+              <UserIcon className="w-3.5 h-3.5" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-black text-slate-100 truncate">{user.name}</p>
-              <p className="text-[10px] text-slate-500 font-mono truncate">{user.email}</p>
+              <p className="text-xs font-bold text-white truncate">{user.name}</p>
+              <p className="text-[9px] text-slate-400 font-mono truncate">{user.email}</p>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={onViewPOS}
+            className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-slate-700/60 cursor-pointer transition-colors"
+          >
+            <Store className="w-3.5 h-3.5 text-blue-400" /> Ir a mi Tienda POS
+          </button>
 
           <button
             type="button"
             onClick={onLogout}
-            className="w-full py-2.5 bg-red-950/20 hover:bg-red-950/60 text-red-400 hover:text-red-100 border border-red-900/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer uppercase tracking-wider text-[10px]"
+            className="w-full py-2 bg-red-950 hover:bg-red-900 text-red-200 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-red-900/40 cursor-pointer transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" /> Cerrar Sesión
           </button>
@@ -991,47 +1077,26 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         
         {/* TOP BAR HEADER */}
-        <header className="bg-white border-b border-slate-200/80 px-8 py-5 flex items-center justify-between shrink-0 sticky top-0 z-10 shadow-xs">
+        <header className="bg-white border-b border-slate-200 px-8 py-3.5 flex items-center justify-between shrink-0 sticky top-0 z-10">
           <div>
-            <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2 font-display">
-              {activeTab === 'dashboard' && 'Gestión de Licencias y Accesos'}
-              {activeTab === 'clientes' && 'Repositorio General de Clientes'}
-              {activeTab === 'usuarios' && 'Consola Central de Usuarios Registrados'}
-              {activeTab === 'licencias_activas' && 'Monitoreo de Licencias Activas'}
-              {activeTab === 'planes' && 'Configuración de Planes Comerciales'}
-              {activeTab === 'configuracion' && 'Parámetros del Servidor y Sistema'}
+            <h2 className="text-sm font-bold text-slate-800">
+              Consola de Administración
             </h2>
-            <p className="text-xs text-slate-400 font-medium font-sans">
-              {activeTab === 'dashboard' && 'Visualiza, emite y administra el estado de las licencias de tus clientes'}
-              {activeTab === 'clientes' && 'Inspecciona archivos, facturas de compras y respaldos de las bases de datos de los clientes'}
-              {activeTab === 'usuarios' && 'Lista completa de cuentas registradas en el sistema de base de datos'}
-              {activeTab === 'licencias_activas' && 'Consulta únicamente las licencias habilitadas y por vencer'}
-              {activeTab === 'planes' && 'Valores comerciales de licenciamiento y características de Yaa POS'}
-              {activeTab === 'configuracion' && 'Respaldos automatizados, logs de auditoría, y límites del sistema operativo'}
-            </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            {activeTab === 'dashboard' && (
-              <button
-                type="button"
-                onClick={() => setIsNewLicenseModalOpen(true)}
-                className="px-5 py-3 bg-[#009b72] hover:bg-[#008662] text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition-all cursor-pointer active:scale-95 uppercase tracking-wide"
-              >
-                <Plus className="w-4 h-4 text-emerald-100" /> Nueva Licencia
-              </button>
-            )}
+          <div className="flex items-center gap-4">
             <button
               type="button"
               onClick={onViewPOS}
-              className="px-4 py-2.5 bg-[#0050b3] hover:bg-[#096dd9] text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all cursor-pointer uppercase tracking-wider flex items-center gap-2 shrink-0"
+              className="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded-xl px-4 py-1.5 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs"
             >
-              <ShoppingCart className="w-4 h-4 text-blue-100" />
-              <span>Ir a mi Tienda POS</span>
+              <Store className="w-3.5 h-3.5 text-blue-600" />
+              <span>Panel de tienda</span>
             </button>
-            <span className="hidden md:flex items-center gap-1 bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider font-mono">
-              <Activity className="w-3.5 h-3.5 text-emerald-500" /> Servidor Live
-            </span>
+
+            <div className="w-8 h-8 rounded-full bg-[#1E88E5] text-white font-bold flex items-center justify-center text-xs shadow-xs">
+              {user.name ? user.name[0].toUpperCase() : 'A'}
+            </div>
           </div>
         </header>
 
@@ -1039,104 +1104,253 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
         <main className="flex-1 p-8 space-y-8">
           
           {/* TAB: DASHBOARD */}
-          {(activeTab === 'dashboard' || activeTab === 'licencias_activas') && (
-            <>
-              {/* DYNAMIC METRIC STATS CARDS */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              
+              {/* PAGE HEADER */}
+              <div>
+                <span className="text-[11px] font-black text-blue-600 tracking-widest uppercase block mb-1">
+                  ADMINISTRACIÓN
+                </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-[#1E88E5] text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <LayoutDashboard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">Dashboard Plataforma</h1>
+                    <p className="text-xs text-slate-500 font-medium">Métricas globales de la plataforma Yaa POS.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 6 METRIC STATS CARDS */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
                 
-                {/* Total de usuarios */}
-                <div className="bg-blue-50/70 border border-blue-100/70 rounded-3xl p-5 flex items-center gap-4 shadow-3xs hover:shadow-2xs transition-all">
-                  <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl shrink-0">
-                    <Users className="w-5 h-5" />
+                {/* 1. Empresas */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
+                  <div className="w-9 h-9 bg-blue-50 text-[#1E88E5] rounded-xl flex items-center justify-center shrink-0 border border-blue-100">
+                    <Building2 className="w-4 h-4" />
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold text-blue-600 block uppercase tracking-wider font-sans">Total de Usuarios</span>
-                    <span className="text-2xl font-black text-blue-800 font-mono tracking-tight block">
-                      {stats.totalUsers.toLocaleString()}
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="text-xs font-semibold text-slate-500 block truncate">Empresas</span>
+                    <span className="text-lg font-black text-slate-900 tracking-tight block">
+                      {users.length}
                     </span>
                   </div>
                 </div>
 
-                {/* Usuarios con licencia activa */}
-                <div className="bg-[#edfbf4] border border-[#d2f4df] rounded-3xl p-5 flex items-center gap-4 shadow-3xs hover:shadow-2xs transition-all">
-                  <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl shrink-0">
-                    <ShieldCheck className="w-5 h-5 text-[#00a86b]" />
+                {/* 2. Activas */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
+                  <div className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0 border border-emerald-100">
+                    <Check className="w-4 h-4 stroke-[3]" />
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold text-[#00a86b] block uppercase tracking-wider font-sans">Licencias Activas</span>
-                    <span className="text-2xl font-black text-emerald-800 font-mono tracking-tight block">
-                      {stats.activeLic.toLocaleString()}
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="text-xs font-semibold text-slate-500 block truncate">Activas</span>
+                    <span className="text-lg font-black text-slate-900 tracking-tight block">
+                      {stats.activeLic}
                     </span>
                   </div>
                 </div>
 
-                {/* Licencias próximas a vencer (< 7 días) */}
-                <div className="bg-[#fef9eb] border border-[#fdf0cd] rounded-3xl p-5 flex items-center gap-4 shadow-3xs hover:shadow-2xs transition-all">
-                  <div className="p-3 bg-amber-100 text-amber-600 rounded-2xl shrink-0">
-                    <Clock className="w-5 h-5 text-amber-600" />
+                {/* 3. En prueba */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
+                  <div className="w-9 h-9 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shrink-0 border border-amber-100">
+                    <Clock className="w-4 h-4" />
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold text-amber-600 block uppercase tracking-wider font-sans">Próximas a Vencer</span>
-                    <span className="text-2xl font-black text-amber-800 font-mono tracking-tight block">
-                      {stats.proximasAVencer.toLocaleString()}
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="text-xs font-semibold text-slate-500 block truncate">En prueba</span>
+                    <span className="text-lg font-black text-slate-900 tracking-tight block">
+                      {stats.enPrueba}
                     </span>
                   </div>
                 </div>
 
-                {/* Licencias vencidas */}
-                <div className="bg-orange-50 border border-orange-100 rounded-3xl p-5 flex items-center gap-4 shadow-3xs hover:shadow-2xs transition-all">
-                  <div className="p-3 bg-orange-100 text-orange-600 rounded-2xl shrink-0">
-                    <AlertCircle className="w-5 h-5 text-orange-600" />
+                {/* 4. Vencidas */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
+                  <div className="w-9 h-9 bg-red-50 text-red-600 rounded-xl flex items-center justify-center shrink-0 border border-red-100">
+                    <X className="w-4 h-4 stroke-[3]" />
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold text-orange-600 block uppercase tracking-wider font-sans">Licencias Vencidas</span>
-                    <span className="text-2xl font-black text-orange-800 font-mono tracking-tight block">
-                      {stats.vencidas.toLocaleString()}
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="text-xs font-semibold text-slate-500 block truncate">Vencidas</span>
+                    <span className="text-lg font-black text-slate-900 tracking-tight block">
+                      {stats.vencidas}
                     </span>
                   </div>
                 </div>
 
-                {/* Usuarios suspendidos */}
-                <div className="bg-[#fff1f1] border border-[#ffe0e0] rounded-3xl p-5 flex items-center gap-4 shadow-3xs hover:shadow-2xs transition-all">
-                  <div className="p-3 bg-rose-100 text-rose-600 rounded-2xl shrink-0">
-                    <Lock className="w-5 h-5 text-rose-600" />
+                {/* 5. Usuarios */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
+                  <div className="w-9 h-9 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center shrink-0 border border-purple-100">
+                    <Users className="w-4 h-4" />
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold text-rose-600 block uppercase tracking-wider font-sans">Usuarios Suspendidos</span>
-                    <span className="text-2xl font-black text-rose-800 font-mono tracking-tight block">
-                      {stats.suspendidos.toLocaleString()}
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="text-xs font-semibold text-slate-500 block truncate">Usuarios</span>
+                    <span className="text-lg font-black text-slate-900 tracking-tight block">
+                      {stats.totalUsers}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 6. MRR */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
+                  <div className="w-9 h-9 bg-emerald-50 text-emerald-700 rounded-xl flex items-center justify-center shrink-0 border border-emerald-100">
+                    <DollarSign className="w-4 h-4 stroke-[3]" />
+                  </div>
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="text-xs font-semibold text-slate-500 block truncate">MRR</span>
+                    <span className="text-lg font-black text-slate-900 tracking-tight block">
+                      Q {stats.mrr.toFixed(2)}
                     </span>
                   </div>
                 </div>
 
               </div>
 
-              {/* TABLE: ULTIMAS LICENCIAS EMITIDAS */}
-              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
-                <div className="px-6 py-5 border-b border-slate-150 flex items-center justify-between bg-slate-50/50">
-                  <h3 className="font-extrabold text-slate-800 text-sm font-sans">
-                    {activeTab === 'licencias_activas' ? 'Monitoreo de Licencias Activas' : 'Últimas Licencias Emitidas'}
-                  </h3>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white border border-slate-200 px-3 py-1 rounded-full font-mono">
-                    Consola General ({licenses.length})
-                  </span>
+              {/* CHARTS ROW */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* CHART 1: Crecimiento de empresas */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                  <h3 className="text-sm font-bold text-slate-800 mb-6">Crecimiento de empresas</h3>
+                  
+                  <div className="h-64 relative flex flex-col justify-between">
+                    {/* Grid Lines */}
+                    <div className="relative w-full h-48">
+                      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                        <div className="border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                          <span>4</span>
+                        </div>
+                        <div className="border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                          <span>3</span>
+                        </div>
+                        <div className="border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                          <span>2</span>
+                        </div>
+                        <div className="border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                          <span>1</span>
+                        </div>
+                        <div className="border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                          <span>0</span>
+                        </div>
+                      </div>
+
+                      {/* SVG line */}
+                      <svg className="absolute inset-0 w-full h-full overflow-visible pl-6" preserveAspectRatio="none" viewBox="0 0 500 150">
+                        <defs>
+                          <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#1E88E5" stopOpacity="0.25" />
+                            <stop offset="100%" stopColor="#1E88E5" stopOpacity="0.0" />
+                          </linearGradient>
+                        </defs>
+                        <path
+                          d="M 10 140 Q 100 135, 180 120 T 320 80 T 480 30"
+                          fill="none"
+                          stroke="#1E88E5"
+                          strokeWidth="2.5"
+                        />
+                        <path
+                          d="M 10 140 Q 100 135, 180 120 T 320 80 T 480 30 L 480 150 L 10 150 Z"
+                          fill="url(#growthGrad)"
+                        />
+                        <circle cx="10" cy="140" r="4" fill="#1E88E5" stroke="#ffffff" strokeWidth="2" />
+                        <circle cx="180" cy="120" r="4" fill="#1E88E5" stroke="#ffffff" strokeWidth="2" />
+                        <circle cx="320" cy="80" r="4" fill="#1E88E5" stroke="#ffffff" strokeWidth="2" />
+                        <circle cx="480" cy="30" r="5" fill="#1E88E5" stroke="#ffffff" strokeWidth="2" />
+                      </svg>
+                    </div>
+
+                    <div className="flex justify-between text-[11px] font-medium text-slate-400 pl-6 pt-2">
+                      <span>Mar</span>
+                      <span>Abr</span>
+                      <span>May</span>
+                      <span>Jun</span>
+                      <span>Jul</span>
+                      <span>Ago</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CHART 2: Empresas por plan */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                  <h3 className="text-sm font-bold text-slate-800 mb-6">Empresas por plan</h3>
+                  
+                  <div className="h-64 flex flex-col justify-center items-center relative">
+                    <div className="w-full space-y-4 px-4">
+                      {plans.map((p: any, idx: number) => {
+                        const count = licenses.filter(l => l.planType?.toLowerCase().includes(p.name.toLowerCase().split(' ')[0])).length;
+                        const percentage = licenses.length > 0 ? Math.round((count / licenses.length) * 100) : (idx === 0 ? 60 : idx === 1 ? 30 : 10);
+                        return (
+                          <div key={p.id} className="space-y-1.5">
+                            <div className="flex justify-between text-xs font-semibold text-slate-700">
+                              <span className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full ${idx === 0 ? 'bg-[#1E88E5]' : idx === 1 ? 'bg-emerald-500' : 'bg-purple-500'}`} />
+                                {p.name}
+                              </span>
+                              <span className="font-mono text-slate-400">{percentage}%</span>
+                            </div>
+                            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all duration-500 ${idx === 0 ? 'bg-[#1E88E5]' : idx === 1 ? 'bg-emerald-500' : 'bg-purple-500'}`}
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* TABLE: EMPRESAS / LICENCIAS */}
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white">
+                  <div className="flex items-center gap-2.5">
+                    <h3 className="font-bold text-slate-800 text-sm">
+                      Empresas Registradas ({licenses.length})
+                    </h3>
+                  </div>
+
+                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:w-64">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Buscar empresa o correo..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-4 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-medium"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsNewLicenseModalOpen(true)}
+                      className="px-4 py-2 bg-[#1E88E5] hover:bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-4 h-4" /> Nueva Licencia
+                    </button>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-slate-50/70 text-slate-500 font-bold border-b border-slate-150 uppercase tracking-wider text-[10px]">
-                        <th className="py-4.5 px-6">Cliente</th>
-                        <th className="py-4.5 px-6">Aplicación</th>
-                        <th className="py-4.5 px-6">Tipo de Plan</th>
-                        <th className="py-4.5 px-6">Fecha de Expiración</th>
-                        <th className="py-4.5 px-6 text-center">Estado</th>
-                        <th className="py-4.5 px-6 text-center">Acciones</th>
+                      <tr className="bg-slate-50/50 text-slate-400 font-semibold border-b border-slate-100 text-[11px]">
+                        <th className="py-3.5 px-6">Empresa / Cliente</th>
+                        <th className="py-3.5 px-6">Plan</th>
+                        <th className="py-3.5 px-6">Expiración</th>
+                        <th className="py-3.5 px-6 text-center">Estado</th>
+                        <th className="py-3.5 px-6 text-center">Acciones</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {licenses
-                        .filter(l => activeTab !== 'licencias_activas' || l.status === 'Activo' || l.status === 'Por Vencer')
+                        .filter(lic => {
+                          const term = searchQuery.toLowerCase();
+                          return lic.clientName.toLowerCase().includes(term) || lic.clientEmail.toLowerCase().includes(term);
+                        })
                         .map((lic) => {
                           const targetUser = users.find(u => u.id === lic.userId) || {
                             id: lic.userId,
@@ -1147,119 +1361,67 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                           const resolvedState = resolveFullLicenseState(lic, targetUser);
 
                           return (
-                            <tr key={lic.userId} className="hover:bg-slate-50/40 transition-colors">
+                            <tr key={lic.userId} className="hover:bg-slate-50/60 transition-colors">
                             
                             {/* Cliente */}
-                            <td className="py-4 px-6">
+                            <td className="py-3.5 px-6">
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-slate-100 text-slate-700 font-black text-xs rounded-lg flex items-center justify-center uppercase font-mono">
+                                <div className="w-8 h-8 bg-blue-50 text-blue-600 font-black text-xs rounded-full flex items-center justify-center uppercase">
                                   {lic.clientName[0]}
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="font-extrabold text-slate-900 truncate text-sm">{lic.clientName}</p>
-                                  <p className="text-[10px] text-slate-400 truncate font-mono">{lic.clientEmail}</p>
+                                  <p className="font-bold text-slate-900 truncate text-xs">{lic.clientName}</p>
+                                  <p className="text-[11px] text-slate-400 truncate font-mono">{lic.clientEmail}</p>
                                 </div>
                               </div>
                             </td>
 
-                            {/* Aplicacion */}
-                            <td className="py-4 px-6 text-slate-600 font-semibold">
-                              {lic.application}
-                            </td>
-
                             {/* Tipo de Plan */}
-                            <td className="py-4 px-6 font-medium">
-                              {user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' ? (
-                                <select
-                                  value={lic.planType}
-                                  onChange={(e) => handleUpdateLicenseField(lic.userId, 'planType', e.target.value)}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold cursor-pointer focus:ring-2 focus:ring-blue-500 focus:outline-hidden transition-all"
-                                >
-                                  <option value="Demo 15 días">Demo 15 días</option>
-                                  <option value="Mensual Básico">Mensual Básico</option>
-                                  <option value="Premium Anual">Premium Anual</option>
-                                  <option value="Gratuito">Gratuito</option>
-                                </select>
-                              ) : (
-                                <span className="px-2.5 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px]">
-                                  {lic.planType}
-                                </span>
-                              )}
+                            <td className="py-3.5 px-6 font-medium text-slate-700">
+                              <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-medium">
+                                {lic.planType}
+                              </span>
                             </td>
 
                             {/* Fecha de Expiracion */}
-                            <td className="py-4 px-6 font-mono text-slate-500 font-medium text-[11px]">
-                              {user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' ? (
-                                <input
-                                  type="date"
-                                  value={lic.expirationDate}
-                                  onChange={(e) => handleUpdateLicenseField(lic.userId, 'expirationDate', e.target.value)}
-                                  className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg px-2 py-1 text-[11px] font-medium font-mono cursor-pointer focus:ring-2 focus:ring-blue-500 focus:outline-hidden transition-all"
-                                />
-                              ) : (
-                                formatDate(lic.expirationDate)
-                              )}
+                            <td className="py-3.5 px-6 font-mono text-slate-500 text-[11px]">
+                              {formatDate(lic.expirationDate)}
                             </td>
 
-                            {/* Estado (Matching the exact look from user's image) */}
-                            <td className="py-4 px-6 text-center">
+                            {/* Estado */}
+                            <td className="py-3.5 px-6 text-center">
                               <div className="flex justify-center">
-                                {user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' ? (
-                                  <select
-                                    value={lic.status}
-                                    onChange={(e) => handleUpdateLicenseField(lic.userId, 'status', e.target.value as any)}
-                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-center block w-32 shadow-xs border cursor-pointer focus:ring-2 focus:ring-blue-500 focus:outline-hidden transition-all ${
-                                      lic.status === 'Activa' || lic.status === 'Activo' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                      lic.status === 'Por vencer' || lic.status === 'Por Vencer' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                                      lic.status === 'Suspendida' ? 'bg-rose-50 text-rose-800 border-rose-200' :
-                                      lic.status === 'Desactivada' ? 'bg-slate-900/10 text-slate-800 border-slate-300' :
-                                      lic.status === 'Pendiente' ? 'bg-slate-50 text-slate-500 border-slate-200' :
-                                      'bg-red-50 text-red-800 border-red-200'
-                                    }`}
-                                  >
-                                    <option value="Activa">Activa</option>
-                                    <option value="Por vencer">Por vencer</option>
-                                    <option value="Suspendida">Suspendida</option>
-                                    <option value="Expirada">Expirada</option>
-                                    <option value="Pendiente">Pendiente</option>
-                                    <option value="Desactivada">Desactivada</option>
-                                  </select>
-                                ) : (
-                                  getBadge(resolvedState)
-                                )}
+                                {getBadge(resolvedState)}
                               </div>
                             </td>
 
-                            {/* Acciones (Matches action designs in screenshot) */}
-                            <td className="py-4 px-6">
-                              <div className="flex items-center justify-center gap-2">
-                                {/* Eye button */}
+                            {/* Acciones */}
+                            <td className="py-3.5 px-6">
+                              <div className="flex items-center justify-center gap-1.5">
                                 <button
                                   type="button"
                                   onClick={() => handleInspectClient(lic)}
-                                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all border border-slate-200 shadow-3xs cursor-pointer active:scale-95"
-                                  title="Inspeccionar archivos / carpeta"
+                                  className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-lg transition-all border border-slate-200 shadow-3xs cursor-pointer"
+                                  title="Inspeccionar archivos"
                                 >
                                   <Eye className="w-3.5 h-3.5" />
                                 </button>
-                                {/* Lock button */}
                                 <button
                                   type="button"
                                   onClick={() => handleToggleLock(lic)}
-                                  className={`p-2 rounded-xl transition-all border shadow-3xs cursor-pointer active:scale-95 ${
+                                  className={`p-1.5 rounded-lg transition-all border shadow-3xs cursor-pointer ${
                                     lic.status === 'Suspendida' 
                                       ? 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
-                                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                                      : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
                                   }`}
                                   title={lic.status === 'Suspendida' ? 'Reactivar Licencia' : 'Suspender Licencia'}
                                 >
                                   {lic.status === 'Suspendida' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                                 </button>
-                                {/* Pencil edit button */}
                                 <button
                                   type="button"
                                   onClick={() => handleEditLicenseClick(lic)}
-                                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all border border-slate-200 shadow-3xs cursor-pointer active:scale-95"
+                                  className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-lg transition-all border border-slate-200 shadow-3xs cursor-pointer"
                                   title="Editar Licencia"
                                 >
                                   <Edit className="w-3.5 h-3.5" />
@@ -1269,207 +1431,211 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
                           </tr>
                         );
-                        })}
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
-            </>
-          )}
-
-          {/* TAB: CLIENTES (CRM REPOSITORY & FILE INSPECTOR PANEL) */}
-          {activeTab === 'clientes' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              
-              {/* Left Customer Card List (7 Columns) */}
-              <div className="lg:col-span-7 bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
-                
-                {/* Search header bar */}
-                <div className="p-5 border-b border-slate-150 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50">
-                  <div className="flex items-center gap-2">
-                    <Users className="w-5 h-5 text-[#00a86b]" />
-                    <h3 className="font-extrabold text-slate-800 text-sm">Cartera de Clientes ({filteredUsers.length})</h3>
-                  </div>
-                  
-                  <div className="relative w-full sm:w-64">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Filtrar por nombre o correo..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-white text-xs border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
-                    />
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="m-4 p-4 bg-red-50/75 border border-red-200 rounded-2xl text-xs text-red-600 font-medium">
-                    {error}
-                  </div>
-                )}
-
-                {/* Users list rows */}
-                <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
-                  {isUsersLoading ? (
-                    <div className="p-12 flex flex-col items-center justify-center text-slate-400 gap-3">
-                      <Loader2 className="w-8 h-8 text-[#00a86b] animate-spin" />
-                      <p className="text-xs font-bold">Cargando base de datos de usuarios de Firestore...</p>
-                    </div>
-                  ) : filteredUsers.length === 0 ? (
-                    <div className="p-12 text-center text-slate-400 text-xs font-bold">
-                      No se encontraron usuarios en la base de datos.
-                    </div>
-                  ) : (
-                    filteredUsers.map((u) => {
-                      const isSelected = selectedUser?.id === u.id;
-                      return (
-                        <button
-                          key={u.id}
-                          type="button"
-                          onClick={() => handleSelectUser(u)}
-                          className={`w-full text-left p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
-                            isSelected 
-                              ? 'bg-emerald-50/40 border-l-4 border-[#00a86b]' 
-                              : 'hover:bg-slate-50/50 border-l-4 border-transparent'
-                          }`}
-                        >
-                          <div className="space-y-1.5 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-extrabold text-sm text-slate-800 truncate">{u.name}</span>
-                              {u.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' && (
-                                <span className="bg-blue-500/10 text-blue-600 text-[9px] font-black px-1.5 py-0.5 rounded-sm uppercase tracking-wide">ADMIN</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                              <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span className="truncate font-medium">{u.email}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              ID: {u.id}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col sm:items-end gap-1 font-sans">
-                            <div className="text-xs text-slate-400 font-medium">
-                              Reg: <span className="font-bold text-slate-600">{formatDate(u.createdAt)}</span>
-                            </div>
-                            <span className="text-[10px] text-[#00a86b] font-extrabold flex items-center gap-0.5 hover:underline uppercase tracking-wide">
-                              Ver Archivos &rarr;
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-
-              </div>
-
-              {/* Right Profile & Folder Inspector Panel (5 Columns) */}
-              <div className="lg:col-span-5 space-y-6">
-                
-                {/* Profile Widget */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
-                  <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
-                    <UserIcon className="w-4 h-4 text-[#00a86b]" /> Detalle del Usuario
-                  </h4>
-
-                  {selectedUser ? (
-                    <div className="space-y-4">
-                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-3">
-                        <div className="w-11 h-11 bg-emerald-100 text-[#00a86b] font-black text-sm rounded-xl flex items-center justify-center uppercase font-mono">
-                          {selectedUser.name ? selectedUser.name[0] : 'U'}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-extrabold text-slate-900 text-sm truncate">{selectedUser.name}</p>
-                          <p className="text-xs text-slate-500 font-mono truncate">{selectedUser.email}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div className="bg-slate-50 border border-slate-150 p-3 rounded-xl">
-                          <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">Identificador</span>
-                          <span className="font-mono text-slate-600 block text-[10px] truncate" title={selectedUser.id}>{selectedUser.id}</span>
-                        </div>
-                        <div className="bg-slate-50 border border-slate-150 p-3 rounded-xl">
-                          <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">Miembro Desde</span>
-                          <span className="text-slate-600 font-bold block text-[11px]">{formatDate(selectedUser.createdAt)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-slate-400 text-xs font-bold border-2 border-dashed border-slate-200 rounded-2xl">
-                      Seleccione un cliente para ver su perfil y complementos
-                    </div>
-                  )}
-                </div>
-
-                {/* Cloud storage list of uploads */}
-                <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs flex flex-col min-h-[300px]">
-                  <div className="p-5 border-b border-slate-150 flex items-center justify-between bg-slate-50/50">
-                    <div className="flex items-center gap-2">
-                      <HardDrive className="w-5 h-5 text-amber-500" />
-                      <h4 className="font-extrabold text-slate-800 text-sm">Archivos de Soporte / Complementos</h4>
-                    </div>
-                    {selectedUser && (
-                      <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full font-mono">
-                        {userFiles.length}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="p-5 flex-1 overflow-y-auto max-h-[40vh]">
-                    {!selectedUser ? (
-                      <p className="text-center text-xs text-slate-400 py-12 font-bold">Ningún cliente seleccionado</p>
-                    ) : isFilesLoading ? (
-                      <div className="py-12 flex flex-col items-center justify-center gap-3">
-                        <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-                        <p className="text-xs text-slate-400 font-bold">Descargando metadatos de archivos...</p>
-                      </div>
-                    ) : userFiles.length === 0 ? (
-                      <div className="py-12 text-center text-slate-400 space-y-2 flex flex-col items-center">
-                        <FileText className="w-10 h-10 text-slate-200" />
-                        <p className="text-xs font-bold">El usuario no tiene archivos guardados en su repositorio.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {userFiles.map((file) => (
-                          <div 
-                            key={file.id}
-                            className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3 hover:bg-slate-100/50 transition-all"
-                          >
-                            <div className="min-w-0 space-y-1">
-                              <p className="text-xs font-extrabold text-slate-800 truncate flex items-center gap-1.5" title={file.name}>
-                                <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                {file.name}
-                              </p>
-                              <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium">
-                                <span className="bg-white border border-slate-200 px-1.5 py-0.5 rounded font-mono">{formatBytes(file.size)}</span>
-                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatDate(file.uploadedAt)}</span>
-                              </div>
-                            </div>
-
-                            <a
-                              href={file.path}
-                              target="_blank"
-                              rel="noreferrer referrer"
-                              className="p-2 bg-white hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 shadow-3xs cursor-pointer transition-colors"
-                              title="Descargar archivo"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </a>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-              </div>
 
             </div>
           )}
+
+          {/* TAB: EMPRESAS (MATCHING EXACT SCREENSHOT DESIGN) */}
+          {(activeTab === 'empresas' || activeTab === 'clientes') && (() => {
+            const allEmpresas = licenses.length > 0 ? licenses : users.map(u => ({
+              id: u.id,
+              userId: u.id,
+              clientName: u.name || 'Empresa',
+              clientEmail: u.email,
+              planType: (u as any).plan || 'Básico',
+              expirationDate: (u as any).licenseExpiresAt || '',
+              status: (u.accountStatus === 'Suspendida' ? 'Suspendida' : 'Activa') as any,
+              maxUsers: 3,
+              storeCount: 1,
+              taxId: (u as any).taxId || (u as any).nit || (u as any).ruc || 'CF / Sin RUC'
+            } as any));
+
+            const filteredEmpresas = allEmpresas.filter(emp => {
+              const term = searchQuery.toLowerCase();
+              const name = (emp.clientName || '').toLowerCase();
+              const email = (emp.clientEmail || '').toLowerCase();
+              const ruc = (emp.taxId || '').toLowerCase();
+              return name.includes(term) || email.includes(term) || ruc.includes(term);
+            });
+
+            return (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* 1. HEADER: Exact match with screenshot */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-[#00a86b] text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Building2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-black text-[#00a86b] tracking-wider uppercase block">
+                        ADMINISTRACIÓN
+                      </span>
+                      <h2 className="text-2xl font-bold text-slate-900 leading-tight">
+                        Empresas
+                      </h2>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Clientes del SaaS.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsNewLicenseModalOpen(true)}
+                    className="px-5 py-2.5 bg-[#00a86b] hover:bg-[#00925d] text-white rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer self-start sm:self-auto"
+                  >
+                    <Plus className="w-4 h-4" /> Nueva empresa
+                  </button>
+                </div>
+
+                {/* 2. MAIN CARD CONTAINER */}
+                <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-6">
+                  
+                  {/* Top Search Input */}
+                  <div className="relative w-full max-w-xs">
+                    <input
+                      type="text"
+                      placeholder="Buscar empresa..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full bg-white text-xs border border-slate-200 rounded-full px-4 py-2.5 text-slate-700 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-[#00a86b] focus:border-transparent font-medium"
+                    />
+                  </div>
+
+                  {/* Table with columns: Empresa | NIT | Plan | Usuarios | Vencimiento | Estado | Acciones */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="text-slate-500 font-semibold border-b border-slate-100 text-xs">
+                          <th className="pb-3 px-4 font-semibold text-slate-600">Empresa</th>
+                          <th className="pb-3 px-4 font-semibold text-slate-600">NIT</th>
+                          <th className="pb-3 px-4 font-semibold text-slate-600">Plan</th>
+                          <th className="pb-3 px-4 font-semibold text-slate-600">Usuarios</th>
+                          <th className="pb-3 px-4 font-semibold text-slate-600">Vencimiento</th>
+                          <th className="pb-3 px-4 font-semibold text-center text-slate-600">Estado</th>
+                          <th className="pb-3 px-4 font-semibold text-right text-slate-600">Acciones</th>
+                        </tr>
+                      </thead>
+                      {filteredEmpresas.length > 0 && (
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredEmpresas.map((emp) => {
+                            const targetUser = users.find(u => u.id === emp.userId || u.email === emp.clientEmail);
+                            const resolvedState = resolveFullLicenseState(emp, targetUser);
+                            const rucValue = (emp as any).taxId || (targetUser as any)?.taxId || (targetUser as any)?.nit || (targetUser as any)?.ruc || 'CF / Sin NIT';
+                            const userCount = emp.maxUsers ? `1 / ${emp.maxUsers}` : '1 / 3';
+
+                            return (
+                              <tr key={emp.userId || emp.id} className="hover:bg-slate-50/60 transition-colors">
+                                
+                                {/* Empresa */}
+                                <td className="py-4 px-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-emerald-50 text-[#00a86b] font-bold text-xs flex items-center justify-center uppercase">
+                                      {emp.clientName ? emp.clientName[0] : 'E'}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-slate-900 truncate">{emp.clientName}</p>
+                                      <p className="text-[11px] text-slate-400 font-mono truncate">{emp.clientEmail}</p>
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* NIT */}
+                                <td className="py-4 px-4 font-mono text-slate-600">
+                                  {rucValue}
+                                </td>
+
+                                {/* Plan */}
+                                <td className="py-4 px-4">
+                                  <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-medium">
+                                    {emp.planType || 'Básico'}
+                                  </span>
+                                </td>
+
+                                {/* Usuarios */}
+                                <td className="py-4 px-4 font-mono text-slate-600">
+                                  {userCount}
+                                </td>
+
+                                {/* Vencimiento */}
+                                <td className="py-4 px-4 font-mono text-slate-600 text-[11px]">
+                                  {formatDate(emp.expirationDate)}
+                                </td>
+
+                                {/* Estado */}
+                                <td className="py-4 px-4 text-center">
+                                  <div className="flex justify-center">
+                                    {getBadge(resolvedState)}
+                                  </div>
+                                </td>
+
+                                {/* Acciones */}
+                                <td className="py-4 px-4 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (targetUser) setSelectedUser(targetUser);
+                                        setIsFilesDrawerOpen(true);
+                                      }}
+                                      className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-lg transition-all border border-slate-200 shadow-3xs cursor-pointer"
+                                      title="Ver archivos y respaldos"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleLock(emp)}
+                                      className={`p-1.5 rounded-lg transition-all border shadow-3xs cursor-pointer ${
+                                        emp.status === 'Suspendida' 
+                                          ? 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
+                                          : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+                                      }`}
+                                      title={emp.status === 'Suspendida' ? 'Reactivar Licencia' : 'Suspender Licencia'}
+                                    >
+                                      {emp.status === 'Suspendida' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditLicenseClick(emp)}
+                                      className="p-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-lg transition-all border border-slate-200 shadow-3xs cursor-pointer"
+                                      title="Editar Empresa / Licencia"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      )}
+                    </table>
+                  </div>
+
+                  {/* Empty State when no companies match/exist */}
+                  {filteredEmpresas.length === 0 && (
+                    <div className="bg-[#f8fafc] border border-slate-100/80 rounded-2xl py-20 px-4 text-center flex flex-col items-center justify-center">
+                      <div className="w-12 h-12 bg-sky-50 text-slate-700 rounded-full flex items-center justify-center text-2xl mb-3 shadow-xs">
+                        📬
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-800 mb-1">Sin empresas registradas</h4>
+                      <p className="text-xs text-slate-500">Crea la primera tienda con el botón &ldquo;Nueva empresa&rdquo;.</p>
+                    </div>
+                  )}
+
+                </div>
+
+              </div>
+            );
+          })()}
 
           {/* TAB: USUARIOS REGISTRADOS (CONSOLA DE CONTROL) */}
           {activeTab === 'usuarios' && (
@@ -1701,188 +1867,305 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
             </div>
           )}
 
-          {/* TAB: PLANES Y PRECIOS */}
-          {activeTab === 'planes' && (
-            <div className="space-y-8">
-              <div className="max-w-4xl mx-auto text-center space-y-3">
-                <h3 className="text-2xl font-black text-slate-900 tracking-tight font-display">
-                  Suscripciones y Licenciamiento Yaa POS
-                </h3>
-                <p className="text-sm text-slate-500 font-medium max-w-2xl mx-auto">
-                  Configuración comercial de los tipos de planes vigentes de la plataforma para su emisión automatizada.
-                </p>
+          {/* TAB: PAISES / IMPUESTOS */}
+          {activeTab === 'paises_impuestos' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Configuración de Países e Impuestos</h2>
+                  <p className="text-xs text-slate-400">Gestiona las tasas tributarias (IVA, IGV), monedas por defecto y localizaciones fiscales.</p>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-                
-                {/* Plan 1 */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6.5 shadow-sm relative flex flex-col justify-between">
-                  <div className="space-y-4">
-                    <span className="text-[10px] font-black text-[#00a86b] uppercase tracking-wider bg-emerald-50 px-2.5 py-1 rounded-full">{plans[0].badge}</span>
-                    <h4 className="text-lg font-extrabold text-slate-900">{plans[0].name}</h4>
-                    <p className="text-xs text-slate-500">{plans[0].desc}</p>
-                    <div className="pt-2">
-                      <span className="text-2xl font-black text-slate-900 font-mono">{plans[0].price}</span>
-                      <span className="text-slate-400 text-xs font-bold">{plans[0].period}</span>
-                    </div>
-                    <ul className="text-xs text-slate-600 space-y-2 pt-4 border-t border-slate-100">
-                      {plans[0].features.map((feat: string, idx: number) => (
-                        <li key={idx} className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {feat}</li>
-                      ))}
-                    </ul>
+              <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-xs">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-400 font-semibold border-b border-slate-100 text-[11px]">
+                      <th className="py-3.5 px-6">País</th>
+                      <th className="py-3.5 px-6">Moneda Oficial</th>
+                      <th className="py-3.5 px-6">Impuesto Predeterminado</th>
+                      <th className="py-3.5 px-6">Porcentaje (%)</th>
+                      <th className="py-3.5 px-6 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {countries.map((c) => (
+                      <tr key={c.id} className="hover:bg-slate-50/50">
+                        <td className="py-3.5 px-6 font-bold text-slate-800 flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-blue-600" /> {c.name}
+                        </td>
+                        <td className="py-3.5 px-6 font-mono font-bold text-slate-700">{c.currency}</td>
+                        <td className="py-3.5 px-6 text-slate-600">{c.taxName}</td>
+                        <td className="py-3.5 px-6 font-mono font-bold text-blue-600">{c.defaultTax}%</td>
+                        <td className="py-3.5 px-6 text-center">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${c.isDefault ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                            {c.isDefault ? 'Activo / Principal' : 'Habilitado'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: PLANES (MATCHING EXACT SCREENSHOT DESIGN) */}
+          {activeTab === 'planes' && (
+            <div className="space-y-6 animate-fade-in">
+              {/* Header: Exact match */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-[#00a86b] text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Layers className="w-6 h-6" />
                   </div>
-                  <button 
-                    type="button" 
-                    onClick={() => handleEditPlanClick(plans[0])}
-                    className="w-full mt-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs uppercase tracking-wide transition-all cursor-pointer"
-                  >
-                    Configurar Demo
-                  </button>
+                  <div>
+                    <span className="text-[11px] font-black text-[#00a86b] tracking-wider uppercase block">
+                      ADMINISTRACIÓN
+                    </span>
+                    <h2 className="text-2xl font-bold text-slate-900 leading-tight">
+                      Planes
+                    </h2>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Catálogo de planes de la plataforma.
+                    </p>
+                  </div>
                 </div>
 
-                {/* Plan 2 */}
-                <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6.5 shadow-md relative flex flex-col justify-between">
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-500 text-white font-black text-[9px] uppercase tracking-widest px-3 py-1 rounded-full shadow-xs">Recomendado</div>
-                  <div className="space-y-4">
-                    <span className="text-[10px] font-black text-blue-600 uppercase tracking-wider bg-blue-50 px-2.5 py-1 rounded-full">{plans[1].badge}</span>
-                    <h4 className="text-lg font-extrabold text-slate-900">{plans[1].name}</h4>
-                    <p className="text-xs text-slate-500">{plans[1].desc}</p>
-                    <div className="pt-2">
-                      <span className="text-2xl font-black text-slate-900 font-mono">{plans[1].price}</span>
-                      <span className="text-slate-400 text-xs font-bold">{plans[1].period}</span>
-                    </div>
-                    <ul className="text-xs text-slate-600 space-y-2 pt-4 border-t border-slate-100">
-                      {plans[1].features.map((feat: string, idx: number) => (
-                        <li key={idx} className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {feat}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <button 
-                    type="button" 
-                    onClick={() => handleEditPlanClick(plans[1])}
-                    className="w-full mt-6 py-3 bg-[#009b72] hover:bg-[#008662] text-white font-bold rounded-xl text-xs uppercase tracking-wide transition-all cursor-pointer"
+                <button
+                  type="button"
+                  onClick={handleOpenNewPlan}
+                  className="px-5 py-2.5 bg-[#00a86b] hover:bg-[#00925d] text-white rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" /> Nuevo plan
+                </button>
+              </div>
+
+              {/* Plans Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+                {plans.map((p: any) => (
+                  <div
+                    key={p.id}
+                    className="bg-white rounded-3xl border border-slate-200/90 p-7 shadow-xs flex flex-col justify-between space-y-6"
                   >
-                    Modificar Tarifa
-                  </button>
+                    <div className="space-y-4">
+                      {/* Top Header of Card */}
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-bold text-base text-slate-900">{p.name}</h3>
+                        <span className="bg-emerald-50 text-emerald-600 px-3 py-0.5 rounded-full text-xs font-semibold">
+                          {p.status || 'Activo'}
+                        </span>
+                      </div>
+
+                      {/* Price block */}
+                      <div className="flex items-baseline">
+                        <span className="text-3xl font-black text-slate-900 tracking-tight">
+                          {p.price}
+                        </span>
+                        <span className="text-xs text-slate-400 font-normal ml-1">
+                          {p.period || '/mes'}
+                        </span>
+                      </div>
+
+                      {/* Feature checklist */}
+                      <ul className="space-y-2.5 pt-2">
+                        {p.features && p.features.map((f: string, idx: number) => (
+                          <li key={idx} className="flex items-center gap-2.5 text-xs text-slate-600 font-medium">
+                            <Check className="w-4 h-4 text-[#00a86b] shrink-0 stroke-[2.5]" />
+                            <span>{f}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Actions at bottom */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleEditPlanClick(p)}
+                        className="px-5 py-2 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-3xs"
+                      >
+                        <Edit className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Editar</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePlan(p.id)}
+                        className="px-3.5 py-2 rounded-full text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: METODOS DE PAGO */}
+          {activeTab === 'metodos_pago' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Métodos de Pago</h2>
+                <p className="text-xs text-slate-400">Configuración de pasarelas y formas de cobro habilitadas en los terminales de punto de venta.</p>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-400 font-semibold border-b border-slate-100 text-[11px]">
+                      <th className="py-3.5 px-6">Método</th>
+                      <th className="py-3.5 px-6">Tipo</th>
+                      <th className="py-3.5 px-6">Comisión</th>
+                      <th className="py-3.5 px-6 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paymentMethods.map((pm) => (
+                      <tr key={pm.id} className="hover:bg-slate-50/50">
+                        <td className="py-3.5 px-6 font-bold text-slate-800 flex items-center gap-2">
+                          <CreditCard className="w-4 h-4 text-blue-600" /> {pm.name}
+                        </td>
+                        <td className="py-3.5 px-6 text-slate-600">{pm.type}</td>
+                        <td className="py-3.5 px-6 font-mono text-slate-500">{pm.fee}</td>
+                        <td className="py-3.5 px-6 text-center">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${pm.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
+                            {pm.enabled ? 'Habilitado' : 'Desactivado'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: MI PERFIL */}
+          {activeTab === 'perfil' && (
+            <div className="max-w-3xl space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Mi Perfil</h2>
+                <p className="text-xs text-slate-400">Credenciales del administrador del sistema.</p>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+                <div className="flex items-center gap-4 border-b border-slate-100 pb-5">
+                  <div className="w-14 h-14 rounded-full bg-[#1E88E5] text-white font-black text-xl flex items-center justify-center">
+                    {user.name ? user.name[0].toUpperCase() : 'A'}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base text-slate-900">{user.name}</h3>
+                    <p className="text-xs text-slate-400 font-mono">{user.email}</p>
+                    <span className="inline-block mt-1 bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      Super Administrador
+                    </span>
+                  </div>
                 </div>
 
-                {/* Plan 3 */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6.5 shadow-sm relative flex flex-col justify-between">
-                  <div className="space-y-4">
-                    <span className="text-[10px] font-black text-purple-600 uppercase tracking-wider bg-purple-50 px-2.5 py-1 rounded-full">{plans[2].badge}</span>
-                    <h4 className="text-lg font-extrabold text-slate-900">{plans[2].name}</h4>
-                    <p className="text-xs text-slate-500">{plans[2].desc}</p>
-                    <div className="pt-2">
-                      <span className="text-2xl font-black text-slate-900 font-mono">{plans[2].price}</span>
-                      <span className="text-slate-400 text-xs font-bold">{plans[2].period}</span>
-                    </div>
-                    <ul className="text-xs text-slate-600 space-y-2 pt-4 border-t border-slate-100">
-                      {plans[2].features.map((feat: string, idx: number) => (
-                        <li key={idx} className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {feat}</li>
-                      ))}
-                    </ul>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">Nombre de Usuario</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={user.name}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500"
+                    />
                   </div>
-                  <button 
-                    type="button" 
-                    onClick={() => handleEditPlanClick(plans[2])}
-                    className="w-full mt-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs uppercase tracking-wide transition-all cursor-pointer"
-                  >
-                    Editar Plan
-                  </button>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">Correo Electrónico</label>
+                    <input
+                      type="email"
+                      disabled
+                      value={user.email}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-500"
+                    />
+                  </div>
                 </div>
-
               </div>
             </div>
           )}
 
           {/* TAB: CONFIGURACION */}
           {activeTab === 'configuracion' && (
-            <div className="max-w-4xl mx-auto bg-white border border-slate-200 rounded-3xl p-8 shadow-xs space-y-8">
-              <div className="border-b border-slate-150 pb-5">
-                <h3 className="text-base font-extrabold text-slate-800">Parámetros Operativos del Sistema</h3>
-                <p className="text-xs text-slate-400 font-sans font-medium mt-1">Modifica políticas de renovación, copias de seguridad de firestore y notificaciones por correo</p>
+            <div className="max-w-3xl space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Configuración del Servidor</h2>
+                <p className="text-xs text-slate-400">Parámetros operativos y directivas de sincronización.</p>
               </div>
 
-              {showConfigSuccess && (
-                <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl p-4 text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-200">
-                  <Check className="w-5 h-5 text-emerald-600 shrink-0" />
-                  <span>¡Configuración guardada exitosamente en LocalStorage para esta sesión de administración!</span>
-                </div>
-              )}
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+                {showConfigSuccess && (
+                  <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl p-3.5 text-xs font-bold flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>¡Configuración guardada exitosamente!</span>
+                  </div>
+                )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-                
-                {/* Input 1 */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-600">Nombre de la Aplicación</label>
-                  <input 
-                    type="text" 
-                    value={appName} 
-                    onChange={(e) => setAppName(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-hidden" 
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">Nombre del Sistema</label>
+                    <input
+                      type="text"
+                      value={appName}
+                      onChange={(e) => setAppName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">Servidor SMTP</label>
+                    <input
+                      type="text"
+                      value={smtpServer}
+                      onChange={(e) => setSmtpServer(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">Respaldo Automático</label>
+                    <select
+                      value={backupFreq}
+                      onChange={(e) => setBackupFreq(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="Cada 24 horas (Recomendado)">Cada 24 horas (Recomendado)</option>
+                      <option value="Semanalmente">Semanalmente</option>
+                      <option value="Desactivado">Desactivado</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">Límite Almacenamiento</label>
+                    <select
+                      value={storageLimit}
+                      onChange={(e) => setStorageLimit(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="250 MB">250 MB</option>
+                      <option value="500 MB">500 MB</option>
+                      <option value="1 GB (Premium)">1 GB (Premium)</option>
+                    </select>
+                  </div>
                 </div>
 
-                {/* Input 2 */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-600">Servidor SMTP de Notificaciones</label>
-                  <input 
-                    type="text" 
-                    value={smtpServer} 
-                    onChange={(e) => setSmtpServer(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 font-mono text-slate-500 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden" 
-                  />
+                <div className="p-3.5 bg-blue-50 border border-blue-100 rounded-xl flex gap-2.5">
+                  <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-blue-800">
+                    Sincronización en tiempo real con Firestore activa. Las modificaciones se aplican al instante.
+                  </p>
                 </div>
 
-                {/* Select 1 */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-600">Respaldo Automático de Bases de Datos</label>
-                  <select 
-                    value={backupFreq}
-                    onChange={(e) => setBackupFreq(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-hidden cursor-pointer"
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSaveConfig}
+                    className="px-5 py-2 bg-[#1E88E5] hover:bg-blue-600 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
                   >
-                    <option value="Cada 24 horas (Recomendado)">Cada 24 horas (Recomendado)</option>
-                    <option value="Semanalmente">Semanalmente</option>
-                    <option value="Desactivado">Desactivado</option>
-                  </select>
-                </div>
-
-                {/* Select 2 */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-600">Límite de Almacenamiento por Cliente</label>
-                  <select 
-                    value={storageLimit}
-                    onChange={(e) => setStorageLimit(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-hidden cursor-pointer"
-                  >
-                    <option value="250 MB">250 MB</option>
-                    <option value="500 MB">500 MB</option>
-                    <option value="1 GB (Premium)">1 GB (Premium)</option>
-                  </select>
-                </div>
-
-              </div>
-
-              {/* Status information boxes */}
-              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex gap-3">
-                <Info className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <h5 className="font-bold text-emerald-800 text-xs">Sincronización Activa con Firebase</h5>
-                  <p className="text-emerald-700 text-[11px] font-sans font-medium mt-0.5">La consola lee y escribe directamente en colecciones de Firestore en tiempo real. Todas las modificaciones de clientes y archivos se propagarán de inmediato.</p>
+                    Guardar Parámetros
+                  </button>
                 </div>
               </div>
-
-              <div className="flex justify-end pt-4 border-t border-slate-150">
-                <button 
-                  type="button" 
-                  onClick={handleSaveConfig} 
-                  className="px-6 py-3 bg-[#009b72] hover:bg-[#008662] text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-md transition-all active:scale-95 cursor-pointer"
-                >
-                  Guardar Configuración
-                </button>
-              </div>
-
             </div>
           )}
 
@@ -2200,25 +2483,136 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
         </div>
       )}
 
+      {/* NUEVO PLAN MODAL */}
+      {isNewPlanModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-150 flex flex-col animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="bg-[#00a86b] text-white px-6 py-5 flex justify-between items-center shadow-md">
+              <div className="space-y-0.5">
+                <h3 className="font-extrabold text-base flex items-center gap-2">
+                  <span className="p-1.5 bg-white/15 rounded-lg">
+                    <Plus className="w-5 h-5 text-white" />
+                  </span>
+                  Crear Nuevo Plan
+                </h3>
+                <p className="text-xs text-emerald-100 font-medium">Define las características y precio del nuevo plan</p>
+              </div>
+              <button 
+                onClick={() => setIsNewPlanModalOpen(false)} 
+                className="p-1.5 hover:bg-white/15 rounded-full text-white/80 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleCreatePlan} className="p-6 space-y-4 text-left bg-slate-50/20">
+              {/* Plan Name */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">Nombre del Plan *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Básico, Profesional, etc."
+                  value={planName}
+                  onChange={(e) => setPlanName(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                />
+              </div>
+
+              {/* Price and Period */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Precio / Tarifa *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Q 199.00"
+                    value={planPrice}
+                    onChange={(e) => setPlanPrice(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Frecuencia / Periodo *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: /mes o /año"
+                    value={planPeriod}
+                    onChange={(e) => setPlanPeriod(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">Estado *</label>
+                <select
+                  value={planStatus}
+                  onChange={(e) => setPlanStatus(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none cursor-pointer"
+                >
+                  <option value="Activo">Activo</option>
+                  <option value="Inactivo">Inactivo</option>
+                  <option value="Próximamente">Próximamente</option>
+                </select>
+              </div>
+
+              {/* Plan Features */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">Características (una por línea) *</label>
+                <textarea
+                  required
+                  rows={4}
+                  placeholder="1000 productos&#10;2 usuarios&#10;100.000 ventas/mes"
+                  value={planFeaturesText}
+                  onChange={(e) => setPlanFeaturesText(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none resize-none leading-relaxed"
+                />
+              </div>
+
+              {/* Buttons */}
+              <div className="space-y-2 pt-3 border-t border-slate-150">
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-[#00a86b] hover:bg-[#00925d] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                >
+                  <Check className="w-4 h-4" /> Crear Plan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsNewPlanModalOpen(false)}
+                  className="w-full py-2.5 hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* EDIT PLAN MODAL */}
       {isEditPlanModalOpen && editingPlan && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-150 flex flex-col animate-in zoom-in-95 duration-200">
-            
             {/* Header */}
-            <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-6 py-5 flex justify-between items-center shadow-md">
-              <div className="space-y-1">
+            <div className="bg-[#00a86b] text-white px-6 py-5 flex justify-between items-center shadow-md">
+              <div className="space-y-0.5">
                 <h3 className="font-extrabold text-base flex items-center gap-2">
-                  <span className="p-1.5 bg-white/10 rounded-lg">
-                    <Edit className="w-5 h-5 text-amber-100" />
+                  <span className="p-1.5 bg-white/15 rounded-lg">
+                    <Edit className="w-5 h-5 text-white" />
                   </span>
-                  Modificar Parámetros de Tarifa
+                  Editar Plan de Suscripción
                 </h3>
-                <p className="text-xs text-amber-100 font-medium font-sans truncate">Plan Comercial: {editingPlan.name}</p>
+                <p className="text-xs text-emerald-100 font-medium">Modificando: {editingPlan.name}</p>
               </div>
               <button 
                 onClick={() => { setIsEditPlanModalOpen(false); setEditingPlan(null); }} 
-                className="p-1.5 hover:bg-white/15 rounded-full text-amber-100 hover:text-white transition-all cursor-pointer"
+                className="p-1.5 hover:bg-white/15 rounded-full text-white/80 hover:text-white transition-all cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2226,50 +2620,88 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
             {/* Form */}
             <form onSubmit={handleSavePlan} className="p-6 space-y-4 text-left bg-slate-50/20">
-              
-              {/* Plan Price */}
+              {/* Plan Name */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Tarifa Mensual/Anual *</label>
+                <label className="block text-xs font-bold text-slate-700">Nombre del Plan *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej: Q 300.00"
-                  value={planPrice}
-                  onChange={(e) => setPlanPrice(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-700 font-medium focus:ring-2 focus:ring-amber-500"
+                  placeholder="Ej: Básico, Profesional, etc."
+                  value={planName}
+                  onChange={(e) => setPlanName(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
                 />
               </div>
 
-              {/* Plan Description */}
+              {/* Price and Period */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Precio / Tarifa *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Q 199.00"
+                    value={planPrice}
+                    onChange={(e) => setPlanPrice(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Frecuencia / Periodo *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: /mes o /año"
+                    value={planPeriod}
+                    onChange={(e) => setPlanPeriod(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Status */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Descripción Comercial del Plan *</label>
+                <label className="block text-xs font-bold text-slate-700">Estado *</label>
+                <select
+                  value={planStatus}
+                  onChange={(e) => setPlanStatus(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none cursor-pointer"
+                >
+                  <option value="Activo">Activo</option>
+                  <option value="Inactivo">Inactivo</option>
+                  <option value="Próximamente">Próximamente</option>
+                </select>
+              </div>
+
+              {/* Plan Features */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">Características (una por línea) *</label>
                 <textarea
                   required
-                  rows={3}
-                  placeholder="Detalles sobre el alcance del plan..."
-                  value={planDesc}
-                  onChange={(e) => setPlanDesc(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-700 font-medium focus:ring-2 focus:ring-amber-500 resize-none"
+                  rows={4}
+                  placeholder="1000 productos&#10;2 usuarios&#10;100.000 ventas/mes"
+                  value={planFeaturesText}
+                  onChange={(e) => setPlanFeaturesText(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none resize-none leading-relaxed"
                 />
               </div>
 
               {/* Buttons */}
-              <div className="space-y-2 pt-4 border-t border-slate-150">
+              <div className="space-y-2 pt-3 border-t border-slate-150">
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md uppercase tracking-wider"
+                  className="w-full py-3 bg-[#00a86b] hover:bg-[#00925d] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
                 >
-                  <Check className="w-4 h-4" /> Guardar Plan Comercial
+                  <Check className="w-4 h-4" /> Guardar Cambios
                 </button>
                 <button
                   type="button"
                   onClick={() => { setIsEditPlanModalOpen(false); setEditingPlan(null); }}
-                  className="w-full py-2.5 hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition-all text-center"
+                  className="w-full py-2.5 hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
                 >
                   Cancelar
                 </button>
               </div>
-
             </form>
           </div>
         </div>
