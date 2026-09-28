@@ -33,7 +33,10 @@ import {
   FileSignature,
   Stethoscope,
   Eye,
-  Upload
+  Upload,
+  Camera,
+  CameraOff,
+  SwitchCamera
 } from 'lucide-react';
 import * as api from '../api';
 
@@ -373,11 +376,100 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   const [rxIndications, setRxIndications] = useState('');
   const [rxRecipePhoto, setRxRecipePhoto] = useState<string | null>(null);
   const [rxFormError, setRxFormError] = useState('');
+  const [previewEnlargedPhoto, setPreviewEnlargedPhoto] = useState<string | null>(null);
+
+  // Live camera stream states
+  const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
+  const [cameraStreamError, setCameraStreamError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  // Clean up camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        cameraStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  const stopLiveCamera = () => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      cameraStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsLiveCameraOpen(false);
+    setCameraStreamError(null);
+  };
+
+  const startLiveCamera = async (mode: 'environment' | 'user' = 'environment') => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      cameraStreamRef.current = null;
+    }
+    setIsLiveCameraOpen(true);
+    setCameraStreamError(null);
+    setCameraFacingMode(mode);
+
+    setTimeout(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        });
+        cameraStreamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(e => console.warn('Video play error:', e));
+        }
+      } catch (err: any) {
+        console.warn('High-res camera stream failed, trying basic:', err);
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          cameraStreamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play().catch(e => console.warn(e));
+          }
+        } catch (fallbackErr: any) {
+          setCameraStreamError('No se pudo acceder a la cámara en vivo. Puedes usar el botón "Tomar Foto con Cámara" para activar directamente la cámara nativa de tu dispositivo.');
+        }
+      }
+    }, 150);
+  };
+
+  const capturePhotoFromLiveCamera = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setRxRecipePhoto(dataUrl);
+      stopLiveCamera();
+    }
+  };
+
+  const toggleCameraFacing = () => {
+    const nextMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    startLiveCamera(nextMode);
+  };
 
   // State to view existing prescription from cart item
   const [viewingPrescriptionItem, setViewingPrescriptionItem] = useState<CartItem | null>(null);
 
-  const isAnyModalOpen = isCartModalOpen || isAddClientModalOpen || isCheckoutModalOpen || isPendingOrdersModalOpen || isNuevoPedidoModalOpen || isDevolucionesModalOpen || isCotizacionesModalOpen || isPrescriptionModalOpen || !!viewingPrescriptionItem;
+  const isAnyModalOpen = isCartModalOpen || isAddClientModalOpen || isCheckoutModalOpen || isPendingOrdersModalOpen || isNuevoPedidoModalOpen || isDevolucionesModalOpen || isCotizacionesModalOpen || isPrescriptionModalOpen || !!viewingPrescriptionItem || isLiveCameraOpen || !!previewEnlargedPhoto;
 
   const availableLotes = useMemo(() => {
     if (!selectedProductToAddToCart) return [];
@@ -3366,15 +3458,57 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                       />
                     </div>
 
-                    {/* Adjunto de foto de receta */}
-                    <div className="space-y-1 sm:col-span-3">
-                      <label className="block text-[11px] font-bold text-slate-600">
-                        Comprobante o Foto de la Receta <span className="text-slate-400 font-normal">(opcional / para archivo)</span>
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-250 rounded-xl text-xs font-bold text-slate-700 shadow-2xs transition-colors">
-                          <Upload className="w-3.5 h-3.5 text-[#0086F0]" />
-                          <span>{rxRecipePhoto ? 'Cambiar Imagen' : 'Subir Foto de Receta'}</span>
+                    {/* Adjunto de foto de receta con soporte de cámara trasera directa */}
+                    <div className="space-y-1.5 sm:col-span-3">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[11px] font-bold text-slate-600">
+                          Foto o Comprobante de la Receta <span className="text-slate-400 font-normal">(Cámara trasera / archivo)</span>
+                        </label>
+                        {rxRecipePhoto && (
+                          <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-150 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Foto adjunta
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        {/* 1. Botón Principal: Tomar Foto directa con Cámara Trasera en Móviles y Tablets */}
+                        <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2.5 bg-[#0086F0] hover:bg-[#0076d6] text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition-all active:scale-[0.98]">
+                          <Camera className="w-4 h-4 text-white shrink-0" />
+                          <span>{rxRecipePhoto ? 'Tomar Otra con Cámara' : 'Tomar Foto con Cámara'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setRxRecipePhoto(reader.result as string);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                        </label>
+
+                        {/* 2. Botón Visor de Cámara en Vivo (Para apuntar la cámara y capturar en pantalla) */}
+                        <button
+                          type="button"
+                          onClick={() => startLiveCamera('environment')}
+                          className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                          title="Abrir visor de cámara en vivo para enfocar y tomar foto"
+                        >
+                          <Eye className="w-4 h-4 text-sky-400 shrink-0" />
+                          <span>Cámara en Vivo</span>
+                        </button>
+
+                        {/* 3. Botón Subir Archivo o desde Galería */}
+                        <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2.5 bg-white hover:bg-slate-100 border border-slate-250 rounded-xl text-xs font-bold text-slate-700 shadow-2xs transition-colors">
+                          <Upload className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>Subir de Galería</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -3392,15 +3526,27 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                           />
                         </label>
 
+                        {/* Previsualización y acciones si ya hay foto */}
                         {rxRecipePhoto && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-10 h-10 rounded-lg border border-slate-200 overflow-hidden bg-white shadow-2xs">
+                          <div className="flex items-center gap-2 bg-white border border-slate-200 p-1.5 rounded-xl shadow-2xs">
+                            <div 
+                              onClick={() => setPreviewEnlargedPhoto(rxRecipePhoto)}
+                              className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 cursor-pointer border border-slate-150 hover:opacity-85 transition-opacity"
+                              title="Clic para ver en grande"
+                            >
                               <img src={rxRecipePhoto} alt="Receta" className="w-full h-full object-cover" />
                             </div>
                             <button
                               type="button"
+                              onClick={() => setPreviewEnlargedPhoto(rxRecipePhoto)}
+                              className="text-xs text-[#0086F0] hover:underline font-bold px-1 cursor-pointer"
+                            >
+                              Ver
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => setRxRecipePhoto(null)}
-                              className="text-xs text-rose-600 hover:text-rose-700 font-bold p-1 rounded hover:bg-rose-50 cursor-pointer"
+                              className="text-xs text-rose-600 hover:text-rose-700 font-bold px-1.5 py-0.5 rounded hover:bg-rose-50 cursor-pointer"
                               title="Eliminar foto"
                             >
                               Quitar
@@ -3408,6 +3554,9 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                           </div>
                         )}
                       </div>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        📷 En dispositivos móviles y tablets, <strong>"Tomar Foto con Cámara"</strong> activa directamente la cámara trasera para fotografiar la receta física al instante.
+                      </p>
                     </div>
 
                   </div>
@@ -3566,6 +3715,126 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
               <button
                 type="button"
                 onClick={() => setViewingPrescriptionItem(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CÁMARA TRASERA EN VIVO PARA CAPTURAR RECETA */}
+      {isLiveCameraOpen && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-slate-900 text-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-700 flex flex-col">
+            {/* Header */}
+            <div className="px-4 py-3 bg-slate-800 flex items-center justify-between border-b border-slate-700">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-sky-400" />
+                <h3 className="font-extrabold text-sm">Visor de Cámara Trasera</h3>
+              </div>
+              <button
+                type="button"
+                onClick={stopLiveCamera}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Video Viewfinder */}
+            <div className="relative bg-black min-h-[300px] aspect-4/3 flex items-center justify-center overflow-hidden">
+              {cameraStreamError ? (
+                <div className="p-6 text-center space-y-3">
+                  <CameraOff className="w-12 h-12 text-rose-400 mx-auto" />
+                  <p className="text-xs text-rose-300 font-medium">{cameraStreamError}</p>
+                  <button
+                    type="button"
+                    onClick={stopLiveCamera}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    Cerrar visor
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  {/* Guide overlay box for aligning the prescription */}
+                  <div className="absolute inset-5 sm:inset-7 border-2 border-dashed border-sky-400/80 rounded-2xl pointer-events-none flex flex-col justify-between p-3">
+                    <span className="text-[10px] font-bold text-sky-200 bg-black/60 px-2 py-0.5 rounded backdrop-blur-2xs self-start">
+                      Enfoque la receta médica dentro del marco
+                    </span>
+                    <span className="text-[10px] text-white/80 bg-black/60 px-2 py-0.5 rounded backdrop-blur-2xs self-center">
+                      {cameraFacingMode === 'environment' ? '📷 Cámara Trasera Activa' : '🤳 Cámara Frontal Activa'}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Controls Footer */}
+            {!cameraStreamError && (
+              <div className="p-3.5 sm:p-4 bg-slate-800 flex items-center justify-between gap-2.5 border-t border-slate-700">
+                <button
+                  type="button"
+                  onClick={toggleCameraFacing}
+                  className="px-3 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Cambiar entre cámara trasera y frontal"
+                >
+                  <SwitchCamera className="w-4 h-4 text-sky-300" />
+                  <span className="hidden sm:inline">Cambiar Cámara</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={capturePhotoFromLiveCamera}
+                  className="px-5 sm:px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all cursor-pointer"
+                >
+                  <Camera className="w-4 h-4 text-white" />
+                  <span>Capturar Foto</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={stopLiveCamera}
+                  className="px-3 sm:px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: VER FOTO AMPLIADA DE RECETA */}
+      {previewEnlargedPhoto && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between">
+              <span className="font-bold text-sm">Vista de Comprobante de Receta</span>
+              <button
+                type="button"
+                onClick={() => setPreviewEnlargedPhoto(null)}
+                className="text-white/80 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 bg-slate-100 flex items-center justify-center overflow-auto flex-1">
+              <img src={previewEnlargedPhoto} alt="Receta" className="max-h-[70vh] max-w-full rounded-lg object-contain shadow-md" />
+            </div>
+            <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPreviewEnlargedPhoto(null)}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
                 Cerrar
