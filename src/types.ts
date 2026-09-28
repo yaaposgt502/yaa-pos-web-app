@@ -58,6 +58,8 @@ export interface Client {
   totalSpent?: number;
   loyaltyPoints?: number;
   lastPurchaseDate?: string;
+  nit?: string;
+  dpi?: string;
 }
 
 export interface Provider {
@@ -72,6 +74,23 @@ export interface Provider {
   creditPending?: number;
 }
 
+export interface PrescriptionData {
+  patientDpi?: string;
+  patientName?: string;
+  patientAge?: string | number;
+  patientPhone?: string;
+  doctorName?: string;
+  doctorLicense?: string;
+  institution?: string;
+  prescriptionNumber?: string;
+  prescriptionDate?: string;
+  prescriptionType?: string; // 'bajo receta médica' | 'receta médica retenida'
+  diagnosis?: string;
+  indications?: string;
+  recipePhoto?: string;
+  registeredAt?: string;
+}
+
 export interface SaleItem {
   productId: string;
   name: string;
@@ -80,6 +99,7 @@ export interface SaleItem {
   cost: number;
   selectedUnit?: string;
   selectedLote?: string;
+  prescription?: PrescriptionData;
 }
 
 export interface Sale {

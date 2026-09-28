@@ -396,11 +396,11 @@ export default function DailyReports({ sales, expenses, clients, config, product
           {onNavigate && (
             <button
               type="button"
-              onClick={() => onNavigate('libro-ventas')}
+              onClick={() => onNavigate('historial-ventas')}
               className="px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all cursor-pointer shadow-xs bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Libro Auxiliar de Ventas
+              Historial de Ventas
             </button>
           )}
 

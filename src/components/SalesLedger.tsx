@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Sale, Client, AppConfig, Product } from '../types';
 import { 
   FileSpreadsheet, 
+  History,
   Search, 
   Receipt, 
   FileText, 
@@ -131,12 +132,12 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
         <div>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2.5">
             <div className="p-2 bg-blue-50 text-blue-600 rounded-xl border border-blue-100/80 shadow-2xs">
-              <FileSpreadsheet className="w-6 h-6" />
+              <History className="w-6 h-6" />
             </div>
-            Libro Auxiliar de Ventas
+            Historial de Ventas
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Registro y consulta de comprobantes fiscales, facturas y tickets emitidos
+            Registro y consulta de comprobantes fiscales, facturas, tickets y transacciones emitidas
           </p>
         </div>
 
@@ -147,7 +148,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
             className="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer"
           >
             <Printer className="w-4 h-4 text-slate-500" />
-            Imprimir Libro
+            Imprimir Historial
           </button>
         </div>
       </div>
@@ -453,9 +454,18 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                     </div>
                     <div className="space-y-1.5">
                       {documentModalSale.items.map((item, idx) => (
-                        <div key={idx} className="flex justify-between text-[11px]">
-                          <span className="truncate pr-2">{item.quantity}x {item.name}</span>
-                          <span className="font-bold shrink-0">{currency} {(item.price * item.quantity).toFixed(2)}</span>
+                        <div key={idx} className="space-y-0.5">
+                          <div className="flex justify-between text-[11px]">
+                            <span className="truncate pr-2">{item.quantity}x {item.name}</span>
+                            <span className="font-bold shrink-0">{currency} {(item.price * item.quantity).toFixed(2)}</span>
+                          </div>
+                          {item.prescription && (
+                            <div className="text-[9px] text-blue-800 bg-blue-50/70 p-1.5 rounded border border-blue-100 space-y-0.5">
+                              <div><strong>Rx Receta:</strong> {item.prescription.prescriptionNumber} ({item.prescription.prescriptionType || 'Bajo receta'})</div>
+                              <div><strong>Médico:</strong> {item.prescription.doctorName} {item.prescription.doctorLicense ? `(Col. ${item.prescription.doctorLicense})` : ''}</div>
+                              <div><strong>Paciente:</strong> {item.prescription.patientName} {item.prescription.patientDpi ? `- DPI: ${item.prescription.patientDpi}` : ''}</div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -559,7 +569,14 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                         {documentModalSale.items.map((item, idx) => (
                           <tr key={idx} className="hover:bg-slate-50">
                             <td className="py-2.5 px-3 font-bold font-mono text-slate-700">{item.quantity}</td>
-                            <td className="py-2.5 px-3 font-medium text-slate-800">{item.name}</td>
+                            <td className="py-2.5 px-3 font-medium text-slate-800">
+                              <div>{item.name}</div>
+                              {item.prescription && (
+                                <div className="text-[10px] text-blue-700 font-mono mt-0.5">
+                                  Rx #{item.prescription.prescriptionNumber} | Dr. {item.prescription.doctorName} (Col. {item.prescription.doctorLicense || 'S/N'}) | Paciente: {item.prescription.patientName}
+                                </div>
+                              )}
+                            </td>
                             <td className="py-2.5 px-3 text-right font-mono text-slate-600">{currency} {item.price.toFixed(2)}</td>
                             <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">{currency} {(item.price * item.quantity).toFixed(2)}</td>
                           </tr>

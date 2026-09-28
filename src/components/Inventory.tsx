@@ -2557,6 +2557,11 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
                         <option value="bajo receta médica">bajo receta médica</option>
                         <option value="receta médica retenida">receta médica retenida</option>
                       </select>
+                      <p className="text-[10px] text-slate-400">
+                        {formPrescriptionRequired !== 'sin receta médica' 
+                          ? '⚕️ Este producto requerirá registrar la receta médica del paciente en el Punto de Venta al agregarlo al carrito.'
+                          : 'Venta libre sin requerir receta médica.'}
+                      </p>
                     </div>
 
                     {/* Registro Sanitario & Categoría(*) */}

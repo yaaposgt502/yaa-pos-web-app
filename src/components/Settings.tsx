@@ -1983,7 +1983,7 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                   { id: 'dashboard', label: 'Dashboard' },
                   { id: 'punto-de-venta', label: 'Punto de Venta' },
                   { id: 'inventario', label: 'Inventario' },
-                  { id: 'libro-ventas', label: 'Libro Auxiliar de Ventas' },
+                  { id: 'historial-ventas', label: 'Historial de Ventas' },
                   { id: 'compras', label: 'Gestión Compras' },
                   { id: 'vencimientos', label: 'Vencimientos' },
                   { id: 'complementos', label: 'Complementos' },
@@ -1994,7 +1994,8 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                   { id: 'reportes', label: 'Reportes Diarios' },
                   { id: 'configuracion', label: 'Configuración' }
                 ].map((tab) => {
-                  const isDisabled = selectedOperatorForTabs.disabledTabs?.includes(tab.id);
+                  const isDisabled = selectedOperatorForTabs.disabledTabs?.includes(tab.id) ||
+                    (tab.id === 'historial-ventas' && selectedOperatorForTabs.disabledTabs?.includes('libro-ventas'));
                   const isChecked = !isDisabled;
 
                   return (
@@ -2009,14 +2010,17 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                         onChange={(e) => {
                           const currentlyDisabled = selectedOperatorForTabs.disabledTabs || [];
                           let nextDisabled = [...currentlyDisabled];
+                          const idsToToggle = tab.id === 'historial-ventas' ? ['historial-ventas', 'libro-ventas'] : [tab.id];
                           if (e.target.checked) {
                             // Enable: remove from disabled
-                            nextDisabled = nextDisabled.filter(id => id !== tab.id);
+                            nextDisabled = nextDisabled.filter(id => !idsToToggle.includes(id));
                           } else {
                             // Disable: add to disabled
-                            if (!nextDisabled.includes(tab.id)) {
-                              nextDisabled.push(tab.id);
-                            }
+                            idsToToggle.forEach(id => {
+                              if (!nextDisabled.includes(id)) {
+                                nextDisabled.push(id);
+                              }
+                            });
                           }
                           setSelectedOperatorForTabs({
                             ...selectedOperatorForTabs,

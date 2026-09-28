@@ -25,6 +25,7 @@ import {
   ShoppingCart, 
   Package, 
   FileSpreadsheet,
+  History,
   ShoppingBag, 
   Calendar, 
   Sparkles, 
@@ -296,8 +297,8 @@ export default function App() {
 
   // Redirect operators if they end up on a disabled tab
   useEffect(() => {
-    if (user?.isOperator && user.disabledTabs && user.disabledTabs.includes(activeTab)) {
-      const firstAvailableTab = sidebarTabs.find(tab => !user.disabledTabs?.includes(tab.id));
+    if (user?.isOperator && user.disabledTabs && (user.disabledTabs.includes(activeTab) || (activeTab === 'historial-ventas' && user.disabledTabs.includes('libro-ventas')))) {
+      const firstAvailableTab = sidebarTabs.find(tab => !user.disabledTabs?.includes(tab.id) && !(tab.id === 'historial-ventas' && user.disabledTabs?.includes('libro-ventas')));
       if (firstAvailableTab) {
         setActiveTab(firstAvailableTab.id);
       }
@@ -1055,7 +1056,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'punto-de-venta', label: 'Punto de Venta', icon: <ShoppingCart className="w-4 h-4" /> },
     { id: 'inventario', label: 'Inventario', icon: <Package className="w-4 h-4" /> },
-    { id: 'libro-ventas', label: 'Libro Auxiliar de Ventas', icon: <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> },
+    { id: 'historial-ventas', label: 'Historial de Ventas', icon: <History className="w-4 h-4 text-emerald-400" /> },
     { id: 'compras', label: 'Gestión Compras', icon: <ShoppingBag className="w-4 h-4" /> },
     { id: 'vencimientos', label: 'Vencimientos', icon: <Calendar className="w-4 h-4" /> },
     { id: 'complementos', label: 'Complementos', icon: <Sparkles className="w-4 h-4 text-amber-400" /> },
@@ -1068,7 +1069,7 @@ export default function App() {
   ];
 
   const visibleSidebarTabs = sidebarTabs.filter((tab) => {
-    if (user?.isOperator && user.disabledTabs?.includes(tab.id)) {
+    if (user?.isOperator && (user.disabledTabs?.includes(tab.id) || (tab.id === 'historial-ventas' && user.disabledTabs?.includes('libro-ventas')))) {
       // Configuración is the place for operator/cajero info, but maybe they shouldn't view settings if config is disabled
       return false;
     }
@@ -1132,6 +1133,7 @@ export default function App() {
             purchases={purchases}
           />
         );
+      case 'historial-ventas':
       case 'libro-ventas':
         return (
           <SalesLedger 
@@ -1608,6 +1610,23 @@ export default function App() {
             {/* 4-column Circular Icons Grid (Exact layout from Dashboard (2).png) */}
             <div className="grid grid-cols-4 gap-y-6 gap-x-2 text-center select-none">
               
+              {/* Historial de Ventas */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('historial-ventas');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="flex flex-col items-center group cursor-pointer active:scale-95 transition-transform"
+              >
+                <div className="w-13 h-13 rounded-full bg-[#112356] text-emerald-400 flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+                  <History className="w-6 h-6 stroke-[2.2]" />
+                </div>
+                <span className="text-[11px] font-semibold text-slate-700 mt-2 tracking-tight group-hover:text-blue-600 transition-colors line-clamp-1">
+                  Historial Ventas
+                </span>
+              </button>
+
               {/* 1. Vencimientos */}
               <button
                 type="button"

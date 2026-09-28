@@ -130,7 +130,7 @@ function seedDefaultDataForUser(userId: string) {
     { id: 'p1', name: 'Martillo de Uña 16oz', code: '750123456701', category: 'Herramientas', price: 65.00, cost: 40.00, stock: 15, minStock: 5, unit: 'Pza' },
     { id: 'p2', name: 'Tornillo de Ensamble 2" x 50', code: '750123456702', category: 'Fijaciones', price: 12.00, cost: 7.00, stock: 120, minStock: 20, unit: 'Pza' },
     { id: 'p3', name: 'Paracetamol 500mg (Caja 100 tab)', code: '750123456703', category: 'Medicamentos', price: 45.00, cost: 25.00, stock: 35, minStock: 10, expirationDate: '2026-12-15', unit: 'Pza' },
-    { id: 'p4', name: 'Amoxicilina Suspensión 250mg', code: '750123456704', category: 'Antibióticos', price: 85.00, cost: 50.00, stock: 4, minStock: 5, expirationDate: '2026-08-30', unit: 'Pza' },
+    { id: 'p4', name: 'Amoxicilina Suspensión 250mg', code: '750123456704', category: 'Antibióticos', price: 85.00, cost: 50.00, stock: 4, minStock: 5, expirationDate: '2026-08-30', unit: 'Pza', prescriptionRequired: 'bajo receta médica' },
     { id: 'p5', name: 'Cuaderno Universitario Espiral Liso', code: '750123456705', category: 'Papelería', price: 18.00, cost: 10.00, stock: 50, minStock: 15, unit: 'Pza' }
   ];
 

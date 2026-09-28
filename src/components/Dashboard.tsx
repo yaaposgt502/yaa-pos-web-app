@@ -367,9 +367,9 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Sales */}
         <div 
-          onClick={() => onNavigate('libro-ventas')}
+          onClick={() => onNavigate('historial-ventas')}
           className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-blue-200 transition-colors"
-          title="Ver Libro Auxiliar de Ventas"
+          title="Ver Historial de Ventas"
         >
           <div className="space-y-1">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Ventas de Hoy</span>

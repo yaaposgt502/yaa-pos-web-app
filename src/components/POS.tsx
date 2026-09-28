@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Product, Client, Sale, Shift, AppConfig } from '../types';
+import { Product, Client, Sale, Shift, AppConfig, PrescriptionData } from '../types';
 import { 
   Search, 
   ShoppingCart, 
@@ -29,7 +29,11 @@ import {
   User,
   Info,
   Calendar,
-  Loader2
+  Loader2,
+  FileSignature,
+  Stethoscope,
+  Eye,
+  Upload
 } from 'lucide-react';
 import * as api from '../api';
 
@@ -84,6 +88,7 @@ interface CartItem {
   customPrice?: number;
   selectedUnit?: string;
   selectedLote?: string;
+  prescription?: PrescriptionData;
 }
 
 interface CartSession {
@@ -283,8 +288,6 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     };
   }, [cart]);
 
-  const isAnyModalOpen = isCartModalOpen || isAddClientModalOpen || isCheckoutModalOpen || isPendingOrdersModalOpen || isNuevoPedidoModalOpen || isDevolucionesModalOpen || isCotizacionesModalOpen;
-
   // Success completed state
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -337,6 +340,44 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
   const [selectedUnitType, setSelectedUnitType] = useState<string>('Unidad');
   const [selectedLoteVal, setSelectedLoteVal] = useState<string>('Lote 01');
   const [addToCartQty, setAddToCartQty] = useState<number>(1);
+
+  // Helper to determine if a product is prescription-only (configured in Registrar Nuevo Producto)
+  const isPrescriptionRequired = (product?: POSProduct | Product | null): boolean => {
+    if (!product) return false;
+    const req = (product.prescriptionRequired || '').toLowerCase().trim();
+    return req === 'bajo receta médica' || req === 'receta médica retenida' || (req.includes('receta') && !req.includes('sin receta'));
+  };
+
+  // Modal "Registro de Receta" states
+  const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
+  const [pendingPrescriptionItem, setPendingPrescriptionItem] = useState<{
+    product: POSProduct;
+    quantity: number;
+    customPrice: number;
+    selectedUnit: string;
+    selectedLote: string;
+  } | null>(null);
+
+  // Form states for prescription
+  const [rxPatientDpi, setRxPatientDpi] = useState('');
+  const [rxPatientName, setRxPatientName] = useState('');
+  const [rxPatientAge, setRxPatientAge] = useState('');
+  const [rxPatientPhone, setRxPatientPhone] = useState('');
+  const [rxDoctorName, setRxDoctorName] = useState('');
+  const [rxDoctorLicense, setRxDoctorLicense] = useState('');
+  const [rxInstitution, setRxInstitution] = useState('');
+  const [rxPrescriptionNumber, setRxPrescriptionNumber] = useState('');
+  const [rxPrescriptionDate, setRxPrescriptionDate] = useState('');
+  const [rxPrescriptionType, setRxPrescriptionType] = useState('bajo receta médica');
+  const [rxDiagnosis, setRxDiagnosis] = useState('');
+  const [rxIndications, setRxIndications] = useState('');
+  const [rxRecipePhoto, setRxRecipePhoto] = useState<string | null>(null);
+  const [rxFormError, setRxFormError] = useState('');
+
+  // State to view existing prescription from cart item
+  const [viewingPrescriptionItem, setViewingPrescriptionItem] = useState<CartItem | null>(null);
+
+  const isAnyModalOpen = isCartModalOpen || isAddClientModalOpen || isCheckoutModalOpen || isPendingOrdersModalOpen || isNuevoPedidoModalOpen || isDevolucionesModalOpen || isCotizacionesModalOpen || isPrescriptionModalOpen || !!viewingPrescriptionItem;
 
   const availableLotes = useMemo(() => {
     if (!selectedProductToAddToCart) return [];
@@ -724,6 +765,11 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       return;
     }
 
+    if (isPrescriptionRequired(product)) {
+      openAddToCartModal(product);
+      return;
+    }
+
     updateActiveSession(s => {
       const existing = s.cart.find(item => item.product.id === product.id);
       if (existing) {
@@ -917,7 +963,8 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
         price: item.customPrice ?? item.product.price,
         cost: item.product.cost,
         selectedUnit: item.selectedUnit,
-        selectedLote: item.selectedLote
+        selectedLote: item.selectedLote,
+        prescription: item.prescription
       })),
       total: cartTotals.total,
       profit: cartTotals.profit,
@@ -1300,6 +1347,14 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         {effStock}
                       </div>
 
+                      {/* Prescription badge if product is bajo receta médica */}
+                      {isPrescriptionRequired(p) && (
+                        <div className="absolute top-2.5 left-2.5 bg-rose-600/95 text-white font-black text-[9px] px-2 py-0.5 rounded-lg shadow-sm z-10 flex items-center gap-1 uppercase tracking-wider backdrop-blur-2xs">
+                          <Stethoscope className="w-2.5 h-2.5" />
+                          <span>Receta</span>
+                        </div>
+                      )}
+
                       {/* Image space (using matching Unsplash photography for real visuals) */}
                       <div className="h-32 bg-slate-50 flex items-center justify-center p-3 relative select-none">
                         <img 
@@ -1350,7 +1405,15 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                     className="flex items-center justify-between py-3 px-3 hover:bg-slate-50 rounded-xl cursor-pointer transition-colors"
                   >
                     <div>
-                      <h4 className="text-xs font-bold text-slate-800">{p.name}</h4>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="text-xs font-bold text-slate-800">{p.name}</h4>
+                        {isPrescriptionRequired(p) && (
+                          <span className="text-[9px] bg-rose-100 text-rose-700 font-extrabold px-1.5 py-0.2 rounded border border-rose-200 uppercase flex items-center gap-0.5">
+                            <Stethoscope className="w-2.5 h-2.5" />
+                            Receta
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-slate-400 font-mono mt-0.5">Cód: {p.code} | Stock: <span className="font-bold text-slate-600">{getProductEffectiveStock(p)}</span></p>
                     </div>
                     <div className="text-right flex items-center gap-4">
@@ -1435,6 +1498,18 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                               <span className="text-[9px] bg-teal-50 text-teal-600 px-1 rounded truncate max-w-[80px]" title={item.selectedLote}>
                                 {item.selectedLote.split('–')[0].trim()}
                               </span>
+                            )}
+                            {item.prescription && (
+                              <button
+                                type="button"
+                                onClick={() => setViewingPrescriptionItem(item)}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-[#0086F0] border border-sky-200 text-[9px] font-black tracking-tight transition-colors cursor-pointer"
+                                title="Ver receta médica registrada"
+                              >
+                                <FileSignature className="w-2.5 h-2.5 text-[#0086F0]" />
+                                <span>Receta</span>
+                                <Eye className="w-2.5 h-2.5" />
+                              </button>
                             )}
                           </div>
                         </div>
@@ -1572,11 +1647,11 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
               <div className="flex items-center justify-between text-[11px] font-bold px-1 text-slate-400">
                 <button
                   type="button"
-                  onClick={() => onNavigate('libro-ventas')}
+                  onClick={() => onNavigate('historial-ventas')}
                   className="hover:text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  Libro / Historial de Ventas
+                  Historial de Ventas
                 </button>
                 <button
                   type="button"
@@ -1700,6 +1775,18 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                               <span className="text-[9px] bg-teal-50 text-teal-600 px-1 rounded truncate max-w-[90px]" title={item.selectedLote}>
                                 {item.selectedLote.split('–')[0].trim()}
                               </span>
+                            )}
+                            {item.prescription && (
+                              <button
+                                type="button"
+                                onClick={() => setViewingPrescriptionItem(item)}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-50 hover:bg-sky-100 text-[#0086F0] border border-sky-200 text-[9px] font-black tracking-tight transition-colors cursor-pointer"
+                                title="Ver receta médica registrada"
+                              >
+                                <FileSignature className="w-2.5 h-2.5 text-[#0086F0]" />
+                                <span>Receta</span>
+                                <Eye className="w-2.5 h-2.5" />
+                              </button>
                             )}
                           </div>
                         </div>
@@ -2903,6 +2990,38 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                     ? (selectedProductToAddToCart.category === 'Combos' ? 'Combo' : 'Servicio')
                     : (selectedUnitType === 'Unidad' ? (selectedProductToAddToCart.unit || 'Unidad') : selectedUnitType);
 
+                  // If product requires prescription (bajo receta médica / receta retenida), trigger "Registro de Receta" modal
+                  if (isPrescriptionRequired(selectedProductToAddToCart)) {
+                    const currentClient = selectedClientId !== 'general' ? clients.find(c => c.id === selectedClientId) : null;
+                    setPendingPrescriptionItem({
+                      product: selectedProductToAddToCart,
+                      quantity: addToCartQty,
+                      customPrice: finalPrice,
+                      selectedUnit: resolvedUnitName,
+                      selectedLote: isSpecial ? 'N/A' : selectedLoteVal
+                    });
+
+                    // Pre-fill or initialize prescription fields
+                    setRxPatientName(currentClient?.name || '');
+                    setRxPatientDpi(currentClient?.nit || '');
+                    setRxPatientAge('');
+                    setRxPatientPhone(currentClient?.phone || '');
+                    setRxDoctorName('');
+                    setRxDoctorLicense('');
+                    setRxInstitution('');
+                    setRxPrescriptionNumber(`REC-${Date.now().toString().slice(-5)}`);
+                    setRxPrescriptionDate(new Date().toISOString().split('T')[0]);
+                    setRxPrescriptionType(selectedProductToAddToCart.prescriptionRequired === 'receta médica retenida' ? 'receta médica retenida' : 'bajo receta médica');
+                    setRxDiagnosis('');
+                    setRxIndications('');
+                    setRxRecipePhoto(null);
+                    setRxFormError('');
+
+                    setIsAddToCartModalOpen(false);
+                    setIsPrescriptionModalOpen(true);
+                    return;
+                  }
+
                   updateActiveSession(s => {
                     const existing = s.cart.find(item => item.product.id === selectedProductToAddToCart.id);
                     if (existing) {
@@ -2914,7 +3033,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                             item.product.id === selectedProductToAddToCart.id 
                               ? { 
                                   ...item, 
-                                  quantity: addToCartQty,
+                                  quantity: addToCartQty, 
                                   customPrice: finalPrice,
                                   selectedUnit: resolvedUnitName,
                                   selectedLote: isSpecial ? 'N/A' : selectedLoteVal
@@ -2967,6 +3086,491 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: REGISTRO DE RECETA (VENTANA BAJO RECETA MÉDICA) */}
+      {isPrescriptionModalOpen && pendingPrescriptionItem && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto max-h-[92vh]">
+            
+            {/* Header: Blue background matching theme, title "Registro de Receta", white icon and X close */}
+            <div className="bg-[#0086F0] text-white px-5 sm:px-6 py-4 flex items-center justify-between shadow-xs shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
+                  <FileSignature className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base tracking-wide flex items-center gap-2">
+                    Registro de Receta
+                    <span className="text-[10px] bg-white/20 text-white font-bold px-2 py-0.5 rounded-full">
+                      Obligatorio
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-sky-100 font-medium">
+                    Este producto requiere prescripción médica según la configuración del inventario
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPrescriptionModalOpen(false);
+                  setPendingPrescriptionItem(null);
+                }}
+                className="w-8 h-8 rounded-lg hover:bg-white/20 text-white/90 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5 stroke-[2.5]" />
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1 text-slate-800">
+
+              {/* 1. Product Summary Card */}
+              <div className="bg-sky-50/70 border border-sky-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-14 h-14 bg-white rounded-xl border border-sky-200 flex items-center justify-center p-1.5 shrink-0 shadow-xs">
+                    <img 
+                      src={getProductImage(pendingPrescriptionItem.product)} 
+                      alt={pendingPrescriptionItem.product.name}
+                      referrerPolicy="no-referrer"
+                      className="max-h-full max-w-full object-contain mix-blend-multiply"
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1">
+                        <Stethoscope className="w-3 h-3" />
+                        {pendingPrescriptionItem.product.prescriptionRequired || 'Bajo receta médica'}
+                      </span>
+                      {pendingPrescriptionItem.product.sanitaryRegister && (
+                        <span className="text-[10px] text-slate-500 font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
+                          Reg: {pendingPrescriptionItem.product.sanitaryRegister}
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="font-extrabold text-sm text-slate-900 uppercase tracking-tight truncate">
+                      {pendingPrescriptionItem.product.name}
+                    </h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Presentación: <span className="font-bold text-slate-700">{pendingPrescriptionItem.selectedUnit}</span> | Cantidad: <span className="font-bold text-[#0086F0]">{pendingPrescriptionItem.quantity}</span> | Lote: <span className="font-bold text-slate-700">{pendingPrescriptionItem.selectedLote}</span>
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right sm:border-l sm:border-sky-200 sm:pl-4 self-end sm:self-center shrink-0">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Subtotal Ítem</span>
+                  <span className="text-base font-black text-[#0086F0] font-mono">
+                    {currency}{(pendingPrescriptionItem.quantity * pendingPrescriptionItem.customPrice).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Validation error notice if any */}
+              {rxFormError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{rxFormError}</span>
+                </div>
+              )}
+
+              {/* Form Grid Sections */}
+              <div className="space-y-4">
+                
+                {/* SECTION A: DATOS DEL PACIENTE */}
+                <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                    <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-[#0086F0]" />
+                      Datos del Paciente
+                    </h4>
+                    {selectedClientId && selectedClientId !== 'general' && (
+                      <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
+                        Asociado al cliente de la venta
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Nombre Completo del Paciente <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ej: Carlos Eduardo Méndez"
+                        value={rxPatientName}
+                        onChange={(e) => {
+                          setRxPatientName(e.target.value);
+                          if (rxFormError) setRxFormError('');
+                        }}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        DPI / Cédula / DNI
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: 2489 12345 0101"
+                        value={rxPatientDpi}
+                        onChange={(e) => setRxPatientDpi(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Edad (Años)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="120"
+                        placeholder="Ej: 34"
+                        value={rxPatientAge}
+                        onChange={(e) => setRxPatientAge(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Teléfono / Contacto <span className="text-slate-400 font-normal">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: 5544-3322"
+                        value={rxPatientPhone}
+                        onChange={(e) => setRxPatientPhone(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION B: DATOS DEL MÉDICO PRESCRIPTOR */}
+                <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-200/80 pb-2">
+                    <Stethoscope className="w-3.5 h-3.5 text-[#0086F0]" />
+                    Datos del Médico Prescriptor
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Nombre del Médico <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ej: Dr. Roberto Alonzo García"
+                        value={rxDoctorName}
+                        onChange={(e) => {
+                          setRxDoctorName(e.target.value);
+                          if (rxFormError) setRxFormError('');
+                        }}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        No. Colegiado / Registro Médico
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: COL-12984"
+                        value={rxDoctorLicense}
+                        onChange={(e) => setRxDoctorLicense(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Clínica / Hospital / Institución <span className="text-slate-400 font-normal">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Hospital San Juan de Dios / Clínica Médica Central"
+                        value={rxInstitution}
+                        onChange={(e) => setRxInstitution(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION C: DETALLES DE LA RECETA MÉDICA */}
+                <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-200/80 pb-2">
+                    <FileText className="w-3.5 h-3.5 text-[#0086F0]" />
+                    Detalles de la Receta Médica
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        No. de Receta / Folio
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: REC-90812"
+                        value={rxPrescriptionNumber}
+                        onChange={(e) => setRxPrescriptionNumber(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Fecha de Emisión
+                      </label>
+                      <input
+                        type="date"
+                        value={rxPrescriptionDate}
+                        onChange={(e) => setRxPrescriptionDate(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Modalidad de Venta
+                      </label>
+                      <select
+                        value={rxPrescriptionType}
+                        onChange={(e) => setRxPrescriptionType(e.target.value)}
+                        className="w-full text-xs font-semibold border border-slate-250 rounded-xl px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      >
+                        <option value="bajo receta médica">Bajo receta médica</option>
+                        <option value="receta médica retenida">Receta retenida en farmacia</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-3">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Indicaciones / Dosis / Diagnóstico <span className="text-slate-400 font-normal">(opcional)</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="Ej: Tomar 1 cápsula cada 8 horas durante 7 días..."
+                        value={rxIndications}
+                        onChange={(e) => setRxIndications(e.target.value)}
+                        className="w-full text-xs font-medium border border-slate-250 rounded-xl px-3 py-2 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0086F0]"
+                      />
+                    </div>
+
+                    {/* Adjunto de foto de receta */}
+                    <div className="space-y-1 sm:col-span-3">
+                      <label className="block text-[11px] font-bold text-slate-600">
+                        Comprobante o Foto de la Receta <span className="text-slate-400 font-normal">(opcional / para archivo)</span>
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-250 rounded-xl text-xs font-bold text-slate-700 shadow-2xs transition-colors">
+                          <Upload className="w-3.5 h-3.5 text-[#0086F0]" />
+                          <span>{rxRecipePhoto ? 'Cambiar Imagen' : 'Subir Foto de Receta'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setRxRecipePhoto(reader.result as string);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                        </label>
+
+                        {rxRecipePhoto && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-10 h-10 rounded-lg border border-slate-200 overflow-hidden bg-white shadow-2xs">
+                              <img src={rxRecipePhoto} alt="Receta" className="w-full h-full object-cover" />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setRxRecipePhoto(null)}
+                              className="text-xs text-rose-600 hover:text-rose-700 font-bold p-1 rounded hover:bg-rose-50 cursor-pointer"
+                              title="Eliminar foto"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Footer Actions */}
+            <div className="bg-slate-50 px-5 sm:px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPrescriptionModalOpen(false);
+                  if (pendingPrescriptionItem) {
+                    setSelectedProductToAddToCart(pendingPrescriptionItem.product);
+                    setIsAddToCartModalOpen(true);
+                  }
+                  setPendingPrescriptionItem(null);
+                }}
+                className="px-4 sm:px-5 py-2.5 border border-slate-250 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Volver
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!pendingPrescriptionItem) return;
+                  if (!rxPatientName.trim()) {
+                    setRxFormError('Por favor ingrese el nombre del paciente.');
+                    return;
+                  }
+                  if (!rxDoctorName.trim()) {
+                    setRxFormError('Por favor ingrese el nombre del médico prescriptor.');
+                    return;
+                  }
+
+                  const prescriptionData: PrescriptionData = {
+                    patientName: rxPatientName.trim(),
+                    patientDpi: rxPatientDpi.trim(),
+                    patientAge: rxPatientAge.trim(),
+                    patientPhone: rxPatientPhone.trim(),
+                    doctorName: rxDoctorName.trim(),
+                    doctorLicense: rxDoctorLicense.trim(),
+                    institution: rxInstitution.trim(),
+                    prescriptionNumber: rxPrescriptionNumber.trim() || `REC-${Date.now().toString().slice(-5)}`,
+                    prescriptionDate: rxPrescriptionDate || new Date().toISOString().split('T')[0],
+                    prescriptionType: rxPrescriptionType,
+                    diagnosis: rxDiagnosis.trim(),
+                    indications: rxIndications.trim(),
+                    recipePhoto: rxRecipePhoto || undefined,
+                    registeredAt: new Date().toISOString()
+                  };
+
+                  const { product, quantity, customPrice, selectedUnit, selectedLote } = pendingPrescriptionItem;
+
+                  updateActiveSession(s => {
+                    const existing = s.cart.find(item => item.product.id === product.id);
+                    if (existing) {
+                      return {
+                        ...s,
+                        cart: s.cart.map(item =>
+                          item.product.id === product.id
+                            ? {
+                                ...item,
+                                quantity: quantity,
+                                customPrice: customPrice,
+                                selectedUnit: selectedUnit,
+                                selectedLote: selectedLote,
+                                prescription: prescriptionData
+                              }
+                            : item
+                        )
+                      };
+                    }
+                    return {
+                      ...s,
+                      cart: [
+                        ...s.cart,
+                        {
+                          product,
+                          quantity,
+                          customPrice,
+                          selectedUnit,
+                          selectedLote,
+                          prescription: prescriptionData
+                        }
+                      ]
+                    };
+                  });
+
+                  setIsPrescriptionModalOpen(false);
+                  setPendingPrescriptionItem(null);
+                  setSelectedProductToAddToCart(null);
+                }}
+                className="px-5 sm:px-6 py-2.5 bg-[#10b981] hover:bg-[#0e9f6e] text-white rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer shadow-md hover:shadow-lg active:scale-[0.98]"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Registrar y Agregar al Carrito
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: VER DETALLE DE RECETA REGISTRADA EN CARRITO */}
+      {viewingPrescriptionItem && viewingPrescriptionItem.prescription && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+            <div className="bg-[#0086F0] text-white px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileSignature className="w-4 h-4" />
+                <h3 className="font-extrabold text-sm">Receta Médica Registrada</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingPrescriptionItem(null)}
+                className="text-white/80 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3 text-xs">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <p className="font-bold text-slate-900 uppercase">{viewingPrescriptionItem.product.name}</p>
+                <p className="text-[11px] text-slate-500">Cantidad: {viewingPrescriptionItem.quantity} {viewingPrescriptionItem.selectedUnit} | Lote: {viewingPrescriptionItem.selectedLote}</p>
+              </div>
+              <div className="space-y-1.5 border-t border-slate-150 pt-2 text-slate-700">
+                <p><strong>Paciente:</strong> {viewingPrescriptionItem.prescription.patientName} {viewingPrescriptionItem.prescription.patientAge ? `(${viewingPrescriptionItem.prescription.patientAge} años)` : ''}</p>
+                {viewingPrescriptionItem.prescription.patientDpi && <p><strong>DPI / Identificación:</strong> {viewingPrescriptionItem.prescription.patientDpi}</p>}
+                {viewingPrescriptionItem.prescription.patientPhone && <p><strong>Teléfono:</strong> {viewingPrescriptionItem.prescription.patientPhone}</p>}
+                <p><strong>Médico:</strong> {viewingPrescriptionItem.prescription.doctorName}</p>
+                {viewingPrescriptionItem.prescription.doctorLicense && <p><strong>No. Colegiado:</strong> {viewingPrescriptionItem.prescription.doctorLicense}</p>}
+                {viewingPrescriptionItem.prescription.institution && <p><strong>Institución:</strong> {viewingPrescriptionItem.prescription.institution}</p>}
+                <p><strong>No. Receta / Folio:</strong> {viewingPrescriptionItem.prescription.prescriptionNumber}</p>
+                <p><strong>Fecha Receta:</strong> {viewingPrescriptionItem.prescription.prescriptionDate}</p>
+                <p><strong>Condición:</strong> <span className="font-bold text-rose-600 uppercase">{viewingPrescriptionItem.prescription.prescriptionType}</span></p>
+                {viewingPrescriptionItem.prescription.indications && (
+                  <p className="mt-2 bg-amber-50 p-2.5 rounded-lg border border-amber-200 text-amber-900">
+                    <strong>Indicaciones:</strong> {viewingPrescriptionItem.prescription.indications}
+                  </p>
+                )}
+                {viewingPrescriptionItem.prescription.recipePhoto && (
+                  <div className="mt-2">
+                    <span className="font-bold block mb-1">Comprobante de Receta:</span>
+                    <img src={viewingPrescriptionItem.prescription.recipePhoto} alt="Receta" className="max-h-48 rounded-lg border border-slate-200 object-contain w-full bg-slate-50" />
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewingPrescriptionItem(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
