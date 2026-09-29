@@ -3462,7 +3462,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                     <div className="space-y-1.5 sm:col-span-3">
                       <div className="flex items-center justify-between">
                         <label className="block text-[11px] font-bold text-slate-600">
-                          Foto o Comprobante de la Receta <span className="text-slate-400 font-normal">(Cámara trasera / archivo)</span>
+                          Foto o Comprobante de la Receta <span className="text-slate-400 font-normal">(Opcional)</span>
                         </label>
                         {rxRecipePhoto && (
                           <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-150 flex items-center gap-1">
@@ -3472,10 +3472,10 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2.5">
-                        {/* 1. Botón Principal: Tomar Foto directa con Cámara Trasera en Móviles y Tablets */}
+                        {/* 1. Botón Principal: Cámara directa (móvil/tablet) */}
                         <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2.5 bg-[#0086F0] hover:bg-[#0076d6] text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition-all active:scale-[0.98]">
                           <Camera className="w-4 h-4 text-white shrink-0" />
-                          <span>{rxRecipePhoto ? 'Tomar Otra con Cámara' : 'Tomar Foto con Cámara'}</span>
+                          <span>Cámara</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -3494,18 +3494,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                           />
                         </label>
 
-                        {/* 2. Botón Visor de Cámara en Vivo (Para apuntar la cámara y capturar en pantalla) */}
-                        <button
-                          type="button"
-                          onClick={() => startLiveCamera('environment')}
-                          className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition-all active:scale-[0.98] cursor-pointer"
-                          title="Abrir visor de cámara en vivo para enfocar y tomar foto"
-                        >
-                          <Eye className="w-4 h-4 text-sky-400 shrink-0" />
-                          <span>Cámara en Vivo</span>
-                        </button>
-
-                        {/* 3. Botón Subir Archivo o desde Galería */}
+                        {/* 2. Botón Subir Archivo o desde Galería */}
                         <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2.5 bg-white hover:bg-slate-100 border border-slate-250 rounded-xl text-xs font-bold text-slate-700 shadow-2xs transition-colors">
                           <Upload className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                           <span>Subir de Galería</span>
@@ -3555,7 +3544,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
                         )}
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1">
-                        📷 En dispositivos móviles y tablets, <strong>"Tomar Foto con Cámara"</strong> activa directamente la cámara trasera para fotografiar la receta física al instante.
+                        📷 Campo opcional. En dispositivos móviles y tablets, el botón <strong>"Cámara"</strong> activa directamente la cámara trasera para fotografiar la receta física si desea adjuntarla.
                       </p>
                     </div>
 
