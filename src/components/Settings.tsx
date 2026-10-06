@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppConfig, User } from '../types';
 import * as api from '../api';
+import { getSystemBranches } from '../utils/branchHelper';
 import { 
   Settings2, 
   Store, 
@@ -35,8 +36,64 @@ import {
   X,
   Loader2,
   CheckCircle2,
-  QrCode
+  QrCode,
+  Building2,
+  ShoppingCart,
+  Package,
+  History,
+  ShoppingBag,
+  Sparkles,
+  Truck,
+  TrendingDown,
+  Inbox,
+  BarChart3,
+  LayoutDashboard,
+  Settings as SettingsIcon,
+  Pencil,
+  Search,
+  Filter,
+  ShieldAlert,
+  KeyRound,
+  UserPlus,
+  ChevronDown
 } from 'lucide-react';
+
+export const PANEL_MODULE_GROUPS = [
+  {
+    category: 'PRINCIPAL',
+    items: [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'punto-de-venta', label: 'Punto de venta' },
+    ]
+  },
+  {
+    category: 'VENTAS Y CAJA',
+    items: [
+      { id: 'historial-ventas', label: 'Historial de Ventas' },
+      { id: 'apertura-cierre', label: 'Apertura y Cierre' },
+      { id: 'clientes', label: 'Clientes' },
+    ]
+  },
+  {
+    category: 'INVENTARIO Y ALMACÉN',
+    items: [
+      { id: 'inventario', label: 'Inventario' },
+      { id: 'compras', label: 'Gestión Compras' },
+      { id: 'vencimientos', label: 'Vencimientos' },
+      { id: 'proveedores', label: 'Proveedores' },
+    ]
+  },
+  {
+    category: 'ADMINISTRACIÓN Y FINANZAS',
+    items: [
+      { id: 'gastos', label: 'Gastos' },
+      { id: 'reportes', label: 'Reportes Diarios' },
+      { id: 'sucursales', label: 'Sucursales' },
+      { id: 'complementos', label: 'Complementos' },
+      { id: 'configuracion', label: 'Configuración' },
+    ]
+  }
+];
 
 const getDefaultCategoriesForType = (type: string) => {
   if (type === 'pharmacy') return ['Medicamentos', 'Cuidado Personal', 'Dispositivos Médicos', 'Suplementos', 'Fórmulas', 'Perfumería'];
@@ -109,13 +166,62 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
   const [felApiKey, setFelApiKey] = useState<string>(config.felApiKey || '');
 
   // Tab 2: Operators real database state
-  const [operators, setOperators] = useState<{ id: string; name: string; email: string; role: string; password?: string; status: 'active' | 'inactive'; disabledTabs?: string[] }[]>([]);
+  const [operators, setOperators] = useState<{ id: string; name: string; email: string; role: string; password?: string; status: 'active' | 'inactive'; branch?: string; branches?: string[]; disabledTabs?: string[] }[]>([]);
   const [selectedOperatorForTabs, setSelectedOperatorForTabs] = useState<typeof operators[0] | null>(null);
+  const [editingOperator, setEditingOperator] = useState<typeof operators[0] | null>(null);
+  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'Cajero' | 'Supervisor de Almacén' | 'Administrador'>('all');
+  const [newOpPasswordVisible, setNewOpPasswordVisible] = useState(false);
+  const [editOpPasswordVisible, setEditOpPasswordVisible] = useState(false);
+  const [editOpNewPassword, setEditOpNewPassword] = useState('');
+  const [modalTabSearch, setModalTabSearch] = useState('');
+  const [modalTabCategory, setModalTabCategory] = useState<'all' | 'ventas' | 'inventario' | 'finanzas' | 'admin'>('all');
   const [newOpName, setNewOpName] = useState('');
   const [newOpEmail, setNewOpEmail] = useState('');
   const [newOpPassword, setNewOpPassword] = useState('');
   const [newOpRole, setNewOpRole] = useState('Cajero');
+  const [newOpBranch, setNewOpBranch] = useState('');
+  const [newOpBranches, setNewOpBranches] = useState<string[]>([]);
+  const [newOpPanels, setNewOpPanels] = useState<string[]>([
+    'dashboard',
+    'punto-de-venta',
+    'historial-ventas',
+    'apertura-cierre',
+    'clientes'
+  ]);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
+  const branchOptions = React.useMemo(() => {
+    const registeredBranches = getSystemBranches(config);
+    return registeredBranches.map(b => ({
+      id: b.id,
+      name: b.name,
+      code: b.code
+    }));
+  }, [config]);
+
+  const toggleNewOpPanel = (panelId: string) => {
+    setNewOpPanels(prev => 
+      prev.includes(panelId)
+        ? prev.filter(id => id !== panelId)
+        : [...prev, panelId]
+    );
+  };
+
+  const handleNewOpRoleChange = (role: string) => {
+    setNewOpRole(role);
+    if (role === 'Cajero') {
+      setNewOpPanels(['dashboard', 'punto-de-venta', 'historial-ventas', 'apertura-cierre', 'clientes']);
+    } else if (role === 'Supervisor de Almacén') {
+      setNewOpPanels(['dashboard', 'inventario', 'compras', 'vencimientos', 'proveedores', 'reportes']);
+    } else if (role === 'Administrador') {
+      const all = PANEL_MODULE_GROUPS.flatMap(g => g.items.map(i => i.id));
+      setNewOpPanels(all);
+    }
+  };
+
+  const availableBranches = branchOptions;
 
   // Sync state with config prop when it changes
   useEffect(() => {
@@ -350,17 +456,48 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
     URL.revokeObjectURL(url);
   };
 
+  const handleGenerateRandomPassword = () => {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    let pwd = '';
+    for (let i = 0; i < 8; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setNewOpPassword(pwd);
+    setNewOpPasswordVisible(true);
+  };
+
   const handleAddOperator = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOpName || !newOpEmail) return;
+    if (!newOpName.trim() || !newOpEmail.trim()) {
+      alert('Por favor complete el nombre y correo electrónico.');
+      return;
+    }
+    if (newOpPassword && newOpPassword.length < 6) {
+      alert('La contraseña debe tener un mínimo de 6 caracteres.');
+      return;
+    }
     try {
       const opId = Math.random().toString(36).substring(2, 11);
+      const allAppTabIds = PANEL_MODULE_GROUPS.flatMap(g => g.items.map(i => i.id));
+      const disabledTabs = allAppTabIds.filter(id => !newOpPanels.includes(id));
+      if (!newOpPanels.includes('historial-ventas') && !disabledTabs.includes('libro-ventas')) {
+        disabledTabs.push('libro-ventas');
+      }
+
+      const assignedBranches = newOpBranches.length > 0 
+        ? newOpBranches 
+        : (newOpBranch && newOpBranch.trim() && newOpBranch !== 'Todas' ? newOpBranch.split(',').map(s => s.trim()) : []);
+      const assignedBranch = assignedBranches.length > 0 ? assignedBranches.join(', ') : 'Todas';
+
       const newOp = {
         id: opId,
-        name: newOpName,
-        email: newOpEmail,
+        name: newOpName.trim(),
+        email: newOpEmail.trim().toLowerCase(),
         role: newOpRole,
         password: newOpPassword || 'cajero123',
+        branch: assignedBranch,
+        branches: assignedBranches,
+        disabledTabs: disabledTabs,
         status: 'active' as const
       };
       await api.saveOperator(newOp);
@@ -368,6 +505,12 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       setNewOpName('');
       setNewOpEmail('');
       setNewOpPassword('');
+      setNewOpRole('Cajero');
+      setNewOpBranch('');
+      setNewOpBranches([]);
+      setNewOpPanels(['dashboard', 'punto-de-venta', 'historial-ventas', 'apertura-cierre', 'clientes']);
+      setIsCreateUserModalOpen(false);
+      alert('✓ Usuario operador registrado correctamente.');
     } catch (err: any) {
       alert('Error al agregar operador: ' + (err.message || err));
     }
@@ -384,6 +527,43 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       setOperators(operators.filter(o => o.id !== id));
     } catch (err: any) {
       alert('Error al eliminar operador: ' + (err.message || err));
+    }
+  };
+
+  const handleUpdateOperator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOperator) return;
+    if (editOpNewPassword && editOpNewPassword.trim().length > 0 && editOpNewPassword.trim().length < 6) {
+      alert('La nueva contraseña debe tener un mínimo de 6 caracteres.');
+      return;
+    }
+    try {
+      const branchesArr = (editingOperator.branches && editingOperator.branches.length > 0)
+        ? editingOperator.branches
+        : (editingOperator.branch && editingOperator.branch !== 'Todas'
+            ? editingOperator.branch.split(',').map(s => s.trim()).filter(Boolean)
+            : []);
+
+      const nextPassword = editOpNewPassword.trim()
+        ? editOpNewPassword.trim()
+        : (editingOperator.password || 'cajero123');
+
+      const opToSave = {
+        ...editingOperator,
+        password: nextPassword,
+        branch: branchesArr.length > 0 ? branchesArr.join(', ') : 'Todas',
+        branches: branchesArr,
+        disabledTabs: editingOperator.disabledTabs || [],
+        status: editingOperator.status || 'active'
+      };
+
+      await api.saveOperator(opToSave);
+      setOperators(operators.map(o => o.id === editingOperator.id ? opToSave : o));
+      setEditingOperator(null);
+      setEditOpNewPassword('');
+      alert('✓ Datos del operador actualizados correctamente.');
+    } catch (err: any) {
+      alert('Error al actualizar operador: ' + (err.message || err));
     }
   };
 
@@ -624,188 +804,322 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
           )}
 
           {/* TAB 2: USUARIOS */}
-          {activeTab === 'usuarios' && (
-            <div className="space-y-6 animate-in fade-in duration-150">
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-150 rounded-xl px-4 py-3 text-slate-800">
-                <Users className="w-4 h-4 shrink-0 text-slate-600" />
-                <span className="text-xs font-black uppercase tracking-wider">Perfil de Operador y Gestión de Cajeros</span>
-              </div>
+          {activeTab === 'usuarios' && (() => {
+            const filteredOperators = operators.filter(op => {
+              const isOwner = op.role === 'Propietario / Administrador' || op.id === '1';
+              const displayName = (isOwner ? (user?.name || op.name) : op.name).toLowerCase();
+              const displayEmail = (isOwner ? (user?.email || op.email) : op.email).toLowerCase();
+              const query = userSearchQuery.toLowerCase();
+              const matchesSearch = displayName.includes(query) || displayEmail.includes(query);
+              const matchesRole = userRoleFilter === 'all' || op.role === userRoleFilter;
+              return matchesSearch && matchesRole;
+            });
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                
-                {/* Active operator card (col-span-4) */}
-                <div className="lg:col-span-4 space-y-4">
-                  <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5 space-y-4">
-                    <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider block">Sesión Activa</span>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3 shadow-xs">
-                      <div className="p-2.5 bg-blue-50 text-blue-600 rounded-full">
-                        <UserIcon className="w-5 h-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="text-xs font-bold text-slate-800 truncate">{user?.name || 'Administrador'}</h4>
-                        <p className="text-[10px] text-slate-400 font-mono truncate">{user?.email}</p>
-                        <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider mt-1.5 inline-block">Propietario / Admin</span>
-                      </div>
+            return (
+              <div className="space-y-6 animate-in fade-in duration-150">
+                {/* Header Banner - Matches Empresa tab style & Yaa POS brand */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-blue-50/70 border border-blue-100 rounded-2xl px-5 py-4 text-blue-900 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                      <Users className="w-5 h-5" />
                     </div>
-
-                    <div className="border-t border-slate-100 pt-4 text-[11px] text-slate-500 space-y-2">
-                      <p className="font-semibold text-slate-700">Privilegios Administrador:</p>
-                      <ul className="list-disc list-inside space-y-1">
-                        <li>Modificar datos tributarios</li>
-                        <li>Exportar bases de datos</li>
-                        <li>Configuración de correlativos</li>
-                      </ul>
+                    <div>
+                      <h3 className="text-xs font-black uppercase tracking-wider text-blue-950">Gestión de Usuarios y Cajeros</h3>
+                      <p className="text-[11px] text-blue-700/80 font-medium">Controle los accesos, contraseñas y permisos del personal en el punto de venta</p>
                     </div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewOpName('');
+                      setNewOpEmail('');
+                      setNewOpPassword('');
+                      setNewOpRole('Cajero');
+                      setNewOpBranch('');
+                      setNewOpPanels(['dashboard', 'punto-de-venta', 'historial-ventas', 'apertura-cierre', 'clientes']);
+                      setIsCreateUserModalOpen(true);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer shrink-0"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>Nuevo Usuario</span>
+                  </button>
                 </div>
 
-                {/* Operator list and creation (col-span-8) */}
-                <div className="lg:col-span-8 space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   
-                  {/* Create operator form */}
-                  <div className="bg-white border border-slate-150 rounded-2xl p-5 space-y-4 shadow-xs">
-                    <span className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
-                      <Plus className="w-4 h-4 text-blue-600" /> Agregar Nuevo Operador
-                    </span>
+                  {/* Active operator card (col-span-4) */}
+                  <div className="lg:col-span-4 space-y-4">
+                    <div className="bg-slate-50/60 border border-slate-100 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Sesión Actual</span>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Conectado
+                        </span>
+                      </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-500">Nombre</label>
-                        <input 
-                          type="text" 
-                          value={newOpName}
-                          onChange={(e) => setNewOpName(e.target.value)}
-                          placeholder="Ej: Laura Castro"
-                          className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white shadow-xs"
-                        />
+                      <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3 shadow-xs">
+                        <div className="w-11 h-11 bg-blue-600 text-white rounded-xl flex items-center justify-center font-black text-sm shadow-xs shrink-0">
+                          {user?.name ? user.name.charAt(0).toUpperCase() : 'A'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-bold text-slate-800 truncate">{user?.name || 'Administrador'}</h4>
+                          <p className="text-[10px] text-slate-400 font-mono truncate">{user?.email}</p>
+                          <span className="text-[9px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md font-black uppercase tracking-wider mt-1.5 inline-block border border-blue-100">
+                            Propietario / Admin
+                          </span>
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-500">Correo</label>
-                        <input 
-                          type="email" 
-                          value={newOpEmail}
-                          onChange={(e) => setNewOpEmail(e.target.value)}
-                          placeholder="laura@yaapos.com"
-                          className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white shadow-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-500">Contraseña</label>
-                        <input 
-                          type="password" 
-                          value={newOpPassword}
-                          onChange={(e) => setNewOpPassword(e.target.value)}
-                          placeholder="••••••"
-                          className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white shadow-xs font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-500">Rol operativo</label>
-                        <select 
-                          value={newOpRole}
-                          onChange={(e) => setNewOpRole(e.target.value)}
-                          className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white shadow-xs"
-                        >
-                          <option value="Cajero">Cajero</option>
-                          <option value="Supervisor de Almacén">Supervisor de Almacén</option>
-                          <option value="Administrador">Administrador</option>
-                        </select>
+
+                      <div className="border-t border-slate-100 pt-3 text-[11px] text-slate-500 space-y-2">
+                        <p className="font-bold text-slate-700 flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-blue-600" />
+                          Privilegios de Administrador:
+                        </p>
+                        <ul className="space-y-1.5 text-slate-600">
+                          <li className="flex items-center gap-2">
+                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>Control tributario y facturación FEL</span>
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>Crear y eliminar cuentas de cajeros</span>
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>Habilitar o restringir módulos del sistema</span>
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>Exportar e importar copias de seguridad</span>
+                          </li>
+                        </ul>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleAddOperator}
-                      className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Vincular Operador
-                    </button>
+                    {/* Summary stat card */}
+                    <div className="bg-blue-50/40 border border-blue-100 rounded-2xl p-4 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Usuarios Registrados</span>
+                        <p className="text-lg font-black text-slate-800">{operators.length}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Estado</span>
+                        <p className="text-xs font-bold text-slate-600">Sincronización activa</p>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* List Table */}
-                  <div className="border border-slate-150 rounded-2xl overflow-hidden bg-white shadow-xs">
-                    <table className="w-full border-collapse text-left text-xs">
-                      <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr>
-                          <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider">Nombre</th>
-                          <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider">Correo Electrónico</th>
-                          <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider">Rol</th>
-                          <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider">Ver Contraseña</th>
-                          <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider">Estado</th>
-                          <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider text-right">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {operators.map((op) => {
-                          const isOwner = op.role === 'Propietario / Administrador' || op.id === '1';
-                          const displayName = isOwner ? (user?.name || op.name) : op.name;
-                          const displayEmail = isOwner ? (user?.email || op.email) : op.email;
+                  {/* Operator list and creation (col-span-8) */}
+                  <div className="lg:col-span-8 space-y-4">
+                    
+                    {/* Search and Filters Bar */}
+                    <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={userSearchQuery}
+                          onChange={(e) => setUserSearchQuery(e.target.value)}
+                          placeholder="Buscar operador por nombre o correo..."
+                          className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50/60 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-medium"
+                        />
+                        {userSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setUserSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
 
-                          return (
-                            <tr key={op.id} className="hover:bg-slate-50/50">
-                              <td className="px-4 py-3.5 font-bold text-slate-800">{displayName}</td>
-                              <td className="px-4 py-3.5 font-mono text-slate-500">{displayEmail}</td>
-                              <td className="px-4 py-3.5 text-slate-600 font-medium">{op.role}</td>
-                              <td className="px-4 py-3.5">
-                                <button
-                                  type="button"
-                                  onClick={() => togglePasswordVisibility(op.id)}
-                                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
-                                >
-                                  {visiblePasswords[op.id] ? (
-                                    <>
-                                      <Eye className="w-4 h-4 text-blue-500 shrink-0" />
-                                      <span className="font-mono text-xs font-bold text-slate-800">{op.password || 'cajero123'}</span>
-                                      <span className="text-[11px] font-normal text-slate-400 font-sans">(Ocultar)</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <EyeOff className="w-4 h-4 text-slate-500 shrink-0" />
-                                      <span className="text-[11px] font-normal text-slate-400 font-sans">(Ver)</span>
-                                    </>
-                                  )}
-                                </button>
-                              </td>
-                              <td className="px-4 py-3.5">
-                                <span className="bg-emerald-50 text-emerald-600 border border-emerald-100 font-black text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                  ACTIVO
-                                </span>
-                              </td>
-                            <td className="px-4 py-3.5 text-right">
-                              {op.role !== 'Propietario / Administrador' ? (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedOperatorForTabs(op)}
-                                    className="inline-flex items-center justify-center p-1.5 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-all cursor-pointer"
-                                    title="Gestionar Pestañas / Permisos"
-                                  >
-                                    <Sliders className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteOperator(op.id)}
-                                    className="inline-flex items-center justify-center p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-all cursor-pointer"
-                                    title="Eliminar Operador"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <span className="text-[10px] font-semibold text-slate-400 select-none">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      </tbody>
-                    </table>
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0">
+                        {[
+                          { id: 'all', label: 'Todos' },
+                          { id: 'Cajero', label: 'Cajeros' },
+                          { id: 'Supervisor de Almacén', label: 'Supervisores' },
+                          { id: 'Administrador', label: 'Admins' }
+                        ].map(pill => (
+                          <button
+                            key={pill.id}
+                            type="button"
+                            onClick={() => setUserRoleFilter(pill.id as any)}
+                            className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+                              userRoleFilter === pill.id
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 border border-slate-200/60'
+                            }`}
+                          >
+                            {pill.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* List Table with horizontal scroll for mobile and iPhone */}
+                    <div className="border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
+                      {/* Mobile horizontal swipe indicator */}
+                      <div className="md:hidden px-3.5 py-2 bg-gradient-to-r from-blue-50/90 to-indigo-50/70 border-b border-blue-100 flex items-center justify-between text-[11px] text-blue-700 font-semibold select-none">
+                        <span className="flex items-center gap-1.5">
+                          <span>👉</span> Desliza horizontalmente para ver todas las opciones
+                        </span>
+                        <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider shrink-0">
+                          Deslizar ↔
+                        </span>
+                      </div>
+
+                      <div 
+                        className="w-full overflow-x-auto overscroll-x-contain touch-pan-x"
+                        style={{ WebkitOverflowScrolling: 'touch' }}
+                      >
+                        <table className="w-full min-w-[780px] border-collapse text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-200">
+                            <tr>
+                              <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider text-[11px] whitespace-nowrap">Usuario / Nombre</th>
+                              <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider text-[11px] whitespace-nowrap">Rol</th>
+                              <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider text-[11px] whitespace-nowrap">Contraseña</th>
+                              <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider text-[11px] whitespace-nowrap">Sucursales</th>
+                              <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider text-[11px] whitespace-nowrap">Estado</th>
+                              <th className="px-4 py-3 font-bold text-slate-600 uppercase tracking-wider text-[11px] text-right whitespace-nowrap">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredOperators.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                                  <UserIcon className="w-8 h-8 mx-auto mb-2 text-slate-300 stroke-1" />
+                                  <p className="text-xs font-bold text-slate-600">No se encontraron usuarios</p>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">Haga clic en "+ Nuevo Usuario" para dar de alta a un operador.</p>
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredOperators.map((op) => {
+                                const isOwner = op.role === 'Propietario / Administrador' || op.id === '1';
+                                const displayName = isOwner ? (user?.name || op.name) : op.name;
+                                const displayEmail = isOwner ? (user?.email || op.email) : op.email;
+
+                                const roleColor = 
+                                  op.role === 'Cajero' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                  op.role === 'Supervisor de Almacén' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                  op.role === 'Administrador' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                  'bg-purple-50 text-purple-700 border-purple-200';
+
+                                return (
+                                  <tr key={op.id} className="hover:bg-slate-50/60 transition-colors">
+                                    <td className="px-4 py-3.5 whitespace-nowrap">
+                                      <div className="flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                                          isOwner ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                                        }`}>
+                                          {displayName ? displayName.charAt(0).toUpperCase() : 'U'}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <span className="font-bold text-slate-800 block truncate">{displayName}</span>
+                                          <span className="font-mono text-[10px] text-slate-400 block truncate">{displayEmail}</span>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    <td className="px-4 py-3.5 whitespace-nowrap">
+                                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${roleColor}`}>
+                                        {op.role}
+                                      </span>
+                                    </td>
+
+                                    <td className="px-4 py-3.5 whitespace-nowrap">
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePasswordVisibility(op.id)}
+                                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 transition-colors cursor-pointer bg-slate-50 hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-slate-200"
+                                      >
+                                        {visiblePasswords[op.id] ? (
+                                          <>
+                                            <Eye className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                            <span className="font-mono text-xs font-bold text-slate-800">{op.password || 'cajero123'}</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <EyeOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                            <span className="text-[10px] text-slate-500">••••••</span>
+                                            <span className="text-[10px] text-blue-600 font-medium">Ver</span>
+                                          </>
+                                        )}
+                                      </button>
+                                    </td>
+
+                                    <td className="px-4 py-3.5 whitespace-nowrap">
+                                      <span className="text-slate-600 font-medium text-xs">
+                                        {op.branch || 'Todas'}
+                                      </span>
+                                    </td>
+
+                                    <td className="px-4 py-3.5 whitespace-nowrap">
+                                      <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full border uppercase tracking-wider ${
+                                        op.status === 'inactive'
+                                          ? 'bg-rose-50 text-rose-600 border-rose-200'
+                                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      }`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${op.status === 'inactive' ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                                        {op.status === 'inactive' ? 'INACTIVO' : 'ACTIVO'}
+                                      </span>
+                                    </td>
+
+                                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                                      {op.role !== 'Propietario / Administrador' ? (
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const parsedBranches = (op.branches && op.branches.length > 0)
+                                                ? op.branches
+                                                : (op.branch && op.branch !== 'Todas'
+                                                    ? op.branch.split(',').map(s => s.trim()).filter(Boolean)
+                                                    : []);
+                                              setEditingOperator({
+                                                ...op,
+                                                branches: parsedBranches,
+                                                disabledTabs: op.disabledTabs || [],
+                                                status: op.status || 'active'
+                                              });
+                                              setEditOpNewPassword('');
+                                              setEditOpPasswordVisible(false);
+                                            }}
+                                            className="inline-flex items-center justify-center p-2 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition-all cursor-pointer"
+                                            title="Editar Datos del Operador"
+                                          >
+                                            <Pencil className="w-4 h-4" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteOperator(op.id)}
+                                            className="inline-flex items-center justify-center p-2 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-all cursor-pointer"
+                                            title="Eliminar Operador"
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-[10px] font-semibold text-slate-400 select-none">-</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
                   </div>
-
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* TAB 3: LISTAS */}
           {activeTab === 'listas' && (
@@ -1949,109 +2263,932 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
         </form>
       </div>
 
-      {/* MODAL GESTIÓN DE PESTAÑAS */}
-      {selectedOperatorForTabs && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-150 animate-in fade-in zoom-in-95 duration-150 text-slate-800">
-            
-            {/* Header */}
-            <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sliders className="w-5 h-5 text-blue-400" />
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-wider">Permisos de Pestañas</h3>
-                  <p className="text-[10px] text-slate-300 font-medium">Configurar acceso para {selectedOperatorForTabs.name}</p>
+      {/* MODAL GESTIÓN DE PESTAÑAS Y VENTANAS DEL SISTEMA */}
+      {selectedOperatorForTabs && (() => {
+        const SYSTEM_WINDOWS = [
+          {
+            id: 'dashboard',
+            label: 'Dashboard',
+            category: 'finanzas',
+            categoryLabel: 'Finanzas y Reportes',
+            desc: 'Métricas generales, gráficos de ventas y analítica comercial.',
+            icon: LayoutDashboard,
+            color: 'text-blue-600 bg-blue-50 border-blue-100',
+            badge: 'Analítica'
+          },
+          {
+            id: 'punto-de-venta',
+            label: 'Punto de Venta',
+            category: 'ventas',
+            categoryLabel: 'Ventas y Caja',
+            desc: 'Cobros rápidos, lectura de código de barras y emisión de tickets.',
+            icon: ShoppingCart,
+            color: 'text-emerald-600 bg-emerald-50 border-emerald-100',
+            badge: 'Operación Principal'
+          },
+          {
+            id: 'inventario',
+            label: 'Inventario',
+            category: 'inventario',
+            categoryLabel: 'Inventario y Almacén',
+            desc: 'Catálogo de productos, control de stock, precios y ajustes.',
+            icon: Package,
+            color: 'text-amber-600 bg-amber-50 border-amber-100',
+            badge: 'Stock'
+          },
+          {
+            id: 'historial-ventas',
+            label: 'Historial de Ventas',
+            category: 'ventas',
+            categoryLabel: 'Ventas y Caja',
+            desc: 'Registro de comprobantes, facturas FEL emitidas y reimpresión.',
+            icon: History,
+            color: 'text-teal-600 bg-teal-50 border-teal-100',
+            badge: 'Comprobantes'
+          },
+          {
+            id: 'compras',
+            label: 'Gestión Compras',
+            category: 'inventario',
+            categoryLabel: 'Inventario y Almacén',
+            desc: 'Recepción de mercadería, órdenes de compra y facturas proveedor.',
+            icon: ShoppingBag,
+            color: 'text-indigo-600 bg-indigo-50 border-indigo-100',
+            badge: 'Abastecimiento'
+          },
+          {
+            id: 'vencimientos',
+            label: 'Vencimientos',
+            category: 'inventario',
+            categoryLabel: 'Inventario y Almacén',
+            desc: 'Control de caducidades, alertas por lote y fármacos críticos.',
+            icon: Calendar,
+            color: 'text-rose-600 bg-rose-50 border-rose-100',
+            badge: 'Fechas Lote'
+          },
+          {
+            id: 'complementos',
+            label: 'Complementos',
+            category: 'admin',
+            categoryLabel: 'Administración',
+            desc: 'Servicios de recarga, pagos y extensiones funcionales.',
+            icon: Sparkles,
+            color: 'text-amber-600 bg-amber-50 border-amber-100',
+            badge: 'Extensiones'
+          },
+          {
+            id: 'clientes',
+            label: 'Clientes',
+            category: 'ventas',
+            categoryLabel: 'Ventas y Caja',
+            desc: 'Directorio de clientes, cuentas corrientes de crédito y puntos.',
+            icon: Users,
+            color: 'text-purple-600 bg-purple-50 border-purple-100',
+            badge: 'Créditos'
+          },
+          {
+            id: 'proveedores',
+            label: 'Proveedores',
+            category: 'inventario',
+            categoryLabel: 'Inventario y Almacén',
+            desc: 'Directorio de proveedores comerciales y contactos de compra.',
+            icon: Truck,
+            color: 'text-sky-600 bg-sky-50 border-sky-100',
+            badge: 'Contactos'
+          },
+          {
+            id: 'gastos',
+            label: 'Gastos',
+            category: 'finanzas',
+            categoryLabel: 'Finanzas y Reportes',
+            desc: 'Egresos menores, pagos operativos y salidas de caja chica.',
+            icon: TrendingDown,
+            color: 'text-rose-600 bg-rose-50 border-rose-100',
+            badge: 'Egresos'
+          },
+          {
+            id: 'apertura-cierre',
+            label: 'Apertura y Cierre',
+            category: 'ventas',
+            categoryLabel: 'Ventas y Caja',
+            desc: 'Arqueo de caja, fondos iniciales, diferencias y corte térmico 80mm.',
+            icon: Inbox,
+            color: 'text-emerald-600 bg-emerald-50 border-emerald-100',
+            badge: 'Corte 80mm'
+          },
+          {
+            id: 'reportes',
+            label: 'Reportes Diarios',
+            category: 'finanzas',
+            categoryLabel: 'Finanzas y Reportes',
+            desc: 'Cortes contables del día, balance financiero y auditoría.',
+            icon: BarChart3,
+            color: 'text-blue-600 bg-blue-50 border-blue-100',
+            badge: 'Cierre Z'
+          },
+          {
+            id: 'sucursales',
+            label: 'Sucursales',
+            category: 'admin',
+            categoryLabel: 'Administración',
+            desc: 'Gestión de sedes, puntos de emisión y transferencias de inventario.',
+            icon: Building2,
+            color: 'text-violet-600 bg-violet-50 border-violet-100',
+            badge: 'Nueva Pestaña',
+            isNew: true
+          },
+          {
+            id: 'configuracion',
+            label: 'Configuración',
+            category: 'admin',
+            categoryLabel: 'Administración',
+            desc: 'Datos fiscales, tickets, listas maestros y gestión de usuarios.',
+            icon: SettingsIcon,
+            color: 'text-slate-600 bg-slate-100 border-slate-200',
+            badge: 'Parámetros'
+          }
+        ];
+
+        const currentlyDisabled = selectedOperatorForTabs.disabledTabs || [];
+        const isTabEnabled = (tabId: string) => {
+          if (currentlyDisabled.includes(tabId)) return false;
+          if (tabId === 'historial-ventas' && currentlyDisabled.includes('libro-ventas')) return false;
+          return true;
+        };
+
+        const enabledCount = SYSTEM_WINDOWS.filter(w => isTabEnabled(w.id)).length;
+        const totalCount = SYSTEM_WINDOWS.length;
+
+        const filteredWindows = SYSTEM_WINDOWS.filter(w => {
+          if (modalTabCategory !== 'all' && w.category !== modalTabCategory) return false;
+          if (modalTabSearch.trim()) {
+            const q = modalTabSearch.toLowerCase();
+            return w.label.toLowerCase().includes(q) || 
+                   w.desc.toLowerCase().includes(q) || 
+                   w.categoryLabel.toLowerCase().includes(q);
+          }
+          return true;
+        });
+
+        const toggleWindow = (tabId: string) => {
+          const idsToToggle = tabId === 'historial-ventas' ? ['historial-ventas', 'libro-ventas'] : [tabId];
+          const currentlyActive = isTabEnabled(tabId);
+          let nextDisabled = [...currentlyDisabled];
+
+          if (currentlyActive) {
+            // Disable: add to disabled
+            idsToToggle.forEach(id => {
+              if (!nextDisabled.includes(id)) {
+                nextDisabled.push(id);
+              }
+            });
+          } else {
+            // Enable: remove from disabled
+            nextDisabled = nextDisabled.filter(id => !idsToToggle.includes(id));
+          }
+
+          setSelectedOperatorForTabs({
+            ...selectedOperatorForTabs,
+            disabledTabs: nextDisabled
+          });
+        };
+
+        const applyPreset = (preset: 'cajero' | 'almacen' | 'supervisor' | 'all' | 'none') => {
+          let allowedIds: string[] = [];
+          if (preset === 'cajero') {
+            allowedIds = ['punto-de-venta', 'apertura-cierre', 'clientes', 'historial-ventas'];
+          } else if (preset === 'almacen') {
+            allowedIds = ['inventario', 'compras', 'vencimientos', 'proveedores'];
+          } else if (preset === 'supervisor') {
+            allowedIds = ['dashboard', 'punto-de-venta', 'inventario', 'historial-ventas', 'compras', 'vencimientos', 'clientes', 'proveedores', 'gastos', 'apertura-cierre', 'reportes', 'sucursales'];
+          } else if (preset === 'all') {
+            allowedIds = SYSTEM_WINDOWS.map(w => w.id);
+          } else if (preset === 'none') {
+            allowedIds = [];
+          }
+
+          const nextDisabled = SYSTEM_WINDOWS
+            .filter(w => !allowedIds.includes(w.id))
+            .flatMap(w => w.id === 'historial-ventas' ? ['historial-ventas', 'libro-ventas'] : [w.id]);
+
+          setSelectedOperatorForTabs({
+            ...selectedOperatorForTabs,
+            disabledTabs: nextDisabled
+          });
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+            <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200/80 animate-in zoom-in-95 duration-150 flex flex-col max-h-[92dvh] my-auto text-slate-800">
+              
+              {/* Header */}
+              <div className="bg-[#0B1536] text-white px-6 py-5 flex items-center justify-between border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 shadow-inner">
+                    <Sliders className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-black tracking-tight">Acceso a Ventanas y Permisos</h3>
+                      <span className="text-[10px] font-bold bg-blue-500/30 border border-blue-400/40 text-blue-200 px-2.5 py-0.5 rounded-full">
+                        {selectedOperatorForTabs.role}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 font-medium mt-0.5">
+                      Configuración para <span className="text-white font-bold">{selectedOperatorForTabs.name}</span> ({selectedOperatorForTabs.email})
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setSelectedOperatorForTabs(null)}
+                  className="p-2 rounded-xl hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  title="Cerrar ventana"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Quick Actions & Status Summary Toolbar */}
+              <div className="bg-slate-50 border-b border-slate-200 px-6 py-3.5 space-y-3 shrink-0">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Plantillas Rápidas:</span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => applyPreset('cajero')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 hover:border-slate-300 shadow-2xs transition-all cursor-pointer"
+                      >
+                        🎯 Cajero
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPreset('almacen')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 hover:border-slate-300 shadow-2xs transition-all cursor-pointer"
+                      >
+                        📦 Almacén
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPreset('supervisor')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 hover:border-slate-300 shadow-2xs transition-all cursor-pointer"
+                      >
+                        ⚡ Supervisor
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPreset('all')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 shadow-2xs transition-all cursor-pointer"
+                      >
+                        ✓ Activar Todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPreset('none')}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 shadow-2xs transition-all cursor-pointer"
+                      >
+                        ✕ Bloquear Todo
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border ${
+                      enabledCount === totalCount
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : enabledCount > 0
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`}>
+                      <span className="w-2 h-2 rounded-full bg-current"></span>
+                      {enabledCount} de {totalCount} ventanas activas
+                    </span>
+                  </div>
+                </div>
+
+                {/* Search & Category Filter Pills */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={modalTabSearch}
+                      onChange={(e) => setModalTabSearch(e.target.value)}
+                      placeholder="Buscar ventana o módulo del sistema..."
+                      className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                    {modalTabSearch && (
+                      <button 
+                        type="button" 
+                        onClick={() => setModalTabSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+                    {[
+                      { id: 'all', label: 'Todas' },
+                      { id: 'ventas', label: 'Ventas y Caja' },
+                      { id: 'inventario', label: 'Almacén' },
+                      { id: 'finanzas', label: 'Finanzas' },
+                      { id: 'admin', label: 'Administración' }
+                    ].map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setModalTabCategory(cat.id as any)}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+                          modalTabCategory === cat.id
+                            ? 'bg-slate-800 text-white shadow-xs'
+                            : 'bg-white text-slate-600 hover:bg-slate-200/60 border border-slate-200/80'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
+
+              {/* Scrollable Windows List */}
+              <div className="p-6 overflow-y-auto space-y-2.5 flex-1 bg-slate-50/30">
+                {filteredWindows.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 space-y-2">
+                    <Search className="w-8 h-8 mx-auto stroke-1" />
+                    <p className="text-xs font-semibold">No se encontraron ventanas con el criterio buscado.</p>
+                  </div>
+                ) : (
+                  filteredWindows.map((tab) => {
+                    const isChecked = isTabEnabled(tab.id);
+                    const IconComponent = tab.icon;
+
+                    return (
+                      <div
+                        key={tab.id}
+                        onClick={() => toggleWindow(tab.id)}
+                        className={`p-3.5 rounded-2xl border transition-all duration-150 cursor-pointer flex items-center justify-between gap-3.5 ${
+                          isChecked 
+                            ? 'bg-white border-blue-200 shadow-xs hover:border-blue-300 ring-1 ring-blue-500/10' 
+                            : 'bg-white/80 border-slate-200/80 hover:border-slate-300 opacity-65 hover:opacity-90'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border ${tab.color} shadow-2xs`}>
+                            <IconComponent className="w-5 h-5 stroke-[2]" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-xs font-black text-slate-800 tracking-tight">{tab.label}</h4>
+                              {tab.isNew && (
+                                <span className="bg-violet-100 text-violet-700 border border-violet-200 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                                  Nueva Pestaña
+                                </span>
+                              )}
+                              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                                {tab.badge}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 line-clamp-1 leading-snug mt-0.5 font-medium">
+                              {tab.desc}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Interactive iOS style Toggle Switch */}
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <span className={`text-[10px] font-black uppercase tracking-wider hidden sm:inline ${
+                            isChecked ? 'text-blue-600' : 'text-slate-400'
+                          }`}>
+                            {isChecked ? 'Habilitada' : 'Oculta'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleWindow(tab.id);
+                            }}
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                              isChecked ? 'bg-blue-600 shadow-xs' : 'bg-slate-200'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                                isChecked ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
+                <div className="text-[11px] text-slate-500 font-medium">
+                  {enabledCount === 0 ? (
+                    <span className="text-rose-600 font-bold">⚠️ El usuario no tendrá acceso a ninguna pestaña del menú.</span>
+                  ) : (
+                    <span>Las pestañas marcadas se mostrarán en la barra lateral del operador.</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2.5 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOperatorForTabs(null)}
+                    className="px-4 py-2 border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveOperatorTabs(selectedOperatorForTabs.id, selectedOperatorForTabs.disabledTabs || [])}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" /> Guardar Permisos
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL: REGISTRAR NUEVO USUARIO / OPERADOR */}
+      {isCreateUserModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150 text-slate-800 flex flex-col max-h-[92dvh] my-auto">
+            
+            {/* Modal Header: Clean light header with 'Nuevo usuario' and '✕' */}
+            <div className="px-6 py-5 flex items-center justify-between border-b border-slate-100 shrink-0 bg-white">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">Nuevo usuario</h2>
               <button 
                 type="button"
-                onClick={() => setSelectedOperatorForTabs(null)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                onClick={() => setIsCreateUserModalOpen(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                title="Cerrar"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Content */}
-            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-              <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                Active las casillas para habilitar las pestañas correspondientes en el menú del operador. Las pestañas desmarcadas no serán visibles en su sesión de trabajo.
-              </p>
+            {/* Modal Form */}
+            <form onSubmit={handleAddOperator} className="p-6 space-y-5 overflow-y-auto overscroll-contain flex-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+              {/* Nombre */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Nombre
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newOpName}
+                  onChange={(e) => setNewOpName(e.target.value)}
+                  placeholder="Ej: Brenda Gómez"
+                  className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-medium placeholder:text-slate-400 transition-all"
+                />
+              </div>
 
-              <div className="space-y-1.5 border border-slate-100 rounded-xl p-3 bg-slate-50/50">
-                {[
-                  { id: 'dashboard', label: 'Dashboard' },
-                  { id: 'punto-de-venta', label: 'Punto de Venta' },
-                  { id: 'inventario', label: 'Inventario' },
-                  { id: 'historial-ventas', label: 'Historial de Ventas' },
-                  { id: 'compras', label: 'Gestión Compras' },
-                  { id: 'vencimientos', label: 'Vencimientos' },
-                  { id: 'complementos', label: 'Complementos' },
-                  { id: 'clientes', label: 'Clientes' },
-                  { id: 'proveedores', label: 'Proveedores' },
-                  { id: 'gastos', label: 'Gastos' },
-                  { id: 'apertura-cierre', label: 'Apertura y Cierre' },
-                  { id: 'reportes', label: 'Reportes Diarios' },
-                  { id: 'configuracion', label: 'Configuración' }
-                ].map((tab) => {
-                  const isDisabled = selectedOperatorForTabs.disabledTabs?.includes(tab.id) ||
-                    (tab.id === 'historial-ventas' && selectedOperatorForTabs.disabledTabs?.includes('libro-ventas'));
-                  const isChecked = !isDisabled;
+              {/* Correo */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Correo
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={newOpEmail}
+                  onChange={(e) => setNewOpEmail(e.target.value)}
+                  placeholder="brenda@yaapos.com"
+                  className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-mono font-medium placeholder:text-slate-400 transition-all"
+                />
+              </div>
 
-                  return (
-                    <label 
-                      key={tab.id} 
-                      className="flex items-center justify-between p-2 hover:bg-white rounded-lg border border-transparent hover:border-slate-150 transition-all cursor-pointer"
-                    >
-                      <span className="text-xs font-bold text-slate-700">{tab.label}</span>
-                      <input 
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          const currentlyDisabled = selectedOperatorForTabs.disabledTabs || [];
-                          let nextDisabled = [...currentlyDisabled];
-                          const idsToToggle = tab.id === 'historial-ventas' ? ['historial-ventas', 'libro-ventas'] : [tab.id];
-                          if (e.target.checked) {
-                            // Enable: remove from disabled
-                            nextDisabled = nextDisabled.filter(id => !idsToToggle.includes(id));
-                          } else {
-                            // Disable: add to disabled
-                            idsToToggle.forEach(id => {
-                              if (!nextDisabled.includes(id)) {
-                                nextDisabled.push(id);
-                              }
-                            });
-                          }
-                          setSelectedOperatorForTabs({
-                            ...selectedOperatorForTabs,
-                            disabledTabs: nextDisabled
+              {/* Contraseña */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-slate-700 block">
+                    Contraseña
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGenerateRandomPassword}
+                    className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    Generar clave
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={newOpPasswordVisible ? 'text' : 'password'}
+                    value={newOpPassword}
+                    onChange={(e) => setNewOpPassword(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl pl-4 pr-11 py-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-mono placeholder:text-slate-400 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setNewOpPasswordVisible(!newOpPasswordVisible)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                  >
+                    {newOpPasswordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Rol */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Rol
+                </label>
+                <div className="relative">
+                  <select
+                    value={newOpRole}
+                    onChange={(e) => handleNewOpRoleChange(e.target.value)}
+                    className="w-full appearance-none text-base sm:text-sm border border-slate-200/90 rounded-2xl px-4 py-3 pr-10 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-medium text-slate-800 cursor-pointer transition-all"
+                  >
+                    <option value="Cajero">Cajero</option>
+                    <option value="Supervisor de Almacén">Supervisor de Almacén</option>
+                    <option value="Administrador">Administrador</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Sucursales */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Sucursales
+                </label>
+                <div className="border border-slate-200/90 rounded-2xl p-4 space-y-2.5 bg-white">
+                  {branchOptions.map((b) => {
+                    const isSelected = newOpBranches.includes(b.name) || newOpBranch === b.name;
+                    return (
+                      <button
+                        key={b.id || b.name}
+                        type="button"
+                        onClick={() => {
+                          setNewOpBranches(prev => {
+                            let next: string[];
+                            if (prev.includes(b.name)) {
+                              next = prev.filter(name => name !== b.name);
+                            } else {
+                              next = [...prev, b.name];
+                            }
+                            setNewOpBranch(next.join(', '));
+                            return next;
                           });
                         }}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                    </label>
-                  );
-                })}
+                        className={`flex items-center gap-3 w-full text-left p-2 rounded-xl transition-all cursor-pointer group ${
+                          isSelected 
+                            ? 'bg-emerald-50/70 border border-emerald-200/70' 
+                            : 'hover:bg-slate-50 border border-transparent'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                          isSelected 
+                            ? 'border-emerald-600 bg-emerald-600 text-white shadow-2xs' 
+                            : 'border-slate-300 group-hover:border-slate-400 bg-white'
+                        }`}>
+                          {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <span className={`text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+                          {b.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {(newOpBranches.length > 0 || (newOpBranch && newOpBranch.trim() && newOpBranch !== 'Todas')) ? (
+                  <p className="text-xs text-emerald-700 font-semibold mt-1 flex items-center gap-1.5 transition-all animate-in fade-in duration-150">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    Solo verá y operará en las sucursales marcadas.
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-400 font-normal mt-1">
+                    Sin marcar = acceso a todas las sucursales.
+                  </p>
+                )}
               </div>
+
+              {/* Accesos del panel */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Accesos del panel
+                </label>
+                <div className="border border-slate-200/90 rounded-2xl p-4 sm:p-5 bg-white space-y-5">
+                  {PANEL_MODULE_GROUPS.map((group) => (
+                    <div key={group.category} className="space-y-2.5">
+                      <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase block">
+                        {group.category}
+                      </span>
+                      <div className="space-y-2">
+                        {group.items.map((item) => {
+                          const isChecked = newOpPanels.includes(item.id);
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => toggleNewOpPanel(item.id)}
+                              className="flex items-center gap-3 w-full text-left py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer group"
+                            >
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                                isChecked
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'border-2 border-slate-300 group-hover:border-slate-400'
+                              }`}>
+                                {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                              </div>
+                              <span className={`text-sm ${isChecked ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+                                {item.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Modal Footer (Sticky on Mobile) */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5 shrink-0 bg-white sticky bottom-0 -mx-6 -mb-6 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateUserModalOpen(false)}
+                  className="px-5 py-2.5 border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 flex items-center gap-1.5"
+                >
+                  <UserPlus className="w-4 h-4" /> Crear usuario
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR DATOS DEL OPERADOR */}
+      {editingOperator && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150 text-slate-800 flex flex-col max-h-[92dvh] my-auto">
+            
+            {/* Modal Header: Clean light header with 'Editar usuario' and '✕' */}
+            <div className="px-6 py-5 flex items-center justify-between border-b border-slate-100 shrink-0 bg-white">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">Editar usuario</h2>
+              <button 
+                type="button"
+                onClick={() => {
+                  setEditingOperator(null);
+                  setEditOpNewPassword('');
+                }}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Footer */}
-            <div className="bg-slate-50 px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setSelectedOperatorForTabs(null)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSaveOperatorTabs(selectedOperatorForTabs.id, selectedOperatorForTabs.disabledTabs || [])}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm animate-pulse-once"
-              >
-                Guardar Permisos
-              </button>
-            </div>
+            {/* Modal Form with iPhone and mobile smooth touch scroll */}
+            <form onSubmit={handleUpdateOperator} className="p-6 space-y-5 overflow-y-auto overscroll-contain flex-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+              
+              {/* Nombre */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Nombre
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingOperator.name}
+                  onChange={(e) => setEditingOperator({ ...editingOperator, name: e.target.value })}
+                  placeholder="Nombre del usuario"
+                  className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-medium text-slate-800 placeholder:text-slate-400 transition-all"
+                />
+              </div>
+
+              {/* Rol */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Rol
+                </label>
+                <div className="relative">
+                  <select
+                    value={editingOperator.role}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      const allTabIds = PANEL_MODULE_GROUPS.flatMap(g => g.items.map(i => i.id));
+                      let nextDisabledTabs = editingOperator.disabledTabs || [];
+                      if (nextRole === 'Cajero') {
+                        const allowed = ['dashboard', 'punto-de-venta', 'historial-ventas', 'apertura-cierre', 'clientes'];
+                        nextDisabledTabs = allTabIds.filter(id => !allowed.includes(id));
+                      } else if (nextRole === 'Supervisor de Almacén') {
+                        const allowed = ['dashboard', 'inventario', 'compras', 'vencimientos', 'proveedores', 'reportes'];
+                        nextDisabledTabs = allTabIds.filter(id => !allowed.includes(id));
+                      } else if (nextRole === 'Administrador') {
+                        nextDisabledTabs = [];
+                      }
+                      setEditingOperator({
+                        ...editingOperator,
+                        role: nextRole,
+                        disabledTabs: nextDisabledTabs
+                      });
+                    }}
+                    className="w-full appearance-none text-base sm:text-sm border border-slate-200/90 rounded-2xl px-4 py-3 pr-10 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-medium text-slate-800 cursor-pointer transition-all"
+                  >
+                    <option value="Cajero">Cajero</option>
+                    <option value="Supervisor de Almacén">Supervisor de Almacén</option>
+                    <option value="Administrador">Administrador</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Sucursales */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Sucursales
+                </label>
+                <div className="border border-slate-200/90 rounded-2xl p-4 space-y-2.5 bg-white">
+                  {branchOptions.map((b) => {
+                    const currentBranches = (editingOperator.branches && editingOperator.branches.length > 0)
+                      ? editingOperator.branches
+                      : (editingOperator.branch && editingOperator.branch !== 'Todas'
+                          ? editingOperator.branch.split(',').map(s => s.trim()).filter(Boolean)
+                          : []);
+                    const isSelected = currentBranches.some(name => name.toLowerCase() === b.name.toLowerCase());
+
+                    return (
+                      <button
+                        key={b.id || b.name}
+                        type="button"
+                        onClick={() => {
+                          let next: string[];
+                          if (isSelected) {
+                            next = currentBranches.filter(name => name.toLowerCase() !== b.name.toLowerCase());
+                          } else {
+                            next = [...currentBranches, b.name];
+                          }
+                          setEditingOperator({
+                            ...editingOperator,
+                            branches: next,
+                            branch: next.length > 0 ? next.join(', ') : 'Todas'
+                          });
+                        }}
+                        className="flex items-center gap-3 w-full text-left py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer group"
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                          isSelected 
+                            ? 'bg-emerald-600 text-white shadow-2xs' 
+                            : 'border-2 border-slate-300 group-hover:border-slate-400 bg-white'
+                        }`}>
+                          {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <span className={`text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+                          {b.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 font-normal mt-1">
+                  Solo verá y operará en las sucursales marcadas.
+                </p>
+              </div>
+
+              {/* Accesos del panel */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Accesos del panel
+                </label>
+                <div className="border border-slate-200/90 rounded-2xl p-4 sm:p-5 bg-white space-y-5 max-h-64 overflow-y-auto">
+                  {PANEL_MODULE_GROUPS.map((group) => (
+                    <div key={group.category} className="space-y-2.5">
+                      <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase block">
+                        {group.category}
+                      </span>
+                      <div className="space-y-2">
+                        {group.items.map((item) => {
+                          const currentDisabled = editingOperator.disabledTabs || [];
+                          const isChecked = !currentDisabled.includes(item.id) && !(item.id === 'historial-ventas' && currentDisabled.includes('libro-ventas'));
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                let nextDisabled = [...currentDisabled];
+                                if (isChecked) {
+                                  nextDisabled.push(item.id);
+                                  if (item.id === 'historial-ventas' && !nextDisabled.includes('libro-ventas')) {
+                                    nextDisabled.push('libro-ventas');
+                                  }
+                                } else {
+                                  nextDisabled = nextDisabled.filter(id => id !== item.id && !(item.id === 'historial-ventas' && id === 'libro-ventas'));
+                                }
+                                setEditingOperator({
+                                  ...editingOperator,
+                                  disabledTabs: nextDisabled
+                                });
+                              }}
+                              className="flex items-center gap-3 w-full text-left py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer group"
+                            >
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                                isChecked
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'border-2 border-slate-300 group-hover:border-slate-400 bg-white'
+                              }`}>
+                                {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                              </div>
+                              <span className={`text-sm ${isChecked ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+                                {item.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 font-normal mt-1">
+                  El usuario solo verá en su menú las secciones marcadas.
+                </p>
+              </div>
+
+              {/* Activo Toggle Card */}
+              <div className="border border-slate-200/90 rounded-2xl p-4 bg-white flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <span className="text-sm font-semibold text-slate-800 block">
+                    Activo
+                  </span>
+                  <span className="text-xs text-slate-500 block">
+                    Si lo desactivas, no podrá iniciar sesión.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditingOperator({
+                      ...editingOperator,
+                      status: editingOperator.status === 'inactive' ? 'active' : 'inactive'
+                    })
+                  }
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    editingOperator.status !== 'inactive' ? 'bg-emerald-600' : 'bg-slate-200'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      editingOperator.status !== 'inactive' ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Nueva contraseña (opcional) */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 block">
+                  Nueva contraseña (opcional)
+                </label>
+                <div className="relative">
+                  <input
+                    type={editOpPasswordVisible ? 'text' : 'password'}
+                    value={editOpNewPassword}
+                    onChange={(e) => setEditOpNewPassword(e.target.value)}
+                    placeholder="Dejar en blanco para no cambiar"
+                    className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl pl-4 pr-11 py-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-medium placeholder:text-slate-400 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditOpPasswordVisible(!editOpPasswordVisible)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                  >
+                    {editOpPasswordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-2 flex items-center justify-end shrink-0 bg-white">
+                <button
+                  type="submit"
+                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-sm font-semibold transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95"
+                >
+                  Guardar cambios
+                </button>
+              </div>
+            </form>
 
           </div>
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Sale, Expense, AppConfig, Client, Product } from '../types';
+import { Sale, Expense, AppConfig, Client, Product, User, Branch } from '../types';
+import { isItemInBranch } from '../utils/branchHelper';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -9,20 +10,20 @@ import {
   Receipt, 
   FileSpreadsheet, 
   Search, 
-  BarChart,
-  Inbox,
-  Calendar,
-  Filter,
-  BarChart3,
-  UserCheck,
-  X,
-  Eye,
-  Building,
-  Printer,
-  FileText,
-  CheckCircle2,
-  QrCode,
-  Building2
+  BarChart, 
+  Inbox, 
+  Calendar, 
+  Filter, 
+  BarChart3, 
+  UserCheck, 
+  X, 
+  Eye, 
+  Building, 
+  Printer, 
+  FileText, 
+  CheckCircle2, 
+  QrCode, 
+  Building2 
 } from 'lucide-react';
 import * as api from '../api';
 
@@ -33,6 +34,10 @@ interface DailyReportsProps {
   config: AppConfig;
   products?: Product[];
   onNavigate?: (tab: string) => void;
+  user?: User | null;
+  activeBranchName?: string;
+  branches?: Branch[];
+  onSwitchBranch?: (branchId: string) => void;
 }
 
 const getLocalDateStr = (d: Date) => {
@@ -42,7 +47,73 @@ const getLocalDateStr = (d: Date) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-export default function DailyReports({ sales, expenses, clients, config, products = [], onNavigate }: DailyReportsProps) {
+export default function DailyReports({ 
+  sales: rawSales, 
+  expenses, 
+  clients, 
+  config, 
+  products = [], 
+  onNavigate, 
+  user,
+  activeBranchName,
+  branches,
+  onSwitchBranch
+}: DailyReportsProps) {
+  const availableBranches = useMemo(() => {
+    return branches || config.branches || [];
+  }, [branches, config.branches]);
+
+  const allowedBranches = useMemo(() => {
+    if (!user?.isOperator) return [];
+    if (user.branches && user.branches.length > 0) return user.branches.map(b => b.toLowerCase().trim());
+    if (user.branch && user.branch !== 'Todas') return user.branch.split(',').map(s => s.toLowerCase().trim());
+    return [];
+  }, [user]);
+
+  const defaultBranch = useMemo(() => {
+    if (activeBranchName) return activeBranchName;
+    if (allowedBranches.length > 0) return allowedBranches[0];
+    if (config.activeBranchId && availableBranches.length > 0) {
+      const b = availableBranches.find(br => br.id === config.activeBranchId);
+      if (b) return b.name;
+    }
+    return availableBranches[0]?.name || 'Sucursal Central';
+  }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches]);
+
+  const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch);
+
+  useEffect(() => {
+    if (activeBranchName) {
+      setSelectedBranch(activeBranchName);
+    }
+  }, [activeBranchName]);
+
+  const sales = useMemo(() => {
+    if (user?.isOperator && allowedBranches.length > 0) {
+      return rawSales.filter(s => {
+        if (s.branch) return allowedBranches.some(ab => ab.toLowerCase().trim() === s.branch?.toLowerCase().trim());
+        return allowedBranches.some(ab => ab.includes('central') || ab.includes('principal'));
+      });
+    }
+    if (selectedBranch && selectedBranch !== 'Todas') {
+      return rawSales.filter(s => isItemInBranch(s.branch, selectedBranch, availableBranches));
+    }
+    return rawSales;
+  }, [rawSales, user, allowedBranches, selectedBranch, availableBranches]);
+
+  const branchExpenses = useMemo(() => {
+    if (user?.isOperator && allowedBranches.length > 0) {
+      return expenses.filter(e => {
+        if (e.branch) return allowedBranches.some(ab => ab.toLowerCase().trim() === e.branch?.toLowerCase().trim());
+        return allowedBranches.some(ab => ab.includes('central') || ab.includes('principal'));
+      });
+    }
+    if (selectedBranch && selectedBranch !== 'Todas') {
+      return expenses.filter(e => isItemInBranch(e.branch, selectedBranch, availableBranches));
+    }
+    return expenses;
+  }, [expenses, user, allowedBranches, selectedBranch, availableBranches]);
+
   const currency = config.currency || 'Q';
   
   // Toggles detailed transactional ledger & other financial sheets
@@ -172,7 +243,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
 
   // Filter expenses based on Date Range
   const filteredExpenses = useMemo(() => {
-    return expenses.filter(e => {
+    return branchExpenses.filter(e => {
       const localDate = new Date(e.date);
       const yyyy = localDate.getFullYear();
       const mm = String(localDate.getMonth() + 1).padStart(2, '0');
@@ -187,7 +258,7 @@ export default function DailyReports({ sales, expenses, clients, config, product
       }
       return true;
     });
-  }, [expenses, startDate, endDate]);
+  }, [branchExpenses, startDate, endDate]);
 
   // Statistics summaries
   const stats = useMemo(() => {
@@ -505,6 +576,31 @@ export default function DailyReports({ sales, expenses, clients, config, product
               />
             </div>
           </div>
+
+          {/* SUCURSAL */}
+          {availableBranches.length > 1 && !allowedBranches.length && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <Building2 className="w-3 h-3 text-blue-600" /> SUCURSAL
+              </label>
+              <select 
+                value={selectedBranch} 
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedBranch(val);
+                  if (val !== 'Todas' && onSwitchBranch) {
+                    onSwitchBranch(val);
+                  }
+                }}
+                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%236b7280%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22/%3E%3C/svg%3E')] bg-[size:0.6rem_auto] bg-[position:right_12px_center] bg-no-repeat pr-8"
+              >
+                {availableBranches.map(b => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
+                ))}
+                <option value="Todas">Todas (Consolidado)</option>
+              </select>
+            </div>
+          )}
 
           {/* USUARIO */}
           <div className="flex flex-col gap-1.5">

@@ -1,12 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="128" fill="#005e63"/>
-  <circle cx="256" cy="256" r="180" fill="none" stroke="#ffffff" stroke-width="24" opacity="0.15"/>
-  <!-- POS Terminal & Cart Drawing -->
-  <path d="M160 180h192v200H160z" fill="none" stroke="#ffffff" stroke-width="28" stroke-linejoin="round"/>
-  <path d="M160 250h192" fill="none" stroke="#ffffff" stroke-width="20"/>
-  <circle cx="210" cy="310" r="15" fill="#ffffff"/>
-  <circle cx="302" cy="310" r="15" fill="#ffffff"/>
-  <!-- Paper Feed -->
-  <path d="M210 180V120h92v60" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M225 145h62" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
+  <rect width="512" height="512" rx="112" fill="#ffffff"/>
+  <path
+    d="M170 64 H342 C361 64 378 73 389 88 L443 160 C455 176 462 196 462 216 V392 C462 432 430 464 390 464 H122 C82 464 50 432 50 392 V216 C50 196 57 176 69 160 L123 88 C134 73 151 64 170 64 Z"
+    fill="none"
+    stroke="#429CF9"
+    stroke-width="38"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <line
+    x1="64"
+    y1="146"
+    x2="448"
+    y2="146"
+    stroke="#429CF9"
+    stroke-width="34"
+    stroke-linecap="round"
+  />
+  <path
+    d="M174 222 A82 82 0 0 0 338 222"
+    fill="none"
+    stroke="#429CF9"
+    stroke-width="40"
+    stroke-linecap="round"
+  />
 </svg>

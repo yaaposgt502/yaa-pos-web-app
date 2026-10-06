@@ -158,6 +158,8 @@ export interface Operator {
   role: string;
   password?: string;
   status: 'active' | 'inactive';
+  branch?: string;
+  branches?: string[];
   ownerId?: string;
   disabledTabs?: string[];
 }
@@ -310,6 +312,8 @@ export async function loginUser(email: string, password: string): Promise<{ toke
         role: opData.role,
         isOperator: true,
         operatorId: opData.id,
+        branch: opData.branch,
+        branches: opData.branches || (opData.branch && opData.branch !== 'Todas' ? [opData.branch] : []),
         disabledTabs: opData.disabledTabs || []
       };
       
@@ -412,6 +416,8 @@ export async function getMe(): Promise<User> {
           role: opData.role,
           isOperator: true,
           operatorId: opData.id,
+          branch: opData.branch,
+          branches: opData.branches || (opData.branch && opData.branch !== 'Todas' ? [opData.branch] : []),
           disabledTabs: opData.disabledTabs || []
         };
       }
@@ -469,11 +475,12 @@ export async function getOperators(): Promise<Operator[]> {
           role: 'Propietario / Administrador', 
           password: 'adminpassword123', 
           status: 'active', 
+          branch: 'Todas',
           ownerId: uid,
           disabledTabs: []
         },
-        { id: '2', name: 'Cajero Principal', email: 'cajero1@yaapos.com', role: 'Cajero', password: 'cajero123', status: 'active', ownerId: uid, disabledTabs: [] },
-        { id: '3', name: 'Almacenero Turno Mañana', email: 'almacen@yaapos.com', role: 'Supervisor de Almacén', password: 'almacen123', status: 'active', ownerId: uid, disabledTabs: [] }
+        { id: '2', name: 'Cajero Principal', email: 'cajero1@yaapos.com', role: 'Cajero', password: 'cajero123', status: 'active', branch: 'Todas', ownerId: uid, disabledTabs: [] },
+        { id: '3', name: 'Almacenero Turno Mañana', email: 'almacen@yaapos.com', role: 'Supervisor de Almacén', password: 'almacen123', status: 'active', branch: 'ferreteria 2', ownerId: uid, disabledTabs: [] }
       ];
       for (const op of defaults) {
         await saveOperator(op);

@@ -38,20 +38,31 @@ if (typeof window !== 'undefined' && window.location.hash && window.location.has
   }
 }
 
-// Register Service Worker for PWA Offline support
+// Register Service Worker for PWA Offline support (and clear stale dev caches if needed)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    const isDev = Boolean((import.meta as any).env?.DEV);
+    if (isDev) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const registration of registrations) {
+          registration.update().catch(() => {});
+        }
+      });
+    }
     navigator.serviceWorker.register('/sw.js')
       .then((reg) => console.log('[Service Worker] Registered successfully:', reg.scope))
       .catch((err) => console.error('[Service Worker] Registration failed:', err));
   });
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+}
 

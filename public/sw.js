@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yaa-pos-cache-v3';
+const CACHE_NAME = 'yaa-pos-cache-v4';
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -49,8 +49,13 @@ self.addEventListener('fetch', (event) => {
     url.href.includes('chrome-extension') ||
     !url.protocol.startsWith('http') ||
     url.pathname.includes('/@vite/') ||
+    url.pathname.includes('/@react-refresh') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.endsWith('.tsx') ||
+    url.pathname.endsWith('.ts') ||
     url.pathname.includes('/node_modules/') ||
-    url.search.includes('import')
+    url.search.includes('import') ||
+    url.search.includes('t=')
   ) {
     return;
   }

@@ -13,11 +13,18 @@ if (process.env.GEMINI_API_KEY) {
   console.warn('GEMINI_API_KEY environment variable is not defined. AI Assistant features will be disabled or fallback to mock.');
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('[Yaa POS Server uncaughtException]:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Yaa POS Server unhandledRejection]:', reason);
+});
+
 async function startServer() {
   await db.initDb();
 
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Set limits for file uploading via base64 JSON
   app.use(express.json({ limit: '50mb' }));

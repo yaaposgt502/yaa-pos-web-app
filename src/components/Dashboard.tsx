@@ -1,5 +1,6 @@
 import React from 'react';
-import { Product, Sale, Expense, Shift, AppConfig } from '../types';
+import { Product, Sale, Expense, Shift, AppConfig, User, Branch } from '../types';
+import { isItemInBranch } from '../utils/branchHelper';
 import { 
   TrendingUp, 
   Package, 
@@ -7,20 +8,22 @@ import {
   DollarSign, 
   Calendar, 
   ArrowUpRight, 
-  ArrowDownRight,
-  Clock,
-  CheckCircle,
-  Inbox,
-  BarChart3,
-  PieChart,
-  ChevronDown,
-  Banknote,
-  CreditCard,
-  ArrowRightLeft,
-  Wallet,
-  ShoppingBag,
-  ExternalLink,
-  Receipt
+  ArrowDownRight, 
+  Clock, 
+  CheckCircle, 
+  CheckCircle2, 
+  Inbox, 
+  BarChart3, 
+  PieChart, 
+  ChevronDown, 
+  Banknote, 
+  CreditCard, 
+  ArrowRightLeft, 
+  Wallet, 
+  ShoppingBag, 
+  ExternalLink, 
+  Receipt,
+  Building2 
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -30,9 +33,94 @@ interface DashboardProps {
   shifts: Shift[];
   config: AppConfig;
   onNavigate: (tab: string) => void;
+  user?: User | null;
+  activeBranchName?: string;
+  branches?: Branch[];
+  onSwitchBranch?: (branchId: string) => void;
 }
 
-export default function Dashboard({ products, sales, expenses, shifts, config, onNavigate }: DashboardProps) {
+export default function Dashboard({ 
+  products, 
+  sales: rawSales, 
+  expenses, 
+  shifts: rawShifts, 
+  config, 
+  onNavigate, 
+  user,
+  activeBranchName,
+  branches,
+  onSwitchBranch
+}: DashboardProps) {
+  const availableBranches = React.useMemo(() => {
+    return branches || config.branches || [];
+  }, [branches, config.branches]);
+
+  // If user is operator with restricted branches:
+  // "Solo verá y operará en las sucursales marcadas."
+  const allowedBranches = React.useMemo(() => {
+    if (!user?.isOperator) return [];
+    if (user.branches && user.branches.length > 0) return user.branches.map(b => b.toLowerCase().trim());
+    if (user.branch && user.branch !== 'Todas') return user.branch.split(',').map(s => s.toLowerCase().trim());
+    return [];
+  }, [user]);
+
+  const defaultBranch = React.useMemo(() => {
+    if (activeBranchName) return activeBranchName;
+    if (allowedBranches.length > 0) return allowedBranches[0];
+    if (config.activeBranchId && availableBranches.length > 0) {
+      const b = availableBranches.find(br => br.id === config.activeBranchId);
+      if (b) return b.name;
+    }
+    return availableBranches[0]?.name || 'Sucursal Central';
+  }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches]);
+
+  const [selectedBranch, setSelectedBranch] = React.useState<string>(defaultBranch);
+
+  React.useEffect(() => {
+    if (activeBranchName) {
+      setSelectedBranch(activeBranchName);
+    }
+  }, [activeBranchName]);
+
+  const sales = React.useMemo(() => {
+    if (user?.isOperator && allowedBranches.length > 0) {
+      return rawSales.filter(s => {
+        if (s.branch) return allowedBranches.some(ab => ab.toLowerCase().trim() === s.branch?.toLowerCase().trim());
+        return allowedBranches.some(ab => ab.includes('central') || ab.includes('principal'));
+      });
+    }
+    if (selectedBranch && selectedBranch !== 'Todas') {
+      return rawSales.filter(s => isItemInBranch(s.branch, selectedBranch, availableBranches));
+    }
+    return rawSales;
+  }, [rawSales, user, allowedBranches, selectedBranch, availableBranches]);
+
+  const shifts = React.useMemo(() => {
+    if (user?.isOperator && allowedBranches.length > 0) {
+      return rawShifts.filter(sh => {
+        if (sh.branch) return allowedBranches.some(ab => ab.toLowerCase().trim() === sh.branch?.toLowerCase().trim());
+        return allowedBranches.some(ab => ab.includes('central') || ab.includes('principal'));
+      });
+    }
+    if (selectedBranch && selectedBranch !== 'Todas') {
+      return rawShifts.filter(sh => isItemInBranch(sh.branch, selectedBranch, availableBranches));
+    }
+    return rawShifts;
+  }, [rawShifts, user, allowedBranches, selectedBranch, availableBranches]);
+
+  const branchExpenses = React.useMemo(() => {
+    if (user?.isOperator && allowedBranches.length > 0) {
+      return expenses.filter(e => {
+        if (e.branch) return allowedBranches.some(ab => ab.toLowerCase().trim() === e.branch?.toLowerCase().trim());
+        return allowedBranches.some(ab => ab.includes('central') || ab.includes('principal'));
+      });
+    }
+    if (selectedBranch && selectedBranch !== 'Todas') {
+      return expenses.filter(e => isItemInBranch(e.branch, selectedBranch, availableBranches));
+    }
+    return expenses;
+  }, [expenses, user, allowedBranches, selectedBranch, availableBranches]);
+
   // Calculations
   const currency = config.currency || 'Q';
   
@@ -44,7 +132,7 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   const todaySalesTotal = todaySales.reduce((acc, s) => acc + s.total, 0);
   const todayProfit = todaySales.reduce((acc, s) => acc + s.profit, 0);
 
-  const todayExpenses = expenses.filter(e => new Date(e.date).toDateString() === todayStr);
+  const todayExpenses = branchExpenses.filter(e => new Date(e.date).toDateString() === todayStr);
   const todayExpensesTotal = todayExpenses.reduce((acc, e) => acc + e.amount, 0);
 
   const lowStock = products.filter(p => p.stock <= p.minStock);
@@ -61,7 +149,7 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
   });
 
   // Current Shift Status
-  const currentShift = shifts.find(s => s.state === 'open');
+  const currentShift = shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, selectedBranch, availableBranches));
 
   // --- Sales Trend Data for Main Chart ---
   const [timeframe, setTimeframe] = React.useState<'7days' | '14days' | '30days'>('7days');
@@ -330,17 +418,52 @@ export default function Dashboard({ products, sales, expenses, shifts, config, o
 
   return (
     <div id="dashboard-view" className="space-y-6">
+      {allowedBranches.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl p-4 flex items-center gap-3">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="text-xs">
+            <span className="font-bold">Acceso de operador restringido: </span>
+            <span>Solo verá y operará en las sucursales marcadas ({user?.branches?.join(', ') || user?.branch}).</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Panel de Control</h1>
-          <p className="text-sm text-slate-500">Bienvenido a {config.storeName}. Resumen de actividades de hoy.</p>
+          <p className="text-sm text-slate-500">
+            Bienvenido a {config.storeName}. Resumen de actividades de hoy
+          </p>
         </div>
-        <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-xs border border-slate-100">
-          <Clock className="w-4 h-4 text-slate-400" />
-          <span className="text-xs text-slate-600 font-medium font-mono">
-            {today.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {availableBranches.length > 1 && !allowedBranches.length && (
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl shadow-xs border border-slate-200">
+              <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="text-xs font-bold text-slate-500">Sede:</span>
+              <select
+                value={selectedBranch}
+                onChange={(e) => {
+                  setSelectedBranch(e.target.value);
+                  const match = availableBranches.find(b => b.name === e.target.value);
+                  if (match && onSwitchBranch) onSwitchBranch(match.id);
+                }}
+                className="bg-transparent font-bold text-xs text-slate-800 focus:outline-hidden cursor-pointer"
+                title="Cambiar sucursal del panel de control"
+              >
+                {availableBranches.map(b => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
+                ))}
+                <option value="Todas">Todas (Consolidado)</option>
+              </select>
+            </div>
+          )}
+          <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-xs border border-slate-100">
+            <Clock className="w-4 h-4 text-slate-400" />
+            <span className="text-xs text-slate-600 font-medium font-mono">
+              {today.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </span>
+          </div>
         </div>
       </div>
 

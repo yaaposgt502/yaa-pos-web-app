@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Sale, Client, AppConfig, Product } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Sale, Client, AppConfig, Product, User, Branch } from '../types';
+import { isItemInBranch } from '../utils/branchHelper';
 import { 
   FileSpreadsheet, 
   History,
@@ -17,10 +18,10 @@ import {
   CreditCard, 
   Building, 
   Eye, 
-  Inbox,
-  ArrowUpDown,
-  Download,
-  Users
+  Inbox, 
+  ArrowUpDown, 
+  Download, 
+  Users 
 } from 'lucide-react';
 
 interface SalesLedgerProps {
@@ -28,6 +29,10 @@ interface SalesLedgerProps {
   clients: Client[];
   config: AppConfig;
   products?: Product[];
+  user?: User | null;
+  activeBranchName?: string;
+  branches?: Branch[];
+  onSwitchBranch?: (branchId: string) => void;
 }
 
 export const SalesLedger: React.FC<SalesLedgerProps> = ({
@@ -35,8 +40,61 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
   clients,
   config,
   products = [],
+  user,
+  activeBranchName,
+  branches,
+  onSwitchBranch
 }) => {
   const currency = config.currency || 'Q';
+
+  // Available branches list
+  const availableBranches = useMemo(() => {
+    return branches || config.branches || [];
+  }, [branches, config.branches]);
+
+  // If user is operator with restricted branches:
+  // "Solo verá y operará en las sucursales marcadas."
+  const allowedBranches = useMemo(() => {
+    if (!user?.isOperator) return [];
+    if (user.branches && user.branches.length > 0) return user.branches.map(b => b.toLowerCase().trim());
+    if (user.branch && user.branch !== 'Todas') return user.branch.split(',').map(s => s.toLowerCase().trim());
+    return [];
+  }, [user]);
+
+  const defaultBranch = useMemo(() => {
+    if (activeBranchName) return activeBranchName;
+    if (allowedBranches.length > 0) return allowedBranches[0];
+    if (config.activeBranchId && availableBranches.length > 0) {
+      const b = availableBranches.find(br => br.id === config.activeBranchId);
+      if (b) return b.name;
+    }
+    return availableBranches[0]?.name || 'Sucursal Central';
+  }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches]);
+
+  const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch);
+
+  useEffect(() => {
+    if (activeBranchName) {
+      setSelectedBranch(activeBranchName);
+    }
+  }, [activeBranchName]);
+
+  const effectiveSales = useMemo(() => {
+    if (user?.isOperator && allowedBranches.length > 0) {
+      return sales.filter(s => {
+        if (s.branch) {
+          return allowedBranches.some(ab => ab.toLowerCase().trim() === s.branch?.toLowerCase().trim());
+        }
+        return allowedBranches.some(ab => ab.includes('central') || ab.includes('principal'));
+      });
+    }
+
+    if (selectedBranch && selectedBranch !== 'Todas') {
+      return sales.filter(s => isItemInBranch(s.branch, selectedBranch, availableBranches));
+    }
+
+    return sales;
+  }, [sales, user, allowedBranches, selectedBranch, availableBranches]);
 
   // Date filtering state - Defaults to full month
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -97,7 +155,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
 
   // Search and date filtered transactions
   const filteredSales = useMemo(() => {
-    return sales.filter(s => {
+    return effectiveSales.filter(s => {
       // Date Range filter (using local date parsing)
       const localDate = new Date(s.date);
       const yyyy = localDate.getFullYear();
@@ -110,7 +168,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
 
       return true;
     });
-  }, [sales, startDate, endDate]);
+  }, [effectiveSales, startDate, endDate]);
 
   // Search filter across transactions
   const searchedSales = useMemo(() => {
@@ -152,6 +210,16 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
           </button>
         </div>
       </div>
+
+      {allowedBranches.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl p-4 flex items-center gap-3">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="text-xs">
+            <span className="font-bold">Acceso de operador restringido: </span>
+            <span>Solo verá y operará en las sucursales marcadas ({user?.branches?.join(', ') || user?.branch}).</span>
+          </div>
+        </div>
+      )}
 
       {/* 2. TRANSACTIONS LEDGER TABLE */}
       <div className="bg-white rounded-2xl border border-slate-150 p-6 space-y-4 shadow-2xs">
@@ -234,6 +302,30 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
               />
             </div>
 
+            {/* Sucursal Filter */}
+            {availableBranches.length > 1 && !allowedBranches.length && (
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-xs">
+                <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span className="text-[11px] font-bold text-slate-500">Sede:</span>
+                <select
+                  value={selectedBranch}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedBranch(val);
+                    if (val !== 'Todas' && onSwitchBranch) {
+                      onSwitchBranch(val);
+                    }
+                  }}
+                  className="bg-transparent font-bold text-slate-800 focus:outline-hidden cursor-pointer"
+                >
+                  {availableBranches.map(b => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                  <option value="Todas">Todas (Consolidado)</option>
+                </select>
+              </div>
+            )}
+
             {/* Search Bar */}
             <div className="relative w-full sm:w-64">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
@@ -261,6 +353,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
               <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
                   <th className="py-2.5 px-3">Fecha/Hora</th>
+                  <th className="py-2.5 px-3">Sucursal</th>
                   <th className="py-2.5 px-3">Cliente</th>
                   <th className="py-2.5 px-3">Usuario</th>
                   <th className="py-2.5 px-3">Comprobante</th>
@@ -275,6 +368,11 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                   <tr key={sale.id} className="text-slate-700 hover:bg-slate-50/70 transition-colors">
                     <td className="py-2.5 px-3 font-mono text-[10px]">
                       {new Date(sale.date).toLocaleString('es-ES', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700 border border-slate-200">
+                        {sale.branch || 'Sucursal Central'}
+                      </span>
                     </td>
                     <td className="py-2.5 px-3 font-bold text-slate-800">
                       {getClientName(sale.clientId)}

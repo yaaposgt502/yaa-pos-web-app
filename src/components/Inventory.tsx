@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Product, AppConfig, Sale, Purchase } from '../types';
+import { Product, AppConfig, Sale, Purchase, Branch, User } from '../types';
+import { isItemInBranch } from '../utils/branchHelper';
 import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
 import { 
   Plus, 
@@ -48,6 +49,10 @@ interface InventoryProps {
   onRefreshData: () => void;
   sales?: Sale[];
   purchases?: Purchase[];
+  user?: User | null;
+  activeBranchName?: string;
+  branches?: Branch[];
+  onSwitchBranch?: (branchName: string) => void;
 }
 
 // Interfaces for persistent items
@@ -116,7 +121,18 @@ export const getProductStock = (p: Product | null | undefined): number => {
   return baseStock;
 };
 
-export default function Inventory({ products, config, onSaveProduct, onDeleteProduct, onRefreshData, sales = [], purchases = [] }: InventoryProps) {
+export default function Inventory({ 
+  products, 
+  config, 
+  onSaveProduct, 
+  onDeleteProduct, 
+  onRefreshData, 
+  sales = [], 
+  purchases = [],
+  user,
+  activeBranchName,
+  branches
+}: InventoryProps) {
   const currency = config.currency || 'Q';
 
   // State for Sub-Navigation Tabs
@@ -279,6 +295,12 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
   // Product-specific Kardex modal states
   const [selectedKardexProduct, setSelectedKardexProduct] = useState<Product | null>(null);
+  const [kardexBranch, setKardexBranch] = useState<string>(activeBranchName || 'Todas');
+
+  useEffect(() => {
+    if (activeBranchName) setKardexBranch(activeBranchName);
+  }, [activeBranchName]);
+
   const [isProductKardexOpen, setIsProductKardexOpen] = useState(false);
   const [newAdjustmentQty, setNewAdjustmentQty] = useState('');
   const [newAdjustmentType, setNewAdjustmentType] = useState<'entrada' | 'salida'>('entrada');
@@ -306,6 +328,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
     if (sales) {
       sales.forEach(sale => {
+        if (kardexBranch !== 'Todas' && !isItemInBranch(sale.branch, kardexBranch, branches || config.branches)) {
+          return;
+        }
         const item = sale.items.find(i => i.productId === selectedKardexProduct.id);
         if (item) {
           history.push({
@@ -330,6 +355,9 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
 
     if (purchases) {
       purchases.forEach(purchase => {
+        if (kardexBranch !== 'Todas' && !isItemInBranch(purchase.branch, kardexBranch, branches || config.branches)) {
+          return;
+        }
         const item = purchase.items.find(i => i.productId === selectedKardexProduct.id);
         if (item) {
           history.push({
@@ -424,7 +452,7 @@ export default function Inventory({ products, config, onSaveProduct, onDeletePro
     }
 
     return [...fullHistory].reverse();
-  }, [selectedKardexProduct, sales, purchases]);
+  }, [selectedKardexProduct, sales, purchases, kardexBranch, branches, config.branches]);
 
   const handlePrintKardex = () => {
     if (!selectedKardexProduct) return;

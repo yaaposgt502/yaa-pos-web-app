@@ -140,6 +140,49 @@ function seedDefaultDataForUser(userId: string) {
     { id: crypto.randomUUID(), date: new Date().toISOString(), description: 'Compra de bolsas de empaque', amount: 75.00, category: 'Papelería/Oficina' }
   ];
 
+  // Default Shifts matching historic records
+  dbCache.shifts[userId] = [
+    {
+      id: crypto.randomUUID(),
+      openedAt: '2026-09-09T08:28:00.000Z',
+      closedAt: '2026-09-10T02:54:00.000Z',
+      initialCash: 200.00,
+      salesTotal: 8.00,
+      cashSales: 8.00,
+      expensesTotal: 0.00,
+      finalCash: 283.00,
+      state: 'closed',
+      cashierName: 'Luis Fernando Mijangos',
+      shiftNumber: 1
+    },
+    {
+      id: crypto.randomUUID(),
+      openedAt: '2026-09-10T02:54:00.000Z',
+      closedAt: '2026-09-16T15:19:00.000Z',
+      initialCash: 150.00,
+      salesTotal: 81.00,
+      cashSales: 81.00,
+      expensesTotal: 0.00,
+      finalCash: 231.00,
+      state: 'closed',
+      cashierName: 'Luis Fernando Mijangos',
+      shiftNumber: 2
+    },
+    {
+      id: crypto.randomUUID(),
+      openedAt: '2026-09-16T15:19:00.000Z',
+      closedAt: '2026-09-18T01:19:00.000Z',
+      initialCash: 100.00,
+      salesTotal: 0.00,
+      cashSales: 0.00,
+      expensesTotal: 0.00,
+      finalCash: 100.00,
+      state: 'closed',
+      cashierName: 'Luis Fernando Mijangos',
+      shiftNumber: 3
+    }
+  ];
+
   // Default config
   dbCache.configs[userId] = {
     storeName: 'Mi Ferretería y Variedades Yaa POS',

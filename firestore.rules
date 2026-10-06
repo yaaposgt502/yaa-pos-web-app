@@ -2,14 +2,46 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Check if the user is the global system admin
-    function isAdmin() {
-      return request.auth != null && request.auth.uid == 'uSEwpR9zZPWvekBQKdx1SMsrs7n1';
+    // =========================================================================
+    // GLOBAL SAFETY NET (Default-Deny Catch-All)
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
     }
 
-    // Helper to check if the current user is an operator of the target owner
+    // =========================================================================
+    // AUTHENTICATION & IDENTITY PRIMITIVES
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-.@]+$');
+    }
+
+    // Check if the user is the global system admin (by UID, verified admin email, or /admins collection)
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.uid == 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' ||
+        (request.auth.token.email != null &&
+         request.auth.token.email_verified == true &&
+         request.auth.token.email.lower() == 'yaaposgt@gmail.com') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Helper to check if the current user is an active operator of the target owner
     function isOperatorOf(ownerId) {
-      return request.auth != null && 
+      return isSignedIn() && 
              request.auth.token != null && 
              request.auth.token.email != null &&
              hasActiveOperator(ownerId, request.auth.token.email.lower());
@@ -21,6 +53,20 @@ service cloud.firestore {
               get(/databases/$(database)/documents/operators/$(email)).data.status == 'active') ||
              (exists(/databases/$(database)/documents/users/$(ownerId)/operators/$(email)) &&
               get(/databases/$(database)/documents/users/$(ownerId)/operators/$(email)).data.status == 'active');
+    }
+
+    // Check if an operator is allowed to access/modify a specific branch record
+    function isOperatorAllowedBranch(ownerId, itemBranch) {
+      let email = request.auth.token.email.lower();
+      let globalOpPath = /databases/$(database)/documents/operators/$(email);
+      let tenantOpPath = /databases/$(database)/documents/users/$(ownerId)/operators/$(email);
+      let opData = exists(tenantOpPath) ? get(tenantOpPath).data : (exists(globalOpPath) ? get(globalOpPath).data : {});
+      return !('branches' in opData) ||
+             opData.branches.size() == 0 ||
+             itemBranch == null ||
+             itemBranch == '' ||
+             itemBranch in opData.branches ||
+             ('branch' in opData && opData.branch == itemBranch);
     }
 
     // Helper to check if a user is NOT suspended/deactivated in their user profile document
@@ -43,46 +89,269 @@ service cloud.firestore {
               get(licensePath).data.status != 'Expirada');
     }
 
-    // Rules for individual tenant space (user documents and subcollections)
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && 
-                            (isAdmin() || 
-                             (((request.auth.uid == userId) || isOperatorOf(userId)) && 
-                              isAccountActive(userId) && 
-                              isLicenseActive(userId)));
+    // Master Gate for Tenant Access (Owner, Active Operator, or Global Admin)
+    function canReadTenant(userId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        ((request.auth.uid == userId || isOperatorOf(userId)) &&
+         isAccountActive(userId) &&
+         isLicenseActive(userId))
+      );
     }
 
-    // Rules for user profile documents specifically
-    match /users/{userId} {
-      allow read: if request.auth != null && 
-                     (isAdmin() || 
-                      (request.auth.uid == userId || isOperatorOf(userId)));
-                      
-      allow write: if request.auth != null && 
-                      (isAdmin() || 
-                       (request.auth.uid == userId && isAccountActive(userId) && isLicenseActive(userId)));
+    function canWriteTenant(userId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        ((request.auth.uid == userId || isOperatorOf(userId)) &&
+         isAccountActive(userId) &&
+         isLicenseActive(userId))
+      );
     }
 
-    // Rules for licenses collection
-    match /licenses/{userId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || isOperatorOf(userId) || isAdmin());
+    function isValidOptionalBranch(data) {
+      return !('branch' in data) || data.branch == null || (data.branch is string && data.branch.size() <= 200);
+    }
+
+    function canWriteBranchScopedDoc(userId) {
+      return canWriteTenant(userId) &&
+             isValidOptionalBranch(incoming()) &&
+             (isAdmin() ||
+              request.auth.uid == userId ||
+              !('branch' in incoming()) ||
+              isOperatorAllowedBranch(userId, incoming().branch));
+    }
+
+    // =========================================================================
+    // ENTITY VALIDATION HELPERS
+    // =========================================================================
+    function isValidUserProfile(data) {
+      return (!('name' in data) || (data.name is string && data.name.size() <= 200)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
+             (!('role' in data) || (data.role is string && data.role.size() <= 64)) &&
+             (!('accountStatus' in data) || (data.accountStatus is string && data.accountStatus.size() <= 32)) &&
+             (!('branch' in data) || data.branch == null || (data.branch is string && data.branch.size() <= 200));
+    }
+
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 250 &&
+             (data.price is number) &&
+             (data.cost is number) &&
+             (data.stock is number) &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidClient(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidProvider(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidSale(data) {
+      return (data.total is number) &&
+             data.date is string && data.date.size() <= 64 &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidPurchase(data) {
+      return (data.total is number) &&
+             data.date is string && data.date.size() <= 64 &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidExpense(data) {
+      return (data.amount is number) &&
+             data.description is string && data.description.size() <= 500 &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidShift(data) {
+      return (data.initialCash is number) &&
+             data.state in ['open', 'closed'] &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidUserFile(data) {
+      return data.name is string && data.name.size() <= 256 &&
+             data.path is string && data.path.size() <= 2048 &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidConfig(data) {
+      return (!('storeName' in data) || (data.storeName is string && data.storeName.size() <= 200)) &&
+             (!('activeBranchId' in data) || data.activeBranchId == null || (data.activeBranchId is string && data.activeBranchId.size() <= 128)) &&
+             (!('branches' in data) || (data.branches is list && data.branches.size() <= 100));
+    }
+
+    function isValidOperator(data) {
+      return data.email is string && data.email.size() <= 256 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.status in ['active', 'inactive'] &&
+             isValidOptionalBranch(data) &&
+             (!('branches' in data) || (data.branches is list && data.branches.size() <= 100)) &&
+             (!('disabledTabs' in data) || (data.disabledTabs is list && data.disabledTabs.size() <= 50));
+    }
+
+    // =========================================================================
+    // CONNECTION TEST COLLECTION
+    // =========================================================================
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // ADMINS COLLECTION
+    // =========================================================================
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
       allow write: if isAdmin();
     }
 
-    // Global operators collection (so operators can be registered/looked up)
+    // =========================================================================
+    // USER PROFILE DOCUMENTS (/users/{userId})
+    // =========================================================================
+    match /users/{userId} {
+      allow read: if isSignedIn() && (
+                     isAdmin() || 
+                     request.auth.uid == userId || 
+                     isOperatorOf(userId)
+                  );
+                      
+      allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
+                       isAdmin() || 
+                       request.auth.uid == userId
+                    );
+
+      allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
+                       isAdmin() || 
+                       (request.auth.uid == userId && 
+                        isAccountActive(userId) && 
+                        isLicenseActive(userId) &&
+                        (!('accountStatus' in incoming()) || 
+                         !('accountStatus' in existing()) || 
+                         incoming().accountStatus == existing().accountStatus))
+                    );
+
+      allow delete: if isAdmin();
+
+      // =======================================================================
+      // TENANT SUBCOLLECTIONS (Branch-Isolated & Synchronized)
+      // =======================================================================
+      match /products/{productId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(productId) && canWriteBranchScopedDoc(userId) && isValidProduct(incoming());
+        allow delete: if isValidId(productId) && canWriteTenant(userId);
+      }
+
+      match /clients/{clientId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(clientId) && canWriteBranchScopedDoc(userId) && isValidClient(incoming());
+        allow delete: if isValidId(clientId) && canWriteTenant(userId);
+      }
+
+      match /providers/{providerId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(providerId) && canWriteBranchScopedDoc(userId) && isValidProvider(incoming());
+        allow delete: if isValidId(providerId) && canWriteTenant(userId);
+      }
+
+      match /sales/{saleId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(saleId) && canWriteBranchScopedDoc(userId) && isValidSale(incoming());
+        allow delete: if isValidId(saleId) && canWriteTenant(userId);
+      }
+
+      match /purchases/{purchaseId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(purchaseId) && canWriteBranchScopedDoc(userId) && isValidPurchase(incoming());
+        allow delete: if isValidId(purchaseId) && canWriteTenant(userId);
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(expenseId) && canWriteBranchScopedDoc(userId) && isValidExpense(incoming());
+        allow delete: if isValidId(expenseId) && canWriteTenant(userId);
+      }
+
+      match /shifts/{shiftId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(shiftId) && canWriteBranchScopedDoc(userId) && isValidShift(incoming());
+        allow delete: if isValidId(shiftId) && canWriteTenant(userId);
+      }
+
+      match /files/{fileId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(fileId) && canWriteBranchScopedDoc(userId) && isValidUserFile(incoming());
+        allow delete: if isValidId(fileId) && canWriteTenant(userId);
+      }
+
+      match /configs/{configId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(configId) && canWriteTenant(userId) && isValidConfig(incoming());
+        allow delete: if isValidId(configId) && (isAdmin() || request.auth.uid == userId);
+      }
+
+      match /operators/{operatorEmail} {
+        allow read: if canReadTenant(userId) || (
+                       isSignedIn() &&
+                       request.auth.token != null &&
+                       request.auth.token.email != null &&
+                       request.auth.token.email.lower() == operatorEmail.lower()
+                    );
+        allow create, update: if isSignedIn() && (
+                                 isAdmin() ||
+                                 (request.auth.uid == userId &&
+                                  isAccountActive(userId) &&
+                                  isLicenseActive(userId) &&
+                                  isValidOperator(incoming()))
+                              );
+        allow delete: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
+      }
+
+      // Fallback for any additional subcollections inside tenant space
+      match /{subcollection}/{docId} {
+        allow read, write: if canWriteTenant(userId);
+      }
+    }
+
+    // =========================================================================
+    // LICENSES COLLECTION (/licenses/{userId})
+    // =========================================================================
+    match /licenses/{userId} {
+      allow read: if isSignedIn() && (
+                     request.auth.uid == userId || 
+                     isOperatorOf(userId) || 
+                     isAdmin()
+                  );
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // GLOBAL OPERATORS COLLECTION (/operators/{operatorEmail})
+    // =========================================================================
     match /operators/{operatorEmail} {
-      allow read: if request.auth != null && (
-                     (request.auth.token != null && request.auth.token.email != null && request.auth.token.email.lower() == operatorEmail.lower()) || 
+      allow read: if isSignedIn() && (
+                     (request.auth.token != null && 
+                      request.auth.token.email != null && 
+                      request.auth.token.email.lower() == operatorEmail.lower()) || 
                      (resource != null && resource.data.ownerId == request.auth.uid) ||
                      isAdmin()
                   );
-      allow write: if request.auth != null && (
-                      isAdmin() ||
-                      // If creating/updating, the operator's ownerId must be the authenticated user
-                      request.resource.data.ownerId == request.auth.uid ||
-                      // If deleting, the existing operator's ownerId must be the authenticated user
-                      (resource != null && resource.data.ownerId == request.auth.uid)
-                   );
+      allow create, update: if isSignedIn() && (
+                               isAdmin() ||
+                               (incoming().ownerId == request.auth.uid &&
+                                isAccountActive(request.auth.uid) &&
+                                isLicenseActive(request.auth.uid) &&
+                                isValidOperator(incoming()))
+                            );
+      allow delete: if isSignedIn() && (
+                       isAdmin() ||
+                       (resource != null && resource.data.ownerId == request.auth.uid)
+                    );
     }
   }
 }

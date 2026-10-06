@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Product, AppConfig } from '../types';
+import { Product, AppConfig, Branch } from '../types';
 import { 
   Calendar, 
   Search, 
@@ -15,6 +15,9 @@ interface ExpirationsProps {
   config: AppConfig;
   onSaveProduct: (product: Product) => Promise<Product>;
   onRefreshData: () => void;
+  activeBranchName?: string;
+  branches?: Branch[];
+  onSwitchBranch?: (branchName: string) => void;
 }
 
 export default function Expirations({ products, config, onSaveProduct, onRefreshData }: ExpirationsProps) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as api from './api';
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User } from './types';
 
@@ -15,6 +15,7 @@ import CashRegister from './components/CashRegister';
 import DailyReports from './components/DailyReports';
 import { SalesLedger } from './components/SalesLedger';
 import Settings from './components/Settings';
+import Branches from './components/Branches';
 import AdminPanel from './components/AdminPanel';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -33,6 +34,7 @@ import {
   TrendingDown, 
   Inbox, 
   BarChart3, 
+  Building2,
   Settings as SettingsIcon, 
   LogOut,
   Power,
@@ -50,8 +52,10 @@ import {
   Menu,
   ChevronRight,
   Eye,
-  EyeOff
+  EyeOff,
+  Store
 } from 'lucide-react';
+import { getSystemBranches, getActiveBranch, getOperationalBranches, resolveBranch, isItemInBranch } from './utils/branchHelper';
 
 const defaultAppConfig: AppConfig = {
   storeName: 'Yaa POS',
@@ -558,6 +562,138 @@ export default function App() {
   }, [token]);
 
   // Fetch all collections from the backend (manual refresh fallback)
+  const systemBranches = useMemo(() => getSystemBranches(config), [config]);
+  const operationalBranches = useMemo(() => getOperationalBranches(config, user), [config, user]);
+  const activeBranch = useMemo(() => getActiveBranch(config, user), [config, user]);
+
+  // Independent collections per active branch
+  const branchProducts = useMemo(
+    () => products.filter(p => isItemInBranch(p.branch, activeBranch.name, systemBranches)),
+    [products, activeBranch.name, systemBranches]
+  );
+  const branchClients = useMemo(
+    () => clients.filter(c => isItemInBranch(c.branch, activeBranch.name, systemBranches)),
+    [clients, activeBranch.name, systemBranches]
+  );
+  const branchProviders = useMemo(
+    () => providers.filter(p => isItemInBranch(p.branch, activeBranch.name, systemBranches)),
+    [providers, activeBranch.name, systemBranches]
+  );
+  const branchSales = useMemo(
+    () => sales.filter(s => isItemInBranch(s.branch, activeBranch.name, systemBranches)),
+    [sales, activeBranch.name, systemBranches]
+  );
+  const branchPurchases = useMemo(
+    () => purchases.filter(p => isItemInBranch(p.branch, activeBranch.name, systemBranches)),
+    [purchases, activeBranch.name, systemBranches]
+  );
+  const branchExpenses = useMemo(
+    () => expenses.filter(e => isItemInBranch(e.branch, activeBranch.name, systemBranches)),
+    [expenses, activeBranch.name, systemBranches]
+  );
+  const branchShifts = useMemo(
+    () => shifts.filter(sh => isItemInBranch(sh.branch, activeBranch.name, systemBranches)),
+    [shifts, activeBranch.name, systemBranches]
+  );
+  const branchFiles = useMemo(
+    () => files.filter(f => isItemInBranch(f.branch, activeBranch.name, systemBranches)),
+    [files, activeBranch.name, systemBranches]
+  );
+  const activeBranchOpenShift = useMemo(
+    () => branchShifts.find(sh => sh.state === 'open'),
+    [branchShifts]
+  );
+
+  // Broadcast helper for instant cross-tab synchronization
+  const notifyBranchSync = (payload: { type: 'branch_switch' | 'data_update'; branchId?: string; branchName?: string; timestamp: number }) => {
+    try {
+      if (payload.branchId) {
+        localStorage.setItem('yaa_pos_active_branch_id', payload.branchId);
+      }
+      localStorage.setItem('yaa_pos_branch_sync_event', JSON.stringify(payload));
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('yaa_pos_branch_sync');
+        channel.postMessage(payload);
+        channel.close();
+      }
+    } catch (e) {
+      console.warn('Cross-tab sync broadcast warning:', e);
+    }
+  };
+
+  // Automatic synchronization of active branch and branch data across browser tabs
+  useEffect(() => {
+    const applySyncedBranchId = (branchId?: string) => {
+      if (!branchId) return;
+      setConfig(prev => {
+        if (prev.activeBranchId === branchId) return prev;
+        return { ...prev, activeBranchId: branchId };
+      });
+    };
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === 'yaa_pos_active_branch_id' && e.newValue) {
+        applySyncedBranchId(e.newValue);
+      } else if (e.key === 'yaa_pos_branch_sync_event' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed?.branchId) applySyncedBranchId(parsed.branchId);
+          if (parsed?.type === 'data_update') {
+            loadAllData();
+          }
+        } catch {}
+      }
+    };
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel('yaa_pos_branch_sync');
+        channel.onmessage = (event) => {
+          const data = event.data;
+          if (data?.branchId) {
+            applySyncedBranchId(data.branchId);
+          }
+          if (data?.type === 'data_update') {
+            loadAllData();
+          }
+        };
+      } catch {}
+    }
+
+    window.addEventListener('storage', handleStorageSync);
+    return () => {
+      window.removeEventListener('storage', handleStorageSync);
+      if (channel) channel.close();
+    };
+  }, [user?.id, token]);
+
+  const handleSwitchActiveBranch = async (branchIdOrName: string) => {
+    if (!branchIdOrName || branchIdOrName === 'Todas') return;
+    const resolved =
+      resolveBranch(config, branchIdOrName, user) ||
+      systemBranches.find(
+        b =>
+          b.id === branchIdOrName ||
+          b.name.toLowerCase().trim() === branchIdOrName.toLowerCase().trim() ||
+          b.code.toLowerCase().trim() === branchIdOrName.toLowerCase().trim()
+      );
+    const nextBranchId = resolved ? resolved.id : branchIdOrName;
+    const updated: AppConfig = {
+      ...config,
+      branches: config.branches && config.branches.length > 0 ? config.branches : systemBranches,
+      activeBranchId: nextBranchId
+    };
+    setConfig(updated);
+    notifyBranchSync({
+      type: 'branch_switch',
+      branchId: nextBranchId,
+      branchName: resolved?.name || branchIdOrName,
+      timestamp: Date.now()
+    });
+    await onSaveConfig(updated);
+  };
+
   async function loadAllData() {
     if (!user) return;
     setIsDataLoading(true);
@@ -659,47 +795,70 @@ export default function App() {
     }
   };
 
-  // --- DELEGATED API CALLS ---
+  // --- DELEGATED API CALLS (Isolated & Synchronized per Branch) ---
   const onSaveProduct = async (p: Product) => {
-    const saved = await api.saveProduct(p);
+    const productWithBranch: Product = {
+      ...p,
+      branch: p.branch || activeBranch.name
+    };
+    const saved = await api.saveProduct(productWithBranch);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteProduct = async (id: string) => {
     const res = await api.deleteProduct(id);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveClient = async (c: Client) => {
-    const saved = await api.saveClient(c);
+    const clientWithBranch: Client = {
+      ...c,
+      branch: c.branch || activeBranch.name
+    };
+    const saved = await api.saveClient(clientWithBranch);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteClient = async (id: string) => {
     const res = await api.deleteClient(id);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveProvider = async (p: Provider) => {
-    const saved = await api.saveProvider(p);
+    const providerWithBranch: Provider = {
+      ...p,
+      branch: p.branch || activeBranch.name
+    };
+    const saved = await api.saveProvider(providerWithBranch);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteProvider = async (id: string) => {
     const res = await api.deleteProvider(id);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveSale = async (s: Sale) => {
-    // 1. Descontar stock
+    const saleBranch = s.branch || activeBranch.name;
+    const saleWithBranch: Sale = { ...s, branch: saleBranch };
+
+    // 1. Descontar stock únicamente de los productos pertenecientes a esta sucursal
     for (const item of s.items) {
-      const product = products.find(p => p.id === item.productId);
+      const product =
+        products.find(p => p.id === item.productId && isItemInBranch(p.branch, saleBranch, systemBranches)) ||
+        products.find(p => p.id === item.productId);
       if (product) {
         const mult = item.selectedUnit === 'Blíster' 
           ? (product.unitsPerBlister && product.unitsPerBlister > 0 ? product.unitsPerBlister : 1) 
@@ -754,6 +913,7 @@ export default function App() {
 
         await api.saveProduct({
           ...product,
+          branch: product.branch || saleBranch,
           stock: nextStock,
           expirationDate: nextExpirationDate,
           initialBatch: nextInitialBatch,
@@ -762,11 +922,14 @@ export default function App() {
       }
     }
 
-    // 2. Actualizar caja (shift activo)
-    const activeShift = shifts.find(sh => sh.state === 'open');
+    // 2. Actualizar caja (shift activo de esta sucursal)
+    const activeShift = shifts.find(sh => 
+      sh.state === 'open' && (sh.id === s.shiftId || isItemInBranch(sh.branch, saleBranch, systemBranches))
+    );
     if (activeShift) {
       await api.saveShift({
         ...activeShift,
+        branch: activeShift.branch || saleBranch,
         salesTotal: (activeShift.salesTotal || 0) + s.total
       });
     }
@@ -778,6 +941,7 @@ export default function App() {
         const pointsEarned = Math.floor(s.total / 10);
         await api.saveClient({
           ...client,
+          branch: client.branch || saleBranch,
           totalSpent: (client.totalSpent || 0) + s.total,
           loyaltyPoints: (client.loyaltyPoints || 0) + pointsEarned,
           lastPurchaseDate: new Date().toISOString().split('T')[0],
@@ -788,48 +952,69 @@ export default function App() {
       }
     }
 
-    const saved = await api.saveSale(s);
+    const saved = await api.saveSale(saleWithBranch);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: saleBranch, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onSavePurchase = async (pur: Purchase) => {
-    // 1. Aumentar stock e ingresar costo, lote y vencimiento del producto si la compra está completada
+    const purchaseBranch = pur.branch || activeBranch.name;
+    // 1. Aumentar stock e ingresar costo, lote y vencimiento del producto en ESTA sucursal si la compra está completada
     if (pur.status === 'completed') {
       const updatedProductsMap = new Map<string, Product>();
 
       for (const item of pur.items) {
-        let product = updatedProductsMap.get(item.productId) || products.find(p => p.id === item.productId);
+        let product =
+          updatedProductsMap.get(item.productId) ||
+          products.find(p => p.id === item.productId && isItemInBranch(p.branch, purchaseBranch, systemBranches));
         
         if (!product) {
-          product = products.find(p => p.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+          product = products.find(
+            p =>
+              isItemInBranch(p.branch, purchaseBranch, systemBranches) &&
+              p.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+          );
         }
 
         if (!product) {
+          // Si el producto existe en otra sucursal pero no en esta, clonar su ficha base con stock 0 para esta sucursal
+          const templateProd = products.find(
+            p => p.id === item.productId || p.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+          );
           const itemAny = item as any;
-          const initialUnitPrice = item.pricePerUnit || itemAny.price || (item.cost ? Number((item.cost * 1.3).toFixed(2)) : 0);
+          const initialUnitPrice =
+            item.pricePerUnit ||
+            itemAny.price ||
+            templateProd?.price ||
+            (item.cost ? Number((item.cost * 1.3).toFixed(2)) : 0);
           const newProd: Product = {
-            id: item.productId && !item.productId.startsWith('NEW_') ? item.productId : `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            code: itemAny.productCode || `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
+            ...(templateProd || {}),
+            id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            code: itemAny.productCode || templateProd?.code || `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
             name: item.name,
-            category: itemAny.productCategory || 'General',
-            cost: item.cost || 0,
+            category: itemAny.productCategory || templateProd?.category || 'General',
+            cost: item.cost || templateProd?.cost || 0,
             price: initialUnitPrice,
             pricePerUnit: initialUnitPrice,
-            pricePerBlister: item.pricePerBlister || 0,
-            pricePerBox: item.pricePerBox || 0,
+            pricePerBlister: item.pricePerBlister ?? templateProd?.pricePerBlister ?? 0,
+            pricePerBox: item.pricePerBox ?? templateProd?.pricePerBox ?? 0,
             stock: 0,
-            minStock: 5,
-            unit: 'Pza',
+            minStock: templateProd?.minStock ?? 5,
+            unit: templateProd?.unit || 'Pza',
             expirationDate: item.expirationDate || '',
             initialBatch: item.lote || '00101',
             manageBatchAndExpiration: true,
-            expirationDates: []
+            expirationDates: [],
+            branch: purchaseBranch
           };
           product = newProd;
         }
 
-        const updatedProd = applyPurchaseItemToProduct(product, item);
+        const updatedProd = {
+          ...applyPurchaseItemToProduct(product, item),
+          branch: purchaseBranch
+        };
         updatedProductsMap.set(updatedProd.id, updatedProd);
       }
 
@@ -845,28 +1030,130 @@ export default function App() {
         const extraCredit = pur.paymentType === 'credit' ? pur.total : 0;
         await api.saveProvider({
           ...provider,
+          branch: provider.branch || purchaseBranch,
           totalPurchases: (provider.totalPurchases || 0) + pur.total,
           creditPending: (provider.creditPending || 0) + extraCredit
         });
       }
     }
 
-    const saved = await api.savePurchase(pur);
+    const purchaseWithBranch: Purchase = {
+      ...pur,
+      branch: purchaseBranch
+    };
+
+    const saved = await api.savePurchase(purchaseWithBranch);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: purchaseBranch, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
+  // Transferir stock de forma independiente entre dos sucursales
+  const onTransferStock = async (
+    sourceBranchId: string,
+    targetBranchId: string,
+    productId: string,
+    quantity: number
+  ) => {
+    const sourceBranchObj = systemBranches.find(b => b.id === sourceBranchId);
+    const targetBranchObj = systemBranches.find(b => b.id === targetBranchId);
+    if (!sourceBranchObj || !targetBranchObj) {
+      throw new Error('Sucursal de origen o destino no encontrada.');
+    }
+
+    const sourceProduct = products.find(p => p.id === productId);
+    if (!sourceProduct) {
+      throw new Error('Producto a transferir no encontrado.');
+    }
+
+    const currentStock = Math.max(0, sourceProduct.stock || 0);
+    if (quantity <= 0 || quantity > currentStock) {
+      throw new Error(`Cantidad inválida. Stock disponible en ${sourceBranchObj.name}: ${currentStock}`);
+    }
+
+    // 1. Descontar de la sucursal origen
+    const nextSourceStock = Math.max(0, currentStock - quantity);
+    let updatedSourceLotes = sourceProduct.expirationDates ? [...sourceProduct.expirationDates] : undefined;
+    if (updatedSourceLotes && updatedSourceLotes.length > 0) {
+      let rem = quantity;
+      updatedSourceLotes = updatedSourceLotes
+        .map(r => {
+          if (rem <= 0) return r;
+          const s = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+          const deduct = Math.min(s, rem);
+          rem -= deduct;
+          return { ...r, stock: s - deduct };
+        })
+        .filter(r => (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) > 0);
+    }
+
+    await api.saveProduct({
+      ...sourceProduct,
+      branch: sourceProduct.branch || sourceBranchObj.name,
+      stock: nextSourceStock,
+      expirationDates: updatedSourceLotes
+    });
+
+    // 2. Sumar o crear producto independiente en la sucursal destino
+    const existingTargetProduct = products.find(
+      p =>
+        isItemInBranch(p.branch, targetBranchObj.name, systemBranches) &&
+        (p.code.trim().toLowerCase() === sourceProduct.code.trim().toLowerCase() ||
+          p.name.trim().toLowerCase() === sourceProduct.name.trim().toLowerCase())
+    );
+
+    if (existingTargetProduct) {
+      const nextTargetStock = (existingTargetProduct.stock || 0) + quantity;
+      const targetLotes = existingTargetProduct.expirationDates
+        ? [...existingTargetProduct.expirationDates]
+        : [];
+      if (targetLotes.length > 0) {
+        targetLotes[0] = {
+          ...targetLotes[0],
+          stock: (Number(targetLotes[0].stock) || 0) + quantity
+        };
+      }
+      await api.saveProduct({
+        ...existingTargetProduct,
+        branch: targetBranchObj.name,
+        stock: nextTargetStock,
+        expirationDates: targetLotes.length > 0 ? targetLotes : existingTargetProduct.expirationDates
+      });
+    } else {
+      const newTargetProduct: Product = {
+        ...sourceProduct,
+        id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        branch: targetBranchObj.name,
+        stock: quantity,
+        expirationDates: sourceProduct.expirationDate
+          ? [{ date: sourceProduct.expirationDate, stock: quantity, batch: sourceProduct.initialBatch || '00101' }]
+          : undefined
+      };
+      await api.saveProduct(newTargetProduct);
+    }
+
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    await loadAllData();
+  };
+
   const onSaveExpense = async (e: Expense) => {
-    // Descontar caja / registrar gasto en el turno activo
-    const activeShift = shifts.find(sh => sh.state === 'open');
+    const expenseBranch = e.branch || activeBranch.name;
+    const expenseWithBranch: Expense = { ...e, branch: expenseBranch };
+
+    // Descontar caja / registrar gasto en el turno activo DE ESTA SUCURSAL
+    const activeShift = shifts.find(sh => 
+      sh.state === 'open' && isItemInBranch(sh.branch, expenseBranch, systemBranches)
+    );
     if (activeShift) {
       await api.saveShift({
         ...activeShift,
+        branch: activeShift.branch || expenseBranch,
         expensesTotal: (activeShift.expensesTotal || 0) + e.amount
       });
     }
 
-    const saved = await api.saveExpense(e);
+    const saved = await api.saveExpense(expenseWithBranch);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: expenseBranch, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
@@ -874,7 +1161,9 @@ export default function App() {
   const onDeleteExpense = async (id: string) => {
     const expense = expenses.find(e => e.id === id);
     if (expense) {
-      const activeShift = shifts.find(sh => sh.state === 'open');
+      const activeShift = shifts.find(sh => 
+        sh.state === 'open' && isItemInBranch(sh.branch, expense.branch || activeBranch.name, systemBranches)
+      );
       if (activeShift) {
         await api.saveShift({
           ...activeShift,
@@ -883,12 +1172,18 @@ export default function App() {
       }
     }
     const res = await api.deleteExpense(id);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveShift = async (s: Shift) => {
-    const saved = await api.saveShift(s);
+    const shiftWithBranch: Shift = {
+      ...s,
+      branch: s.branch || activeBranch.name
+    };
+    const saved = await api.saveShift(shiftWithBranch);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: shiftWithBranch.branch, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
@@ -896,24 +1191,32 @@ export default function App() {
   const onSaveConfig = async (cfg: AppConfig) => {
     const saved = await api.saveConfig(cfg);
     setConfig(saved);
+    notifyBranchSync({
+      type: 'branch_switch',
+      branchId: saved.activeBranchId || activeBranch.id,
+      branchName: activeBranch.name,
+      timestamp: Date.now()
+    });
     await loadAllData();
     return saved;
   };
 
   const onUploadFile = async (f: File) => {
     const saved = await api.uploadFile(f);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteFile = async (id: string) => {
     const res = await api.deleteFile(id);
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onAskAI = async (prompt: string) => {
-    return api.askAI(prompt, products, sales, expenses, config);
+    return api.askAI(prompt, branchProducts, branchSales, branchExpenses, config);
   };
 
   // --- RENDER SECTIONS ---
@@ -1065,6 +1368,7 @@ export default function App() {
     { id: 'gastos', label: 'Gastos', icon: <TrendingDown className="w-4 h-4" /> },
     { id: 'apertura-cierre', label: 'Apertura y Cierre', icon: <Inbox className="w-4 h-4" /> },
     { id: 'reportes', label: 'Reportes Diarios', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'sucursales', label: 'Sucursales', icon: <Building2 className="w-4 h-4" /> },
     { id: 'configuracion', label: 'Configuración', icon: <SettingsIcon className="w-4 h-4" /> },
   ];
 
@@ -1107,30 +1411,50 @@ export default function App() {
 
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard products={products} sales={sales} expenses={expenses} shifts={shifts} config={config} onNavigate={setActiveTab} />;
+        return (
+          <Dashboard
+            products={branchProducts}
+            sales={sales}
+            expenses={expenses}
+            shifts={shifts}
+            config={config}
+            onNavigate={setActiveTab}
+            user={user}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
+          />
+        );
       case 'punto-de-venta':
         return (
           <POS 
-            products={products} 
-            clients={clients} 
-            shifts={shifts} 
+            products={branchProducts} 
+            clients={branchClients} 
+            shifts={branchShifts} 
             config={config} 
             user={user!}
             onSaveSale={onSaveSale} 
             onRefreshData={loadAllData} 
-            onNavigate={setActiveTab} 
+            onNavigate={setActiveTab}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'inventario':
         return (
           <Inventory 
-            products={products} 
+            products={branchProducts} 
             config={config} 
             onSaveProduct={onSaveProduct} 
             onDeleteProduct={onDeleteProduct} 
             onRefreshData={loadAllData} 
-            sales={sales}
-            purchases={purchases}
+            sales={branchSales}
+            purchases={branchPurchases}
+            user={user}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'historial-ventas':
@@ -1138,19 +1462,26 @@ export default function App() {
         return (
           <SalesLedger 
             sales={sales}
-            clients={clients}
+            clients={branchClients}
             config={config}
-            products={products}
+            products={branchProducts}
+            user={user}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'compras':
         return (
           <Purchasing 
-            products={products} 
-            providers={providers} 
+            products={branchProducts} 
+            providers={branchProviders} 
             purchases={purchases} 
             currency={config.currency} 
             config={config}
+            user={user}
+            activeBranchName={activeBranch.name}
+            onSwitchBranch={handleSwitchActiveBranch}
             onSavePurchase={onSavePurchase} 
             onSaveProduct={onSaveProduct}
             onRefreshData={loadAllData} 
@@ -1159,16 +1490,19 @@ export default function App() {
       case 'vencimientos':
         return (
           <Expirations 
-            products={products} 
+            products={branchProducts} 
             config={config} 
             onSaveProduct={onSaveProduct} 
-            onRefreshData={loadAllData} 
+            onRefreshData={loadAllData}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'complementos':
         return (
           <Complementos 
-            files={files} 
+            files={branchFiles} 
             config={config} 
             onUploadFile={onUploadFile} 
             onDeleteFile={onDeleteFile} 
@@ -1179,8 +1513,8 @@ export default function App() {
       case 'clientes':
         return (
           <ClientsProviders 
-            clients={clients} 
-            providers={providers} 
+            clients={branchClients} 
+            providers={branchProviders} 
             currency={config.currency} 
             onSaveClient={onSaveClient} 
             onDeleteClient={onDeleteClient} 
@@ -1188,13 +1522,16 @@ export default function App() {
             onDeleteProvider={onDeleteProvider} 
             onRefreshData={loadAllData} 
             mode="clients"
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'proveedores':
         return (
           <ClientsProviders 
-            clients={clients} 
-            providers={providers} 
+            clients={branchClients} 
+            providers={branchProviders} 
             currency={config.currency} 
             onSaveClient={onSaveClient} 
             onDeleteClient={onDeleteClient} 
@@ -1202,6 +1539,9 @@ export default function App() {
             onDeleteProvider={onDeleteProvider} 
             onRefreshData={loadAllData} 
             mode="providers"
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'gastos':
@@ -1211,7 +1551,11 @@ export default function App() {
             currency={config.currency} 
             onSaveExpense={onSaveExpense} 
             onDeleteExpense={onDeleteExpense} 
-            onRefreshData={loadAllData} 
+            onRefreshData={loadAllData}
+            config={config}
+            user={user}
+            activeBranchName={activeBranch.name}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'apertura-cierre':
@@ -1224,14 +1568,63 @@ export default function App() {
             onSaveShift={onSaveShift} 
             onRefreshData={loadAllData} 
             onNavigate={setActiveTab}
+            user={user}
+            config={config}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
           />
         );
       case 'reportes':
-        return <DailyReports sales={sales} expenses={expenses} clients={clients} config={config} products={products} onNavigate={setActiveTab} />;
+        return (
+          <DailyReports
+            sales={sales}
+            expenses={expenses}
+            clients={branchClients}
+            config={config}
+            products={branchProducts}
+            onNavigate={setActiveTab}
+            user={user}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
+          />
+        );
+      case 'sucursales':
+        return (
+          <Branches
+            config={config}
+            products={products}
+            branchProducts={branchProducts}
+            user={user}
+            onSaveConfig={onSaveConfig}
+            onNavigate={setActiveTab}
+            sales={sales}
+            shifts={shifts}
+            expenses={expenses}
+            purchases={purchases}
+            activeBranchName={activeBranch.name}
+            onSwitchBranch={handleSwitchActiveBranch}
+            onTransferStock={onTransferStock}
+          />
+        );
       case 'configuracion':
         return <Settings config={config} user={user} onSaveConfig={onSaveConfig} />;
       default:
-        return <Dashboard products={products} sales={sales} expenses={expenses} shifts={shifts} config={config} onNavigate={setActiveTab} />;
+        return (
+          <Dashboard
+            products={branchProducts}
+            sales={sales}
+            expenses={expenses}
+            shifts={shifts}
+            config={config}
+            onNavigate={setActiveTab}
+            user={user}
+            activeBranchName={activeBranch.name}
+            branches={operationalBranches}
+            onSwitchBranch={handleSwitchActiveBranch}
+          />
+        );
     }
   };
 
@@ -1272,7 +1665,7 @@ export default function App() {
             {config.storeName || 'Yaa POS'}
           </span>
           <span className="text-[9.5px] text-blue-400 font-bold tracking-wider uppercase block -mt-0.5 truncate">
-            {sidebarTabs.find(t => t.id === activeTab)?.label || 'Punto de Venta'}
+            {sidebarTabs.find(t => t.id === activeTab)?.label || 'Punto de Venta'} • {activeBranch.code}
           </span>
         </div>
 
@@ -1354,6 +1747,7 @@ export default function App() {
                 <span>Consola Admin</span>
               </button>
             )}
+
             {visibleSidebarTabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
@@ -1361,14 +1755,33 @@ export default function App() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     isActive 
                       ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20' 
                       : 'hover:bg-slate-800 hover:text-white text-slate-400'
                   }`}
                 >
-                  {tab.icon}
-                  {tab.label}
+                  <span className="flex items-center gap-3 min-w-0 truncate">
+                    {tab.icon}
+                    <span className="truncate">{tab.label}</span>
+                  </span>
+                  {tab.id === 'sucursales' && (
+                    <span
+                      className={`text-[9px] font-mono font-extrabold px-1.5 py-0.5 rounded shrink-0 ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-blue-400'
+                      }`}
+                    >
+                      {activeBranch.code}
+                    </span>
+                  )}
+                  {tab.id === 'apertura-cierre' && (
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        activeBranchOpenShift ? 'bg-emerald-400' : 'bg-amber-400'
+                      }`}
+                      title={activeBranchOpenShift ? 'Caja abierta en esta sede' : 'Caja cerrada en esta sede'}
+                    />
+                  )}
                 </button>
               );
             })}
@@ -1399,7 +1812,7 @@ export default function App() {
 
         {/* 2. MAIN ACTIVE VIEWPORT (Right Column) */}
         <main className={`flex-1 p-4 sm:p-6 md:p-8 ${activeTab === 'dashboard' ? 'pb-24' : 'pb-6'} md:pb-8 overflow-y-auto max-h-screen bg-white`}>
-          <ErrorBoundary key={activeTab}>
+          <ErrorBoundary key={`${activeTab}-${activeBranch.id}`}>
             {renderActiveComponent()}
           </ErrorBoundary>
         </main>
@@ -1596,7 +2009,12 @@ export default function App() {
             <div className="flex items-center justify-between mb-6 pb-2.5 border-b border-slate-100">
               <div className="space-y-0.5">
                 <span className="text-sm font-black text-slate-800 tracking-tight font-display block">Menú</span>
-                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">{config.storeName || 'Yaa POS'}</span>
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">
+                  {config.storeName || 'Yaa POS'}
+                  {user?.isOperator && (user.branches?.length || (user.branch && user.branch !== 'Todas')) && (
+                    <span className="text-emerald-600 font-bold ml-1.5">• Sede: {user.branches?.join(', ') || user.branch}</span>
+                  )}
+                </span>
               </div>
               <button
                 type="button"
@@ -1746,7 +2164,24 @@ export default function App() {
                 </span>
               </button>
 
-              {/* 8. Configuración */}
+              {/* 8. Sucursales */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('sucursales');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="flex flex-col items-center group cursor-pointer active:scale-95 transition-transform"
+              >
+                <div className="w-13 h-13 rounded-full bg-[#112356] text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+                  <Building2 className="w-6 h-6 stroke-[2.2]" />
+                </div>
+                <span className="text-[11px] font-semibold text-slate-700 mt-2 tracking-tight group-hover:text-blue-600 transition-colors line-clamp-1">
+                  Sucursales
+                </span>
+              </button>
+
+              {/* 9. Configuración */}
               <button
                 type="button"
                 onClick={() => {

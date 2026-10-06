@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Client, Provider } from '../types';
+import { Client, Provider, Branch } from '../types';
 import { 
   Users, 
   Truck, 
@@ -25,6 +25,9 @@ interface ClientsProvidersProps {
   onDeleteProvider: (id: string) => Promise<{ success: boolean }>;
   onRefreshData: () => void;
   mode?: 'clients' | 'providers';
+  activeBranchName?: string;
+  branches?: Branch[];
+  onSwitchBranch?: (branchName: string) => void;
 }
 
 export default function ClientsProviders({ 

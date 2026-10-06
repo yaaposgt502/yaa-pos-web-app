@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Product, Client, Sale, Shift, AppConfig, PrescriptionData } from '../types';
+import { Product, Client, Sale, Shift, AppConfig, PrescriptionData, Branch } from '../types';
+import { isItemInBranch } from '../utils/branchHelper';
 import { 
   Search, 
   ShoppingCart, 
@@ -36,7 +37,8 @@ import {
   Upload,
   Camera,
   CameraOff,
-  SwitchCamera
+  SwitchCamera,
+  Building2
 } from 'lucide-react';
 import * as api from '../api';
 
@@ -79,10 +81,13 @@ interface POSProps {
   clients: Client[];
   shifts: Shift[];
   config: AppConfig;
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; branch?: string; branches?: string[]; isOperator?: boolean };
   onSaveSale: (sale: Sale) => Promise<Sale>;
   onRefreshData: () => void;
   onNavigate: (tab: string) => void;
+  activeBranchName?: string;
+  branches?: Branch[];
+  onSwitchBranch?: (branchId: string) => void;
 }
 
 interface CartItem {
@@ -185,12 +190,48 @@ export const getProductEffectiveStock = (p: Product): number => {
   return baseStock;
 };
 
-export default function POS({ products, clients, shifts, config, user, onSaveSale, onRefreshData, onNavigate }: POSProps) {
+export default function POS({ 
+  products, 
+  clients, 
+  shifts, 
+  config, 
+  user, 
+  onSaveSale, 
+  onRefreshData, 
+  onNavigate,
+  activeBranchName,
+  branches,
+  onSwitchBranch
+}: POSProps) {
   const currency = config.currency || 'Q';
   const taxName = config?.taxName || 'IVA';
   const taxRateVal = parseFloat(config?.taxRate || '12') || 0;
   const taxCalculation = config?.taxCalculation || 'Incluido';
-  const currentShift = useMemo(() => shifts.find(s => s.state === 'open'), [shifts]);
+
+  const userAllowedBranches = useMemo(() => {
+    const u = user as any;
+    if (!u?.isOperator) return [];
+    if (u?.branches && u.branches.length > 0) return u.branches;
+    if (u?.branch && u.branch !== 'Todas') return u.branch.split(',').map((s: string) => s.trim());
+    return [];
+  }, [user]);
+
+  const currentOperatingBranch = useMemo(() => {
+    if (activeBranchName) return activeBranchName;
+    if (userAllowedBranches.length > 0) {
+      return userAllowedBranches[0];
+    }
+    if (config.activeBranchId && (branches || config.branches)) {
+      const allBr = branches || config.branches || [];
+      const b = allBr.find(br => br.id === config.activeBranchId);
+      if (b) return b.name;
+    }
+    return branches?.[0]?.name || config.branches?.[0]?.name || 'Sucursal Central';
+  }, [activeBranchName, userAllowedBranches, config.activeBranchId, config.branches, branches]);
+
+  const currentShift = useMemo(() => {
+    return shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, currentOperatingBranch, branches || config.branches));
+  }, [shifts, currentOperatingBranch, branches, config.branches]);
 
   const [voucherType, setVoucherType] = useState<'ticket' | 'boleta' | 'factura' | 'recibo'>('ticket');
   const [saleType, setSaleType] = useState<'presencial' | 'delivery'>('presencial');
@@ -1031,7 +1072,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
     if (isSubmittingSale) return;
 
     if (!currentShift) {
-      setErrorMessage('Debe abrir la caja registradora para poder vender.');
+      setErrorMessage(`Debe abrir la caja registradora en "${currentOperatingBranch}" para poder vender.`);
       return;
     }
     if (cart.length === 0) {
@@ -1067,6 +1108,7 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
       shiftId: currentShift.id,
       operatorId: user?.id || '',
       operatorName: user?.name || 'Administrador',
+      branch: currentOperatingBranch,
       voucherType: voucherType,
       saleType: saleType
     };
@@ -1324,30 +1366,56 @@ export default function POS({ products, clients, shifts, config, user, onSaveSal
         </div>
       </div>
 
-      {/* 2. MODE SELECTOR (Venta Clasica vs Venta Rapida) */}
-      <div className="flex border-b border-slate-200 gap-1">
-        <button
-          onClick={() => setPosMode('classica')}
-          className={`px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
-            posMode === 'classica' 
-              ? 'border-b-2 border-[#0086F0] text-[#0086F0] bg-white rounded-t-xl' 
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          Venta Clásica
-        </button>
-        <button
-          onClick={() => setPosMode('rapida')}
-          className={`px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
-            posMode === 'rapida' 
-              ? 'border-b-2 border-[#0086F0] text-[#0086F0] bg-white rounded-t-xl' 
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          Venta Rápida
-        </button>
+      {/* 2. MODE SELECTOR (Venta Clasica vs Venta Rapida) & Operating Branch */}
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 gap-2">
+        <div className="flex gap-1">
+          <button
+            onClick={() => setPosMode('classica')}
+            className={`px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
+              posMode === 'classica' 
+                ? 'border-b-2 border-[#0086F0] text-[#0086F0] bg-white rounded-t-xl' 
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            Venta Clásica
+          </button>
+          <button
+            onClick={() => setPosMode('rapida')}
+            className={`px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
+              posMode === 'rapida' 
+                ? 'border-b-2 border-[#0086F0] text-[#0086F0] bg-white rounded-t-xl' 
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            Venta Rápida
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-bold text-slate-700 mb-1">
+          <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+          <span className="text-[11px] text-slate-500 font-medium">Sucursal:</span>
+          {branches && branches.length > 1 && onSwitchBranch && !userAllowedBranches.length ? (
+            <select
+              value={branches.find(b => b.name.toLowerCase().trim() === currentOperatingBranch.toLowerCase().trim())?.id || ''}
+              onChange={(e) => onSwitchBranch(e.target.value)}
+              className="bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-xs font-bold text-slate-800 focus:outline-hidden cursor-pointer"
+              title="Cambiar sucursal para operar"
+            >
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-slate-900 font-black">{currentOperatingBranch}</span>
+          )}
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ml-1 ${
+            currentShift ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+          }`}>
+            {currentShift ? 'Caja Abierta' : 'Caja Cerrada'}
+          </span>
+        </div>
       </div>
 
       {/* 3. SALES SESSIONS (Multiple Cart Sessions e.g., "1", "2", "+ Nueva Venta") */}

@@ -6,6 +6,8 @@ export interface User {
   role?: string;
   isOperator?: boolean;
   operatorId?: string;
+  branch?: string;
+  branches?: string[];
   accountStatus?: 'Activa' | 'Suspendida' | 'Desactivada';
   disabledTabs?: string[];
 }
@@ -45,6 +47,7 @@ export interface Product {
   expirationAlertDays?: number;
   initialBatch?: string;
   expirationDates?: { date: string; stock: number; batch?: string }[];
+  branch?: string;
 }
 
 export interface Client {
@@ -60,6 +63,7 @@ export interface Client {
   lastPurchaseDate?: string;
   nit?: string;
   dpi?: string;
+  branch?: string;
 }
 
 export interface Provider {
@@ -72,6 +76,7 @@ export interface Provider {
   nit?: string;
   totalPurchases?: number;
   creditPending?: number;
+  branch?: string;
 }
 
 export interface PrescriptionData {
@@ -115,6 +120,7 @@ export interface Sale {
   shiftId: string;
   operatorId?: string;
   operatorName?: string;
+  branch?: string;
   voucherType?: 'ticket' | 'boleta' | 'factura' | 'recibo';
   saleType?: 'presencial' | 'delivery';
 }
@@ -138,6 +144,7 @@ export interface Purchase {
   total: number;
   providerId: string;
   status: 'completed' | 'pending';
+  branch?: string;
   paymentType?: 'cash' | 'credit';
   voucherType?: 'factura' | 'boleta' | 'nota_venta';
   voucherNumber?: string;
@@ -152,6 +159,7 @@ export interface Expense {
   description: string;
   amount: number;
   category: string;
+  branch?: string;
   paymentMethod?: string;
   voucherNumber?: string;
   observations?: string;
@@ -166,6 +174,11 @@ export interface Shift {
   salesTotal: number;
   expensesTotal: number;
   state: 'open' | 'closed';
+  cashierName?: string;
+  branch?: string;
+  cashSales?: number;
+  shiftNumber?: number;
+  observations?: string;
 }
 
 export interface UserFile {
@@ -175,6 +188,7 @@ export interface UserFile {
   size: number;
   path: string;
   uploadedAt: string; // ISO string
+  branch?: string;
 }
 
 export interface AppConfig {
@@ -231,6 +245,25 @@ export interface AppConfig {
   categories?: string[];
   units?: string[];
   operators?: { id: string; name: string; email?: string; role?: string; active?: boolean }[];
+  branches?: Branch[];
+  activeBranchId?: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  code: string;
+  address: string;
+  phone?: string;
+  email?: string;
+  manager?: string;
+  department?: string;
+  city?: string;
+  isMain?: boolean;
+  isActive: boolean;
+  openingHours?: string;
+  notes?: string;
+  createdAt?: string;
 }
 
 export interface License {

@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from 'react';
-import { Product, Provider, Purchase, PurchaseItem, AppConfig } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Product, Provider, Purchase, PurchaseItem, AppConfig, User } from '../types';
+import { isItemInBranch } from '../utils/branchHelper';
 import { 
   Plus, 
   Search, 
   Trash2, 
   ShoppingBag, 
   Clock, 
-  User, 
+  User as UserIcon, 
   Tag, 
   Layers, 
   AlertCircle,
@@ -18,7 +19,8 @@ import {
   Filter,
   RotateCcw,
   Eye,
-  Pill
+  Pill,
+  Building2
 } from 'lucide-react';
 
 interface PurchasingProps {
@@ -27,6 +29,9 @@ interface PurchasingProps {
   purchases: Purchase[];
   currency: string;
   config?: AppConfig;
+  user?: User | null;
+  activeBranchName?: string;
+  onSwitchBranch?: (branchName: string) => void;
   onSavePurchase: (purchase: Purchase) => Promise<Purchase>;
   onSaveProduct: (product: Product) => Promise<Product>;
   onRefreshData: () => void;
@@ -38,11 +43,50 @@ export default function Purchasing({
   purchases, 
   currency, 
   config,
+  user,
+  activeBranchName,
+  onSwitchBranch,
   onSavePurchase, 
   onSaveProduct,
   onRefreshData 
 }: PurchasingProps) {
   const isPharmacy = config?.businessType === 'pharmacy';
+
+  // Available branches list
+  const availableBranches = useMemo(() => {
+    const list = config?.branches && config.branches.length > 0 
+      ? config.branches 
+      : [
+          { id: 'branch-1', name: 'Sucursal Central (Principal)', code: 'SUC-01', address: 'Zona Central', city: 'Guatemala', isMain: true, isActive: true },
+          { id: 'branch-2', name: 'ferreteria 2', code: 'SUC-02', address: 'Km 14.5 Carretera', city: 'Mixco', isMain: false, isActive: true },
+          { id: 'branch-3', name: 'FERRETERIA 3', code: 'SUC-03', address: 'Centro Comercial', city: 'Villa Nueva', isMain: false, isActive: true }
+        ];
+
+    if (user?.isOperator) {
+      const allowed = (user.branches && user.branches.length > 0)
+        ? user.branches
+        : (user.branch && user.branch !== 'Todas') ? user.branch.split(',').map(s => s.trim()) : [];
+      if (allowed.length > 0) {
+        return list.filter(b => allowed.some(a => a.toLowerCase().trim() === b.name.toLowerCase().trim()));
+      }
+    }
+    return list;
+  }, [config?.branches, user]);
+
+  const defaultBranchName = useMemo(() => {
+    if (activeBranchName && activeBranchName !== 'Todas') return activeBranchName;
+    return availableBranches[0]?.name || 'Sucursal Central (Principal)';
+  }, [activeBranchName, availableBranches]);
+
+  useEffect(() => {
+    if (activeBranchName) {
+      setSelectedBranch(activeBranchName);
+      setPurchaseBranch(activeBranchName);
+    }
+  }, [activeBranchName]);
+
+  const [selectedBranch, setSelectedBranch] = useState<string>(activeBranchName || 'Todas');
+  const [purchaseBranch, setPurchaseBranch] = useState<string>(defaultBranchName);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [purchaseStatus, setPurchaseStatus] = useState<'completed' | 'pending'>('completed');
@@ -156,6 +200,21 @@ export default function Purchasing({
   // Apply filters
   const filteredPurchases = useMemo(() => {
     return purchasesWithIndex.filter((pur) => {
+      // 0. Branch filter (independent movements per branch)
+      if (user?.isOperator && availableBranches.length > 0) {
+        const allowed = (user.branches && user.branches.length > 0)
+          ? user.branches
+          : (user.branch && user.branch !== 'Todas') ? user.branch.split(',').map(s => s.trim()) : [];
+        if (allowed.length > 0) {
+          const match = allowed.some(a => a.toLowerCase().trim() === (pur.branch || defaultBranchName).toLowerCase().trim());
+          if (!match) return false;
+        }
+      } else if (selectedBranch && selectedBranch !== 'Todas') {
+        if (!isItemInBranch(pur.branch, selectedBranch, availableBranches)) {
+          return false;
+        }
+      }
+
       // 1. Provider
       if (appliedFilters.provider !== 'all' && pur.providerId !== appliedFilters.provider) {
         return false;
@@ -197,7 +256,7 @@ export default function Purchasing({
 
       return true;
     });
-  }, [purchasesWithIndex, appliedFilters]);
+  }, [purchasesWithIndex, appliedFilters, selectedBranch, user, availableBranches, defaultBranchName]);
 
   const handleApplyFilters = () => {
     setAppliedFilters({
@@ -1015,7 +1074,7 @@ export default function Purchasing({
               {/* Proveedor */}
               <div className="lg:col-span-3 md:col-span-3 space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                  <User className="w-3 h-3" />
+                  <UserIcon className="w-3 h-3" />
                   Proveedor
                 </label>
                 <select
