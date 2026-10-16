@@ -71,7 +71,7 @@ export default function Dashboard({
       const b = availableBranches.find(br => br.id === config.activeBranchId);
       if (b) return b.name;
     }
-    return availableBranches[0]?.name || 'Sucursal Central';
+    return availableBranches[0]?.name || 'Todas';
   }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches]);
 
   const [selectedBranch, setSelectedBranch] = React.useState<string>(defaultBranch);
@@ -419,28 +419,28 @@ export default function Dashboard({
   return (
     <div id="dashboard-view" className="space-y-6">
       {allowedBranches.length > 0 && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl p-4 flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg p-3.5 flex items-center gap-3">
+          <CheckCircle2 className="w-4 h-4 text-[#16A34A] shrink-0" />
           <div className="text-xs">
-            <span className="font-bold">Acceso de operador restringido: </span>
-            <span>Solo verá y operará en las sucursales marcadas ({user?.branches?.join(', ') || user?.branch}).</span>
+            <span className="font-semibold text-emerald-950">Acceso de operador restringido: </span>
+            <span className="text-emerald-800">Solo verá y operará en las sucursales asignadas ({user?.branches?.join(', ') || user?.branch}).</span>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Panel de Control</h1>
-          <p className="text-sm text-slate-500">
-            Bienvenido a {config.storeName}. Resumen de actividades de hoy
+          <h1 className="text-xl sm:text-2xl font-bold text-[#1F2937] tracking-tight">Panel de Control</h1>
+          <p className="text-xs sm:text-sm text-[#64748B]">
+            Resumen operacional y métricas clave de {config.storeName}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {availableBranches.length > 1 && !allowedBranches.length && (
-            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl shadow-xs border border-slate-200">
-              <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
-              <span className="text-xs font-bold text-slate-500">Sede:</span>
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg shadow-2xs border border-[#E2E8F0]">
+              <Building2 className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
+              <span className="text-xs font-semibold text-[#64748B]">Sede:</span>
               <select
                 value={selectedBranch}
                 onChange={(e) => {
@@ -448,7 +448,7 @@ export default function Dashboard({
                   const match = availableBranches.find(b => b.name === e.target.value);
                   if (match && onSwitchBranch) onSwitchBranch(match.id);
                 }}
-                className="bg-transparent font-bold text-xs text-slate-800 focus:outline-hidden cursor-pointer"
+                className="bg-transparent font-medium text-xs text-[#1F2937] focus:outline-hidden cursor-pointer"
                 title="Cambiar sucursal del panel de control"
               >
                 {availableBranches.map(b => (
@@ -458,10 +458,10 @@ export default function Dashboard({
               </select>
             </div>
           )}
-          <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-xs border border-slate-100">
-            <Clock className="w-4 h-4 text-slate-400" />
-            <span className="text-xs text-slate-600 font-medium font-mono">
-              {today.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          <div className="flex items-center gap-2 bg-white px-3.5 py-1.5 rounded-lg shadow-2xs border border-[#E2E8F0]">
+            <Clock className="w-3.5 h-3.5 text-[#64748B]" />
+            <span className="text-xs text-[#1F2937] font-medium capitalize font-sans">
+              {today.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
             </span>
           </div>
         </div>
@@ -469,97 +469,97 @@ export default function Dashboard({
 
       {/* Cash register warning if closed */}
       {!currentShift && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-pulse">
-          <div className="flex gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <h3 className="font-semibold text-amber-900 text-sm">La Caja Registradora está Cerrada</h3>
-              <p className="text-xs text-amber-700">Debe realizar la apertura de caja para poder registrar nuevas ventas en el Punto de Venta.</p>
+              <h3 className="font-semibold text-amber-900 text-xs">Caja Registradora Cerrada</h3>
+              <p className="text-[11px] text-amber-800">Debe realizar la apertura de caja para procesar cobros en el Punto de Venta.</p>
             </div>
           </div>
           <button
             onClick={() => onNavigate('apertura-cierre')}
-            className="text-xs font-semibold bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 transition-colors whitespace-nowrap"
+            className="text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-xs shrink-0"
           >
             Abrir Caja Ahora
           </button>
         </div>
       )}
 
-      {/* Stats Bento Grid */}
+      {/* Stats KPI Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Sales */}
         <div 
           onClick={() => onNavigate('historial-ventas')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-blue-200 transition-colors"
+          className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
           title="Ver Historial de Ventas"
         >
           <div className="space-y-1">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Ventas de Hoy</span>
-            <h3 className="text-2xl font-bold text-slate-800 font-mono">
+            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Ventas de Hoy</span>
+            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
               {currency}{todaySalesTotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h3>
-            <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-0.5">
+            <span className="text-[11px] text-[#16A34A] font-medium flex items-center gap-0.5">
               <ArrowUpRight className="w-3 h-3" />
-              {todaySales.length} transacciones
+              {todaySales.length} {todaySales.length === 1 ? 'transacción' : 'transacciones'}
             </span>
           </div>
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-            <TrendingUp className="w-6 h-6" />
+          <div className="p-2.5 bg-blue-50 text-[#2563EB] rounded-lg">
+            <TrendingUp className="w-5 h-5" />
           </div>
         </div>
 
         {/* Profit */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+        <div className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Ganancia Estimada</span>
-            <h3 className="text-2xl font-bold text-slate-800 font-mono">
+            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Ganancia Estimada</span>
+            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
               {currency}{todayProfit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h3>
-            <span className="text-[11px] text-slate-500 font-medium">
-              Basado en costo de catálogo
+            <span className="text-[11px] text-[#64748B] font-medium">
+              Calculado según costo
             </span>
           </div>
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-            <DollarSign className="w-6 h-6" />
+          <div className="p-2.5 bg-emerald-50 text-[#16A34A] rounded-lg">
+            <DollarSign className="w-5 h-5" />
           </div>
         </div>
 
         {/* Low Stock */}
         <div 
           onClick={() => onNavigate('inventario')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-red-200 transition-colors"
+          className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
         >
           <div className="space-y-1">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Stock Crítico</span>
-            <h3 className="text-2xl font-bold text-slate-800 font-mono">
+            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Stock Crítico</span>
+            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
               {lowStock.length}
             </h3>
-            <span className={`text-[11px] font-semibold flex items-center gap-0.5 ${lowStock.length > 0 ? 'text-red-500' : 'text-slate-400'}`}>
-              {lowStock.length > 0 ? 'Requiere reabastecimiento' : 'Todo en orden'}
+            <span className={`text-[11px] font-medium flex items-center gap-0.5 ${lowStock.length > 0 ? 'text-[#DC2626]' : 'text-[#64748B]'}`}>
+              {lowStock.length > 0 ? 'Requiere reabastecimiento' : 'Stock en niveles óptimos'}
             </span>
           </div>
-          <div className={`p-3 rounded-xl ${lowStock.length > 0 ? 'bg-red-50 text-red-500' : 'bg-slate-50 text-slate-400'}`}>
-            <Package className="w-6 h-6" />
+          <div className={`p-2.5 rounded-lg ${lowStock.length > 0 ? 'bg-rose-50 text-[#DC2626]' : 'bg-slate-50 text-[#64748B]'}`}>
+            <Package className="w-5 h-5" />
           </div>
         </div>
 
         {/* Expirations */}
         <div 
           onClick={() => onNavigate('vencimientos')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-amber-200 transition-colors"
+          className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
         >
           <div className="space-y-1">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Vencimientos</span>
-            <h3 className="text-2xl font-bold text-slate-800 font-mono">
+            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Vencimientos</span>
+            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
               {expiringSoon.length}
             </h3>
-            <span className={`text-[11px] font-semibold flex items-center gap-0.5 ${expiringSoon.length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
-              {expiringSoon.length > 0 ? `Vencen en < ${alertDays} días` : 'Ninguno cercano'}
+            <span className={`text-[11px] font-medium flex items-center gap-0.5 ${expiringSoon.length > 0 ? 'text-amber-700' : 'text-[#64748B]'}`}>
+              {expiringSoon.length > 0 ? `Vencen en < ${alertDays} días` : 'Sin alertas próximas'}
             </span>
           </div>
-          <div className={`p-3 rounded-xl ${expiringSoon.length > 0 ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-400'}`}>
-            <Calendar className="w-6 h-6" />
+          <div className={`p-2.5 rounded-lg ${expiringSoon.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-[#64748B]'}`}>
+            <Calendar className="w-5 h-5" />
           </div>
         </div>
       </div>
@@ -817,19 +817,19 @@ export default function Dashboard({
       </div>
 
       {/* 4 Cards Row strictly matching user image */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 pt-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 pt-2">
         
         {/* Card 1: Ventas por categoría (Top 5) */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs p-4 sm:p-5 flex flex-col justify-between">
           <div>
             {/* Header with Title and Dropdown */}
-            <div className="flex items-center justify-between gap-2 mb-5">
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Ventas por categoría (Top 5)</h3>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h3 className="font-bold text-[#1F2937] text-sm tracking-tight">Ventas por categoría (Top 5)</h3>
               <div className="relative">
                 <select
                   value={categoryTimeframe}
                   onChange={(e) => setCategoryTimeframe(e.target.value as any)}
-                  className="appearance-none bg-white border border-slate-200 hover:border-slate-300 rounded-lg pl-2.5 pr-7 py-1 text-xs font-semibold text-slate-700 shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer transition-colors"
+                  className="appearance-none bg-white border border-[#E2E8F0] hover:border-slate-300 rounded-lg pl-2.5 pr-7 py-1 text-xs font-semibold text-[#1F2937] shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] cursor-pointer transition-colors"
                 >
                   <option value="today">Hoy</option>
                   <option value="week">Esta semana</option>
@@ -842,57 +842,57 @@ export default function Dashboard({
 
             {/* Horizontal Bar Chart List or Empty State */}
             {topCategoriesData.items.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 {topCategoriesData.items.map((cat, idx) => {
                   const widthPct = topCategoriesData.max > 0 ? (cat.amount / topCategoriesData.max) * 100 : 0;
                   return (
                     <div key={idx} className="flex items-center gap-2.5">
-                      <span className="w-16 text-xs font-semibold text-slate-600 truncate text-left shrink-0">
+                      <span className="w-16 text-xs font-medium text-[#64748B] truncate text-left shrink-0">
                         {cat.name}
                       </span>
-                      <div className="flex-1 bg-transparent h-4 overflow-hidden flex items-center">
+                      <div className="flex-1 bg-slate-100 h-3 rounded-full overflow-hidden flex items-center">
                         <div
-                          className="bg-[#0066FF] h-full rounded-xs transition-all duration-500"
+                          className="bg-[#2563EB] h-full rounded-full transition-all duration-500"
                           style={{ width: `${Math.max(widthPct, 3)}%` }}
                         />
                       </div>
-                      <span className="text-xs font-mono font-bold text-slate-800 shrink-0 text-right min-w-[70px]">
-                        {currency} {cat.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <span className="text-xs font-mono font-semibold text-[#1F2937] shrink-0 text-right min-w-[70px]">
+                        {currency}{cat.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="py-8 text-center text-slate-400">
+              <div className="py-8 text-center text-[#64748B]">
                 <PieChart className="w-7 h-7 mx-auto mb-2 opacity-30 text-slate-400" />
-                <p className="text-xs font-medium text-slate-500">Sin ventas en este período</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Se actualizará al registrar ventas por categoría</p>
+                <p className="text-xs font-medium text-[#1F2937]">Sin ventas en este período</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">Se actualizará al registrar ventas por categoría</p>
               </div>
             )}
           </div>
 
           {/* Scale Axis at bottom */}
           {topCategoriesData.items.length > 0 && topCategoriesData.ticks.length > 0 && (
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[10px] font-mono text-slate-400 font-semibold pl-16 pr-14 mt-4">
+            <div className="pt-3 border-t border-[#E2E8F0] flex items-center justify-between text-[10px] font-mono text-[#64748B] font-semibold pl-16 pr-14 mt-4">
               {topCategoriesData.ticks.map((tick, i) => (
-                <span key={i}>{currency} {tick >= 1000 ? `${(tick / 1000).toFixed(0)}K` : tick}</span>
+                <span key={i}>{currency}{tick >= 1000 ? `${(tick / 1000).toFixed(0)}K` : tick}</span>
               ))}
             </div>
           )}
         </div>
 
         {/* Card 2: Productos más vendidos (Top 5) */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs p-4 sm:p-5 flex flex-col justify-between">
           <div>
             {/* Header with Title and Dropdown */}
             <div className="flex items-center justify-between gap-2 mb-4">
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Productos más vendidos (Top 5)</h3>
+              <h3 className="font-bold text-[#1F2937] text-sm tracking-tight">Productos más vendidos (Top 5)</h3>
               <div className="relative">
                 <select
                   value={topProductsTimeframe}
                   onChange={(e) => setTopProductsTimeframe(e.target.value as any)}
-                  className="appearance-none bg-white border border-slate-200 hover:border-slate-300 rounded-lg pl-2.5 pr-7 py-1 text-xs font-semibold text-slate-700 shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer transition-colors"
+                  className="appearance-none bg-white border border-[#E2E8F0] hover:border-slate-300 rounded-lg pl-2.5 pr-7 py-1 text-xs font-semibold text-[#1F2937] shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] cursor-pointer transition-colors"
                 >
                   <option value="today">Hoy</option>
                   <option value="week">Esta semana</option>
@@ -905,49 +905,49 @@ export default function Dashboard({
 
             {/* Product List or Empty State */}
             {topProductsList.length > 0 ? (
-              <div className="divide-y divide-slate-100/90">
+              <div className="divide-y divide-[#E2E8F0]">
                 {topProductsList.map((prod, idx) => (
-                  <div key={idx} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-xs font-semibold text-slate-500 w-3 text-center shrink-0">
+                  <div key={idx} className="py-2 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="text-xs font-semibold text-[#64748B] w-3 text-center shrink-0">
                         {prod.rank}
                       </span>
-                      <div className="w-7 h-7 rounded-md bg-slate-50 flex items-center justify-center overflow-hidden shrink-0 border border-slate-200/60 p-0.5">
+                      <div className="w-7 h-7 rounded-md bg-[#F8FAFC] flex items-center justify-center overflow-hidden shrink-0 border border-[#E2E8F0] p-0.5">
                         {prod.image ? (
                           <img src={prod.image} alt={prod.name} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                         ) : (
                           <ShoppingBag className="w-3.5 h-3.5 text-slate-400" />
                         )}
                       </div>
-                      <span className="text-xs font-medium text-slate-700 truncate" title={prod.name}>
+                      <span className="text-xs font-medium text-[#1F2937] truncate" title={prod.name}>
                         {prod.name}
                       </span>
                     </div>
-                    <span className="text-xs font-semibold font-mono text-slate-800 shrink-0">
-                      {prod.count}
+                    <span className="text-xs font-semibold font-mono text-[#1F2937] shrink-0">
+                      {prod.count} uds
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="py-8 text-center text-slate-400">
+              <div className="py-8 text-center text-[#64748B]">
                 <Package className="w-7 h-7 mx-auto mb-2 opacity-30 text-slate-400" />
-                <p className="text-xs font-medium text-slate-500">Sin ventas en este período</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Los artículos vendidos aparecerán en este ranking</p>
+                <p className="text-xs font-medium text-[#1F2937]">Sin ventas en este período</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">Los artículos vendidos aparecerán en este ranking</p>
               </div>
             )}
           </div>
         </div>
 
         {/* Card 3: Ventas recientes */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs p-4 sm:p-5 flex flex-col justify-between">
           <div>
             {/* Header with Link */}
             <div className="flex items-center justify-between gap-2 mb-4">
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Ventas recientes</h3>
+              <h3 className="font-bold text-[#1F2937] text-sm tracking-tight">Ventas recientes</h3>
               <button
                 onClick={() => onNavigate('reportes')}
-                className="text-xs font-semibold text-[#0066FF] hover:text-blue-700 transition-colors cursor-pointer"
+                className="text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] transition-colors cursor-pointer"
               >
                 Ver todas
               </button>
@@ -958,48 +958,48 @@ export default function Dashboard({
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-slate-100 text-slate-400 font-semibold">
+                    <tr className="border-b border-[#E2E8F0] text-[#64748B] font-semibold text-[11px] uppercase tracking-wider">
                       <th className="pb-2 font-medium">Ticket</th>
                       <th className="pb-2 font-medium">Cliente</th>
-                      <th className="pb-2 font-medium">Total</th>
+                      <th className="pb-2 font-medium text-right">Total</th>
                       <th className="pb-2 font-medium text-center">Método</th>
                       <th className="pb-2 font-medium text-right">Hora</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100/70">
+                  <tbody className="divide-y divide-[#E2E8F0]">
                     {recentSalesList.map((sale, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="py-2.5 font-mono font-medium text-slate-700">
+                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-2 font-mono font-medium text-[#1F2937]">
                           {sale.ticket}
                         </td>
-                        <td className="py-2.5 font-medium text-slate-700 max-w-[85px] truncate">
+                        <td className="py-2 font-medium text-[#64748B] max-w-[85px] truncate">
                           {sale.client}
                         </td>
-                        <td className="py-2.5 font-mono font-medium text-slate-800 whitespace-nowrap">
-                          {currency} {sale.total.toFixed(2)}
+                        <td className="py-2 font-mono font-bold text-[#1F2937] text-right whitespace-nowrap tabular-nums">
+                          {currency}{sale.total.toFixed(2)}
                         </td>
-                        <td className="py-2.5 text-center">
+                        <td className="py-2 text-center">
                           <div className="inline-flex items-center justify-center">
                             {sale.method === 'cash' ? (
-                              <span className="p-0.5 text-emerald-600 rounded-sm" title="Efectivo">
-                                <Banknote className="w-4 h-4" />
+                              <span className="p-0.5 text-[#16A34A] rounded-sm" title="Efectivo">
+                                <Banknote className="w-3.5 h-3.5" />
                               </span>
                             ) : sale.method === 'card' ? (
-                              <span className="p-0.5 text-blue-600 rounded-sm" title="Tarjeta">
-                                <CreditCard className="w-4 h-4" />
+                              <span className="p-0.5 text-[#2563EB] rounded-sm" title="Tarjeta">
+                                <CreditCard className="w-3.5 h-3.5" />
                               </span>
                             ) : sale.method === 'transfer' ? (
                               <span className="p-0.5 text-purple-600 rounded-sm" title="Transferencia">
-                                <ArrowRightLeft className="w-4 h-4" />
+                                <ArrowRightLeft className="w-3.5 h-3.5" />
                               </span>
                             ) : (
                               <span className="p-0.5 text-amber-600 rounded-sm" title="Otro">
-                                <Wallet className="w-4 h-4" />
+                                <Wallet className="w-3.5 h-3.5" />
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="py-2.5 text-right font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                        <td className="py-2 text-right font-mono text-[11px] text-[#64748B] whitespace-nowrap">
                           {sale.time}
                         </td>
                       </tr>
@@ -1008,21 +1008,21 @@ export default function Dashboard({
                 </table>
               </div>
             ) : (
-              <div className="py-8 text-center text-slate-400">
+              <div className="py-8 text-center text-[#64748B]">
                 <Receipt className="w-7 h-7 mx-auto mb-2 opacity-30 text-slate-400" />
-                <p className="text-xs font-medium text-slate-500">Sin ventas recientes</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Tus ventas del POS aparecerán aquí</p>
+                <p className="text-xs font-medium text-[#1F2937]">Sin ventas recientes</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">Tus ventas del POS aparecerán aquí</p>
               </div>
             )}
           </div>
         </div>
 
         {/* Card 4: Ventas por método de pago */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs p-4 sm:p-5 flex flex-col justify-between">
           <div>
             {/* Header */}
             <div className="flex items-center justify-between gap-2 mb-2">
-              <h3 className="font-bold text-slate-800 text-sm tracking-tight">Ventas por método de pago</h3>
+              <h3 className="font-bold text-[#1F2937] text-sm tracking-tight">Ventas por método de pago</h3>
             </div>
 
             {/* Centered Donut Graphic */}

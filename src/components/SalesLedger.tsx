@@ -68,7 +68,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
       const b = availableBranches.find(br => br.id === config.activeBranchId);
       if (b) return b.name;
     }
-    return availableBranches[0]?.name || 'Sucursal Central';
+    return availableBranches[0]?.name || '';
   }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches]);
 
   const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch);
@@ -371,7 +371,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                     </td>
                     <td className="py-2.5 px-3">
                       <span className="px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700 border border-slate-200">
-                        {sale.branch || 'Sucursal Central'}
+                        {sale.branch || 'General'}
                       </span>
                     </td>
                     <td className="py-2.5 px-3 font-bold text-slate-800">

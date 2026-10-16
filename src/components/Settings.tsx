@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { AppConfig, User } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { AppConfig, User, License } from '../types';
 import * as api from '../api';
 import { getSystemBranches } from '../utils/branchHelper';
+import { checkUserLimit, checkFeatureAllowed, getPlanDefinition } from '../utils/planLimits';
 import { 
   Settings2, 
   Store, 
@@ -55,7 +56,9 @@ import {
   ShieldAlert,
   KeyRound,
   UserPlus,
-  ChevronDown
+  ChevronDown,
+  AlertCircle,
+  Copy
 } from 'lucide-react';
 
 export const PANEL_MODULE_GROUPS = [
@@ -112,11 +115,17 @@ const getDefaultUnitsForType = (type: string) => {
 interface SettingsProps {
   config: AppConfig;
   user: User | null;
+  userLicense?: License | null;
+  onOpenPlanUpgrade?: () => void;
   onSaveConfig: (config: AppConfig) => Promise<AppConfig>;
 }
 
-export default function Settings({ config, user, onSaveConfig }: SettingsProps) {
+export default function Settings({ config, user, userLicense, onOpenPlanUpgrade, onSaveConfig }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<'empresa' | 'usuarios' | 'listas' | 'comprobantes' | 'vista' | 'certificado' | 'backup'>('empresa');
+
+  // Plan limits and features
+  const plan = useMemo(() => getPlanDefinition(userLicense?.planType), [userLicense?.planType]);
+  const felLimitInfo = useMemo(() => checkFeatureAllowed('fel', userLicense?.planType), [userLicense?.planType]);
 
   // Tab 1: Empresa States
   const [nit, setNit] = useState(config.nit || '');
@@ -166,15 +175,22 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
   const [felApiKey, setFelApiKey] = useState<string>(config.felApiKey || '');
 
   // Tab 2: Operators real database state
-  const [operators, setOperators] = useState<{ id: string; name: string; email: string; role: string; password?: string; status: 'active' | 'inactive'; branch?: string; branches?: string[]; disabledTabs?: string[] }[]>([]);
-  const [selectedOperatorForTabs, setSelectedOperatorForTabs] = useState<typeof operators[0] | null>(null);
-  const [editingOperator, setEditingOperator] = useState<typeof operators[0] | null>(null);
+  const [operators, setOperators] = useState<api.Operator[]>([]);
+  const [selectedOperatorForTabs, setSelectedOperatorForTabs] = useState<api.Operator | null>(null);
+  const [editingOperator, setEditingOperator] = useState<api.Operator | null>(null);
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'Cajero' | 'Supervisor de Almacén' | 'Administrador'>('all');
   const [newOpPasswordVisible, setNewOpPasswordVisible] = useState(false);
   const [editOpPasswordVisible, setEditOpPasswordVisible] = useState(false);
   const [editOpNewPassword, setEditOpNewPassword] = useState('');
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [changingPasswordOp, setChangingPasswordOp] = useState<api.Operator | null>(null);
+  const [newPasswordVal, setNewPasswordVal] = useState('');
+  const [newPasswordValVisible, setNewPasswordValVisible] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [modalTabSearch, setModalTabSearch] = useState('');
   const [modalTabCategory, setModalTabCategory] = useState<'all' | 'ventas' | 'inventario' | 'finanzas' | 'admin'>('all');
   const [newOpName, setNewOpName] = useState('');
@@ -190,7 +206,6 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
     'apertura-cierre',
     'clientes'
   ]);
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
   const branchOptions = React.useMemo(() => {
     const registeredBranches = getSystemBranches(config);
@@ -466,16 +481,80 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
     setNewOpPasswordVisible(true);
   };
 
+  const handleOpenChangePassword = (op: api.Operator) => {
+    setChangingPasswordOp(op);
+    setNewPasswordVal('');
+    setNewPasswordValVisible(false);
+  };
+
+  const handleCopyPassword = (id: string, text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleSaveChangedPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!changingPasswordOp) return;
+    if (!newPasswordVal || newPasswordVal.trim().length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres para ser válida en el sistema de autenticación.');
+      return;
+    }
+    setIsUpdatingPassword(true);
+    try {
+      const cleanPass = newPasswordVal.trim();
+      const updatedOp: api.Operator = {
+        ...changingPasswordOp,
+        password: cleanPass,
+        passwordProtected: true
+      };
+      
+      const savedOp = await api.saveOperator(updatedOp);
+      
+      // Update state without keeping plain text password
+      setOperators(prev => prev.map(o => o.id === changingPasswordOp.id ? { ...savedOp, password: undefined, passwordProtected: true } : o));
+      setChangingPasswordOp(null);
+      setNewPasswordVal('');
+      alert(`✓ Contraseña actualizada correctamente en el sistema de autenticación para "${changingPasswordOp.name}".\n\nEl operador ya puede iniciar sesión con estas credenciales.`);
+    } catch (err: any) {
+      alert('Error al actualizar contraseña: ' + (err.message || err));
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
+
+  const handleSendPasswordReset = async (email: string) => {
+    if (!email) return;
+    const confirmReset = window.confirm(`¿Desea enviar un enlace seguro de restablecimiento de contraseña a "${email}"?`);
+    if (!confirmReset) return;
+    try {
+      await api.sendPasswordReset(email);
+      alert(`✓ Se ha enviado el enlace seguro de restablecimiento de contraseña a "${email}".\n\nEl operador podrá abrir el enlace en su correo y definir su nueva contraseña de forma segura y válida.`);
+    } catch (err: any) {
+      alert('Error al enviar enlace de restablecimiento: ' + (err.message || err));
+    }
+  };
+
   const handleAddOperator = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newOpName.trim() || !newOpEmail.trim()) {
       alert('Por favor complete el nombre y correo electrónico.');
       return;
     }
-    if (newOpPassword && newOpPassword.length < 6) {
-      alert('La contraseña debe tener un mínimo de 6 caracteres.');
+    if (!newOpPassword || newOpPassword.trim().length < 6) {
+      alert('La contraseña es requerida y debe tener al menos 6 caracteres para autenticarse válidamente en el sistema.');
       return;
     }
+
+    const userLimit = checkUserLimit(operators.length, userLicense?.planType);
+    if (!userLimit.allowed) {
+      alert(userLimit.message);
+      if (onOpenPlanUpgrade) onOpenPlanUpgrade();
+      return;
+    }
+
+    setIsSubmittingUser(true);
     try {
       const opId = Math.random().toString(36).substring(2, 11);
       const allAppTabIds = PANEL_MODULE_GROUPS.flatMap(g => g.items.map(i => i.id));
@@ -489,19 +568,21 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
         : (newOpBranch && newOpBranch.trim() && newOpBranch !== 'Todas' ? newOpBranch.split(',').map(s => s.trim()) : []);
       const assignedBranch = assignedBranches.length > 0 ? assignedBranches.join(', ') : 'Todas';
 
-      const newOp = {
+      const newOp: api.Operator = {
         id: opId,
         name: newOpName.trim(),
         email: newOpEmail.trim().toLowerCase(),
         role: newOpRole,
-        password: newOpPassword || 'cajero123',
+        password: newOpPassword.trim(), // Sent to Firebase Auth for valid credentials, then stripped before Firestore
         branch: assignedBranch,
         branches: assignedBranches,
         disabledTabs: disabledTabs,
-        status: 'active' as const
+        status: 'active' as const,
+        passwordProtected: true
       };
-      await api.saveOperator(newOp);
-      setOperators([...operators, newOp]);
+      
+      const savedOp = await api.saveOperator(newOp);
+      setOperators(prev => [...prev.filter(o => o.email.toLowerCase() !== savedOp.email.toLowerCase()), savedOp]);
       setNewOpName('');
       setNewOpEmail('');
       setNewOpPassword('');
@@ -510,9 +591,11 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       setNewOpBranches([]);
       setNewOpPanels(['dashboard', 'punto-de-venta', 'historial-ventas', 'apertura-cierre', 'clientes']);
       setIsCreateUserModalOpen(false);
-      alert('✓ Usuario operador registrado correctamente.');
+      alert('✓ Usuario operador registrado correctamente con contraseña válida en el sistema de autenticación.');
     } catch (err: any) {
-      alert('Error al agregar operador: ' + (err.message || err));
+      alert('Error al registrar operador: ' + (err.message || err));
+    } finally {
+      setIsSubmittingUser(false);
     }
   };
 
@@ -522,9 +605,12 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
     if (op.role === 'Propietario / Administrador') {
       return;
     }
+    const confirmDelete = window.confirm(`¿Está seguro de eliminar al operador "${op.name}" (${op.email})?`);
+    if (!confirmDelete) return;
     try {
       await api.deleteOperator(op.id, op.email);
       setOperators(operators.filter(o => o.id !== id));
+      alert('✓ Operador eliminado correctamente.');
     } catch (err: any) {
       alert('Error al eliminar operador: ' + (err.message || err));
     }
@@ -537,6 +623,7 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
       alert('La nueva contraseña debe tener un mínimo de 6 caracteres.');
       return;
     }
+    setIsSubmittingUser(true);
     try {
       const branchesArr = (editingOperator.branches && editingOperator.branches.length > 0)
         ? editingOperator.branches
@@ -544,26 +631,25 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
             ? editingOperator.branch.split(',').map(s => s.trim()).filter(Boolean)
             : []);
 
-      const nextPassword = editOpNewPassword.trim()
-        ? editOpNewPassword.trim()
-        : (editingOperator.password || 'cajero123');
-
-      const opToSave = {
+      const opToSave: api.Operator = {
         ...editingOperator,
-        password: nextPassword,
+        password: editOpNewPassword.trim() ? editOpNewPassword.trim() : undefined,
         branch: branchesArr.length > 0 ? branchesArr.join(', ') : 'Todas',
         branches: branchesArr,
         disabledTabs: editingOperator.disabledTabs || [],
-        status: editingOperator.status || 'active'
+        status: editingOperator.status || 'active',
+        passwordProtected: true
       };
 
-      await api.saveOperator(opToSave);
-      setOperators(operators.map(o => o.id === editingOperator.id ? opToSave : o));
+      const savedOp = await api.saveOperator(opToSave);
+      setOperators(operators.map(o => o.id === editingOperator.id ? savedOp : o));
       setEditingOperator(null);
       setEditOpNewPassword('');
       alert('✓ Datos del operador actualizados correctamente.');
     } catch (err: any) {
       alert('Error al actualizar operador: ' + (err.message || err));
+    } finally {
+      setIsSubmittingUser(false);
     }
   };
 
@@ -815,37 +901,87 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
               return matchesSearch && matchesRole;
             });
 
+            const userLimitInfo = checkUserLimit(operators.length, userLicense?.planType);
+
             return (
               <div className="space-y-6 animate-in fade-in duration-150">
                 {/* Header Banner - Matches Empresa tab style & Yaa POS brand */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-blue-50/70 border border-blue-100 rounded-2xl px-5 py-4 text-blue-900 shadow-xs">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-blue-50/70 border border-blue-100 rounded-2xl px-5 py-4 text-blue-900 shadow-xs">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
                       <Users className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-blue-950">Gestión de Usuarios y Cajeros</h3>
-                      <p className="text-[11px] text-blue-700/80 font-medium">Controle los accesos, contraseñas y permisos del personal en el punto de venta</p>
+                      <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-blue-950">Gestión de Usuarios y Cajeros</h3>
+                      <p className="text-[11px] text-blue-700/80 font-medium mt-0.5">Controle los accesos, contraseñas y permisos del personal en el punto de venta</p>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewOpName('');
-                      setNewOpEmail('');
-                      setNewOpPassword('');
-                      setNewOpRole('Cajero');
-                      setNewOpBranch('');
-                      setNewOpPanels(['dashboard', 'punto-de-venta', 'historial-ventas', 'apertura-cierre', 'clientes']);
-                      setIsCreateUserModalOpen(true);
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer shrink-0"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span>Nuevo Usuario</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!userLimitInfo.allowed) {
+                          if (onOpenPlanUpgrade) {
+                            onOpenPlanUpgrade();
+                          } else {
+                            alert(userLimitInfo.message);
+                          }
+                          return;
+                        }
+                        setNewOpName('');
+                        setNewOpEmail('');
+                        setNewOpPassword('');
+                        setNewOpPasswordVisible(false);
+                        setNewOpRole('Cajero');
+                        setNewOpBranch('');
+                        setNewOpBranches([]);
+                        setNewOpPanels(['dashboard', 'punto-de-venta', 'historial-ventas', 'apertura-cierre', 'clientes']);
+                        setIsCreateUserModalOpen(true);
+                      }}
+                      className={`active:scale-95 font-black text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer shrink-0 ${
+                        !userLimitInfo.allowed
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      {!userLimitInfo.allowed ? (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>Límite Alcanzado (Ver Plan)</span>
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="w-4 h-4" />
+                          <span>Nuevo Usuario</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
+
+                {/* Plan limit warning banner when max users reached */}
+                {!userLimitInfo.allowed && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in">
+                    <div className="flex items-center gap-3">
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                      <div className="text-xs">
+                        <span className="font-extrabold block sm:inline">Límite alcanzado: </span>
+                        <span>{userLimitInfo.message}</span>
+                      </div>
+                    </div>
+                    {onOpenPlanUpgrade && (
+                      <button
+                        type="button"
+                        onClick={onOpenPlanUpgrade}
+                        className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Actualizar Plan</span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   
@@ -854,9 +990,9 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                     <div className="bg-slate-50/60 border border-slate-100 rounded-2xl p-5 space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Sesión Actual</span>
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-wider shadow-2xs">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                          Conectado
+                          Plan {plan.name}
                         </span>
                       </div>
 
@@ -903,62 +1039,18 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                     <div className="bg-blue-50/40 border border-blue-100 rounded-2xl p-4 flex items-center justify-between text-xs">
                       <div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Usuarios Registrados</span>
-                        <p className="text-lg font-black text-slate-800">{operators.length}</p>
+                        <p className="text-base font-black text-slate-800">
+                          {operators.length} <span className="text-xs font-semibold text-slate-500">de {plan.maxUsers === 999 ? 'Ilimitados' : plan.maxUsers}</span>
+                        </p>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Estado</span>
-                        <p className="text-xs font-bold text-slate-600">Sincronización activa</p>
+                      <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 shadow-2xs">
+                        <Users className="w-4 h-4" />
                       </div>
                     </div>
                   </div>
 
                   {/* Operator list and creation (col-span-8) */}
                   <div className="lg:col-span-8 space-y-4">
-                    
-                    {/* Search and Filters Bar */}
-                    <div className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                      <div className="relative flex-1">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          value={userSearchQuery}
-                          onChange={(e) => setUserSearchQuery(e.target.value)}
-                          placeholder="Buscar operador por nombre o correo..."
-                          className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50/60 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-medium"
-                        />
-                        {userSearchQuery && (
-                          <button
-                            type="button"
-                            onClick={() => setUserSearchQuery('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0">
-                        {[
-                          { id: 'all', label: 'Todos' },
-                          { id: 'Cajero', label: 'Cajeros' },
-                          { id: 'Supervisor de Almacén', label: 'Supervisores' },
-                          { id: 'Administrador', label: 'Admins' }
-                        ].map(pill => (
-                          <button
-                            key={pill.id}
-                            type="button"
-                            onClick={() => setUserRoleFilter(pill.id as any)}
-                            className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap ${
-                              userRoleFilter === pill.id
-                                ? 'bg-blue-600 text-white shadow-xs'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80 border border-slate-200/60'
-                            }`}
-                          >
-                            {pill.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
 
                     {/* List Table with horizontal scroll for mobile and iPhone */}
                     <div className="border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
@@ -1031,24 +1123,38 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                                     </td>
 
                                     <td className="px-4 py-3.5 whitespace-nowrap">
-                                      <button
-                                        type="button"
-                                        onClick={() => togglePasswordVisibility(op.id)}
-                                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 transition-colors cursor-pointer bg-slate-50 hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-slate-200"
-                                      >
-                                        {visiblePasswords[op.id] ? (
-                                          <>
-                                            <Eye className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                            <span className="font-mono text-xs font-bold text-slate-800">{op.password || 'cajero123'}</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <EyeOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                            <span className="text-[10px] text-slate-500">••••••</span>
-                                            <span className="text-[10px] text-blue-600 font-medium">Ver</span>
-                                          </>
+                                      <div className="flex items-center gap-2">
+                                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs">
+                                          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                                          <span className="font-mono text-slate-400 tracking-widest text-xs">••••••••</span>
+                                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                            Protegida en Auth
+                                          </span>
+                                        </div>
+
+                                        {/* Botón para cambiar / asignar contraseña real */}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenChangePassword(op)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 hover:text-emerald-700 bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 transition-all cursor-pointer shadow-2xs"
+                                          title="Cambiar o asignar la contraseña real en Firebase Auth"
+                                        >
+                                          <KeyRound className="w-3.5 h-3.5 text-slate-500 hover:text-emerald-600 shrink-0" />
+                                          <span>Cambiar clave</span>
+                                        </button>
+
+                                        {!isOwner && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSendPasswordReset(displayEmail)}
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-blue-700 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 transition-colors cursor-pointer shadow-2xs"
+                                            title="Enviar enlace seguro de restablecimiento de contraseña al correo del operador"
+                                          >
+                                            <Mail className="w-3.5 h-3.5 text-slate-500 hover:text-blue-600 shrink-0" />
+                                            <span>Restablecer</span>
+                                          </button>
                                         )}
-                                      </button>
+                                      </div>
                                     </td>
 
                                     <td className="px-4 py-3.5 whitespace-nowrap">
@@ -2788,6 +2894,8 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                 <div className="relative">
                   <input
                     type={newOpPasswordVisible ? 'text' : 'password'}
+                    required
+                    minLength={6}
                     value={newOpPassword}
                     onChange={(e) => setNewOpPassword(e.target.value)}
                     placeholder="Mínimo 6 caracteres"
@@ -2801,6 +2909,7 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                     {newOpPasswordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                <p className="text-[11px] text-slate-500 font-medium">Contraseña válida para iniciar sesión en el sistema. Protegida con autenticación segura.</p>
               </div>
 
               {/* Rol */}
@@ -2828,43 +2937,50 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                   Sucursales
                 </label>
                 <div className="border border-slate-200/90 rounded-2xl p-4 space-y-2.5 bg-white">
-                  {branchOptions.map((b) => {
-                    const isSelected = newOpBranches.includes(b.name) || newOpBranch === b.name;
-                    return (
-                      <button
-                        key={b.id || b.name}
-                        type="button"
-                        onClick={() => {
-                          setNewOpBranches(prev => {
-                            let next: string[];
-                            if (prev.includes(b.name)) {
-                              next = prev.filter(name => name !== b.name);
-                            } else {
-                              next = [...prev, b.name];
-                            }
-                            setNewOpBranch(next.join(', '));
-                            return next;
-                          });
-                        }}
-                        className={`flex items-center gap-3 w-full text-left p-2 rounded-xl transition-all cursor-pointer group ${
-                          isSelected 
-                            ? 'bg-emerald-50/70 border border-emerald-200/70' 
-                            : 'hover:bg-slate-50 border border-transparent'
-                        }`}
-                      >
-                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all ${
-                          isSelected 
-                            ? 'border-emerald-600 bg-emerald-600 text-white shadow-2xs' 
-                            : 'border-slate-300 group-hover:border-slate-400 bg-white'
-                        }`}>
-                          {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                        </div>
-                        <span className={`text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
-                          {b.name}
-                        </span>
-                      </button>
-                    );
-                  })}
+                  {branchOptions.length === 0 ? (
+                    <div className="text-center py-3 text-slate-400">
+                      <p className="text-xs font-medium">No hay sucursales creadas aún.</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">El usuario podrá operar de forma general hasta que el Propietario/Admin registre sucursales en la pestaña "Sucursales".</p>
+                    </div>
+                  ) : (
+                    branchOptions.map((b) => {
+                      const isSelected = newOpBranches.includes(b.name) || newOpBranch === b.name;
+                      return (
+                        <button
+                          key={b.id || b.name}
+                          type="button"
+                          onClick={() => {
+                            setNewOpBranches(prev => {
+                              let next: string[];
+                              if (prev.includes(b.name)) {
+                                next = prev.filter(name => name !== b.name);
+                              } else {
+                                next = [...prev, b.name];
+                              }
+                              setNewOpBranch(next.join(', '));
+                              return next;
+                            });
+                          }}
+                          className={`flex items-center gap-3 w-full text-left p-2 rounded-xl transition-all cursor-pointer group ${
+                            isSelected 
+                              ? 'bg-emerald-50/70 border border-emerald-200/70' 
+                              : 'hover:bg-slate-50 border border-transparent'
+                          }`}
+                        >
+                          <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                            isSelected 
+                              ? 'border-emerald-600 bg-emerald-600 text-white shadow-2xs' 
+                              : 'border-slate-300 group-hover:border-slate-400 bg-white'
+                          }`}>
+                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                          </div>
+                          <span className={`text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+                            {b.name}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
                 {(newOpBranches.length > 0 || (newOpBranch && newOpBranch.trim() && newOpBranch !== 'Todas')) ? (
                   <p className="text-xs text-emerald-700 font-semibold mt-1 flex items-center gap-1.5 transition-all animate-in fade-in duration-150">
@@ -2929,9 +3045,18 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 flex items-center gap-1.5"
+                  disabled={isSubmittingUser}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 flex items-center gap-1.5"
                 >
-                  <UserPlus className="w-4 h-4" /> Crear usuario
+                  {isSubmittingUser ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Registrando...
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-4 h-4" /> Crear usuario
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -3022,46 +3147,53 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                   Sucursales
                 </label>
                 <div className="border border-slate-200/90 rounded-2xl p-4 space-y-2.5 bg-white">
-                  {branchOptions.map((b) => {
-                    const currentBranches = (editingOperator.branches && editingOperator.branches.length > 0)
-                      ? editingOperator.branches
-                      : (editingOperator.branch && editingOperator.branch !== 'Todas'
-                          ? editingOperator.branch.split(',').map(s => s.trim()).filter(Boolean)
-                          : []);
-                    const isSelected = currentBranches.some(name => name.toLowerCase() === b.name.toLowerCase());
+                  {branchOptions.length === 0 ? (
+                    <div className="text-center py-3 text-slate-400">
+                      <p className="text-xs font-medium">No hay sucursales creadas aún.</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">El usuario podrá operar de forma general hasta que el Propietario/Admin registre sucursales en la pestaña "Sucursales".</p>
+                    </div>
+                  ) : (
+                    branchOptions.map((b) => {
+                      const currentBranches = (editingOperator.branches && editingOperator.branches.length > 0)
+                        ? editingOperator.branches
+                        : (editingOperator.branch && editingOperator.branch !== 'Todas'
+                            ? editingOperator.branch.split(',').map(s => s.trim()).filter(Boolean)
+                            : []);
+                      const isSelected = currentBranches.some(name => name.toLowerCase() === b.name.toLowerCase());
 
-                    return (
-                      <button
-                        key={b.id || b.name}
-                        type="button"
-                        onClick={() => {
-                          let next: string[];
-                          if (isSelected) {
-                            next = currentBranches.filter(name => name.toLowerCase() !== b.name.toLowerCase());
-                          } else {
-                            next = [...currentBranches, b.name];
-                          }
-                          setEditingOperator({
-                            ...editingOperator,
-                            branches: next,
-                            branch: next.length > 0 ? next.join(', ') : 'Todas'
-                          });
-                        }}
-                        className="flex items-center gap-3 w-full text-left py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer group"
-                      >
-                        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
-                          isSelected 
-                            ? 'bg-emerald-600 text-white shadow-2xs' 
-                            : 'border-2 border-slate-300 group-hover:border-slate-400 bg-white'
-                        }`}>
-                          {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                        </div>
-                        <span className={`text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
-                          {b.name}
-                        </span>
-                      </button>
-                    );
-                  })}
+                      return (
+                        <button
+                          key={b.id || b.name}
+                          type="button"
+                          onClick={() => {
+                            let next: string[];
+                            if (isSelected) {
+                              next = currentBranches.filter(name => name.toLowerCase() !== b.name.toLowerCase());
+                            } else {
+                              next = [...currentBranches, b.name];
+                            }
+                            setEditingOperator({
+                              ...editingOperator,
+                              branches: next,
+                              branch: next.length > 0 ? next.join(', ') : 'Todas'
+                            });
+                          }}
+                          className="flex items-center gap-3 w-full text-left py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer group"
+                        >
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                            isSelected 
+                              ? 'bg-emerald-600 text-white shadow-2xs' 
+                              : 'border-2 border-slate-300 group-hover:border-slate-400 bg-white'
+                          }`}>
+                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                          </div>
+                          <span className={`text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+                            {b.name}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 font-normal mt-1">
                   Solo verá y operará en las sucursales marcadas.
@@ -3156,26 +3288,49 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
                 </button>
               </div>
 
-              {/* Nueva contraseña (opcional) */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700 block">
-                  Nueva contraseña (opcional)
-                </label>
-                <div className="relative">
-                  <input
-                    type={editOpPasswordVisible ? 'text' : 'password'}
-                    value={editOpNewPassword}
-                    onChange={(e) => setEditOpNewPassword(e.target.value)}
-                    placeholder="Dejar en blanco para no cambiar"
-                    className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl pl-4 pr-11 py-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-medium placeholder:text-slate-400 transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setEditOpPasswordVisible(!editOpPasswordVisible)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                  >
-                    {editOpPasswordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+              {/* Seguridad y Contraseña */}
+              <div className="space-y-3 bg-slate-50 border border-slate-200/80 rounded-2xl p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div>
+                    <label className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                      <Lock className="w-4 h-4 text-blue-600" />
+                      Seguridad y Acceso
+                    </label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Protegido por el sistema de autenticación.</p>
+                  </div>
+                  {editingOperator.role !== 'Propietario / Administrador' && (
+                    <button
+                      type="button"
+                      onClick={() => handleSendPasswordReset(editingOperator.email)}
+                      className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs self-start sm:self-auto"
+                      title="Enviar enlace seguro al correo registrado del operador"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Enviar enlace de restablecimiento</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  <label className="text-xs font-semibold text-slate-600 block">
+                    Asignar nueva contraseña directamente (opcional)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={editOpPasswordVisible ? 'text' : 'password'}
+                      value={editOpNewPassword}
+                      onChange={(e) => setEditOpNewPassword(e.target.value)}
+                      placeholder="Dejar en blanco para mantener la actual (mín. 6 caracteres)"
+                      className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl pl-4 pr-11 py-2.5 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-mono placeholder:text-slate-400 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditOpPasswordVisible(!editOpPasswordVisible)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    >
+                      {editOpPasswordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -3183,9 +3338,123 @@ export default function Settings({ config, user, onSaveConfig }: SettingsProps) 
               <div className="pt-2 flex items-center justify-end shrink-0 bg-white">
                 <button
                   type="submit"
-                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-sm font-semibold transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95"
+                  disabled={isSubmittingUser}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm hover:shadow-md active:scale-95 flex items-center gap-1.5"
                 >
-                  Guardar cambios
+                  {isSubmittingUser ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" /> Guardar cambios
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CAMBIAR / ASIGNAR CONTRASEÑA REAL */}
+      {changingPasswordOp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150 text-slate-800 flex flex-col my-auto">
+            
+            <div className="px-6 py-5 flex items-center justify-between border-b border-slate-100 shrink-0 bg-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold shrink-0">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 tracking-tight">
+                    {changingPasswordOp.password ? 'Cambiar contraseña' : 'Asignar contraseña'}
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {changingPasswordOp.name} ({changingPasswordOp.email})
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setChangingPasswordOp(null)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveChangedPassword} className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Nueva contraseña real
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+                      let pwd = '';
+                      for (let i = 0; i < 8; i++) {
+                        pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+                      }
+                      setNewPasswordVal(pwd);
+                      setNewPasswordValVisible(true);
+                    }}
+                    className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    Generar clave
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={newPasswordValVisible ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={newPasswordVal}
+                    onChange={(e) => setNewPasswordVal(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className="w-full text-base sm:text-sm border border-slate-200/90 rounded-2xl pl-4 pr-11 py-3 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-hidden bg-white shadow-2xs font-mono placeholder:text-slate-400 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setNewPasswordValVisible(!newPasswordValVisible)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    title={newPasswordValVisible ? "Ocultar contraseña" : "Ver contraseña"}
+                  >
+                    {newPasswordValVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Esta contraseña se registrará y validará en Firebase Auth para que el usuario pueda iniciar sesión con éxito.
+                </p>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setChangingPasswordOp(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingPassword}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+                >
+                  {isUpdatingPassword ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Guardando en Auth...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5 stroke-[3]" /> Guardar contraseña
+                    </>
+                  )}
                 </button>
               </div>
             </form>

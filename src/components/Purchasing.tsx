@@ -54,13 +54,7 @@ export default function Purchasing({
 
   // Available branches list
   const availableBranches = useMemo(() => {
-    const list = config?.branches && config.branches.length > 0 
-      ? config.branches 
-      : [
-          { id: 'branch-1', name: 'Sucursal Central (Principal)', code: 'SUC-01', address: 'Zona Central', city: 'Guatemala', isMain: true, isActive: true },
-          { id: 'branch-2', name: 'ferreteria 2', code: 'SUC-02', address: 'Km 14.5 Carretera', city: 'Mixco', isMain: false, isActive: true },
-          { id: 'branch-3', name: 'FERRETERIA 3', code: 'SUC-03', address: 'Centro Comercial', city: 'Villa Nueva', isMain: false, isActive: true }
-        ];
+    const list = config?.branches || [];
 
     if (user?.isOperator) {
       const allowed = (user.branches && user.branches.length > 0)
@@ -75,7 +69,7 @@ export default function Purchasing({
 
   const defaultBranchName = useMemo(() => {
     if (activeBranchName && activeBranchName !== 'Todas') return activeBranchName;
-    return availableBranches[0]?.name || 'Sucursal Central (Principal)';
+    return availableBranches[0]?.name || '';
   }, [activeBranchName, availableBranches]);
 
   useEffect(() => {

@@ -1,17 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Base Body and App Background Overrides */
+/* Base Body and Enterprise App Background */
 body, html {
   font-family: var(--font-sans);
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: #F5F7FA;
+  color: #1F2937;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings with consistent SaaS hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-sans);
+  color: #1F2937;
+  letter-spacing: -0.015em;
 }
 
 /* Chrome, Safari, Edge, Opera - Hide input[type=number] spinners */
@@ -26,79 +35,58 @@ input[type=number] {
   -moz-appearance: textfield;
 }
 
-h1, h2, h3, h4 {
-  font-family: var(--font-display), var(--font-sans);
-}
-
-/* Custom Scrollbars */
+/* Professional SaaS Scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: #CBD5E1;
+  border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #94A3B8;
 }
 
-
-/* Modals & Backdrop Overrides */
-.bg-black\/50 {
-  background-color: rgba(0, 0, 0, 0.75) !important;
-  backdrop-filter: blur(4px) !important;
+/* Clean backdrop for modals */
+.bg-black\/50, .bg-slate-900\/60, .bg-slate-950\/60, .bg-slate-950\/85 {
+  background-color: rgba(15, 23, 42, 0.65) !important;
 }
 
-/* Buttons Glows and Modern Effects */
+/* Enterprise Primary & Action Button Overrides */
 .bg-blue-600 {
-  background-color: #2563eb !important;
+  background-color: #2563EB !important;
 }
 .bg-blue-600:hover {
-  background-color: #1d4ed8 !important;
-  box-shadow: 0 0 10px rgba(37, 99, 235, 0.3) !important;
+  background-color: #1D4ED8 !important;
 }
 .bg-emerald-600 {
-  background-color: #059669 !important;
+  background-color: #16A34A !important;
 }
 .bg-emerald-600:hover {
-  background-color: #047857 !important;
-  box-shadow: 0 0 10px rgba(5, 150, 105, 0.3) !important;
+  background-color: #15803D !important;
 }
 
-/* Fix SVG chart text labels for Recharts in dark mode */
-.recharts-text {
-  fill: #94a3b8 !important;
-}
-.recharts-legend-item-text {
-  color: #cbd5e1 !important;
-}
-.recharts-tooltip-wrapper {
-  background-color: #121826 !important;
-  border-color: #1f2d44 !important;
-}
-.recharts-default-tooltip {
-  background-color: #121826 !important;
-  border-color: #1f2d44 !important;
+/* Numeric tabular values alignment */
+.font-mono {
+  font-feature-settings: "tnum" 1;
 }
 
-/* Custom Sidebar Navigation Styling with precise requested selector */
-div#root:nth-of-type(1) > div:nth-of-type(1) > aside:nth-of-type(1) > nav:nth-of-type(1) {
+/* Clean Sidebar Navigation Scrollbar */
+div#root aside nav {
   scroll-behavior: smooth;
   scrollbar-width: thin;
-  scrollbar-color: #1e293b transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
-
-div#root:nth-of-type(1) > div:nth-of-type(1) > aside:nth-of-type(1) > nav:nth-of-type(1)::-webkit-scrollbar {
+div#root aside nav::-webkit-scrollbar {
   width: 4px;
 }
-
-div#root:nth-of-type(1) > div:nth-of-type(1) > aside:nth-of-type(1) > nav:nth-of-type(1)::-webkit-scrollbar-thumb {
-  background-color: #1e293b;
-  border-radius: 9999px;
+div#root aside nav::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
 }
 
 @keyframes slide-in-left {
@@ -111,7 +99,7 @@ div#root:nth-of-type(1) > div:nth-of-type(1) > aside:nth-of-type(1) > nav:nth-of
 }
 
 .animate-slide-in-left {
-  animation: slide-in-left 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slide-in-left 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 

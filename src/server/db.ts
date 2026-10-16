@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
-import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User } from '../types';
+import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License } from '../types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
@@ -18,6 +18,8 @@ interface DbSchema {
   shifts: Record<string, Shift[]>; // key is userId
   files: Record<string, UserFile[]>; // key is userId
   configs: Record<string, AppConfig>; // key is userId
+  licenses: Record<string, License>; // key is userId
+  operators: Record<string, any[]>; // key is userId
 }
 
 const emptyDb: DbSchema = {
@@ -30,7 +32,9 @@ const emptyDb: DbSchema = {
   expenses: {},
   shifts: {},
   files: {},
-  configs: {}
+  configs: {},
+  licenses: {},
+  operators: {}
 };
 
 let dbCache: DbSchema | null = null;
@@ -60,6 +64,11 @@ async function writeDb() {
 }
 
 // User-related functions
+export async function getUsers() {
+  if (!dbCache) await initDb();
+  return dbCache!.users;
+}
+
 export async function getUserByEmail(email: string) {
   if (!dbCache) await initDb();
   return dbCache!.users.find(u => u.email.toLowerCase() === email.toLowerCase());
@@ -94,6 +103,21 @@ export async function createUser(email: string, name: string, passwordHash: stri
   dbCache!.expenses[userId] = [];
   dbCache!.shifts[userId] = [];
   dbCache!.files[userId] = [];
+  if (!dbCache!.licenses) dbCache!.licenses = {};
+  if (!dbCache!.operators) dbCache!.operators = {};
+  dbCache!.operators[userId] = [];
+  dbCache!.licenses[userId] = {
+    userId,
+    clientName: name,
+    clientEmail: email,
+    application: 'Yaa POS',
+    planType: 'Básico',
+    expirationDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+    status: 'Activa',
+    licenseStartDate: new Date().toISOString().split('T')[0],
+    maxUsers: 3,
+    maxBranches: 1
+  };
   dbCache!.configs[userId] = {
     storeName: `Mi Ferretería/Farmacia - ${name}`,
     currency: 'Q', // Default to Quetzal (common in Guatemala/Latin America, or user can edit)
@@ -423,4 +447,68 @@ export async function deleteFile(userId: string, fileId: string) {
 
   // Delete metadata
   return deleteFromCollection('files', userId, fileId);
+}
+
+// --- LICENSES & PLAN REPOSITORIES ---
+export async function getLicense(userId: string): Promise<License> {
+  if (!dbCache) await initDb();
+  if (!dbCache!.licenses) dbCache!.licenses = {};
+  
+  if (!dbCache!.licenses[userId]) {
+    const user = await getUserById(userId);
+    dbCache!.licenses[userId] = {
+      userId,
+      clientName: user?.name || 'Empresa',
+      clientEmail: user?.email || '',
+      application: 'Yaa POS',
+      planType: 'Básico',
+      expirationDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+      status: 'Activa',
+      licenseStartDate: new Date().toISOString().split('T')[0],
+      maxUsers: 3,
+      maxBranches: 1
+    };
+    await writeDb();
+  }
+  return dbCache!.licenses[userId];
+}
+
+export async function saveLicense(userId: string, license: License): Promise<License> {
+  if (!dbCache) await initDb();
+  if (!dbCache!.licenses) dbCache!.licenses = {};
+  dbCache!.licenses[userId] = license;
+  await writeDb();
+  return license;
+}
+
+// --- OPERATORS / USERS PER COMPANY ---
+export async function getOperators(userId: string): Promise<any[]> {
+  if (!dbCache) await initDb();
+  if (!dbCache!.operators) dbCache!.operators = {};
+  return dbCache!.operators[userId] || [];
+}
+
+export async function saveOperator(userId: string, operator: any): Promise<any> {
+  if (!dbCache) await initDb();
+  if (!dbCache!.operators) dbCache!.operators = {};
+  if (!dbCache!.operators[userId]) dbCache!.operators[userId] = [];
+
+  const existingIdx = dbCache!.operators[userId].findIndex(o => o.id === operator.id || (o.email && o.email.toLowerCase() === (operator.email || '').toLowerCase()));
+  if (existingIdx >= 0) {
+    dbCache!.operators[userId][existingIdx] = operator;
+  } else {
+    dbCache!.operators[userId].push(operator);
+  }
+  await writeDb();
+  return operator;
+}
+
+export async function deleteOperator(userId: string, operatorId: string): Promise<boolean> {
+  if (!dbCache) await initDb();
+  if (!dbCache!.operators || !dbCache!.operators[userId]) return false;
+  const initialLen = dbCache!.operators[userId].length;
+  dbCache!.operators[userId] = dbCache!.operators[userId].filter(o => o.id !== operatorId && o.email !== operatorId);
+  const success = dbCache!.operators[userId].length < initialLen;
+  if (success) await writeDb();
+  return success;
 }

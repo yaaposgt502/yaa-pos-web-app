@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Branch, AppConfig, Product, User, Sale, Shift, Expense, Purchase } from '../types';
+import { Branch, AppConfig, Product, User, Sale, Shift, Expense, Purchase, License } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
+import { checkBranchLimit, getPlanDefinition } from '../utils/planLimits';
 import { 
   Building2, 
   Plus, 
@@ -28,7 +29,8 @@ import {
   Inbox,
   BarChart3,
   ShieldCheck,
-  ShoppingCart
+  ShoppingCart,
+  Sparkles
 } from 'lucide-react';
 
 interface BranchesProps {
@@ -36,6 +38,8 @@ interface BranchesProps {
   products?: Product[];
   branchProducts?: Product[];
   user?: User | null;
+  userLicense?: License | null;
+  onOpenPlanUpgrade?: () => void;
   onSaveConfig: (cfg: AppConfig) => Promise<AppConfig>;
   onNavigate?: (tab: string) => void;
   sales?: Sale[];
@@ -47,62 +51,15 @@ interface BranchesProps {
   onTransferStock?: (sourceBranchId: string, targetBranchId: string, productId: string, quantity: number) => Promise<void>;
 }
 
-const defaultBranchesSeed: Branch[] = [
-  {
-    id: 'branch-1',
-    name: 'Sucursal Central (Sede Principal)',
-    code: 'SUC-01',
-    address: '6ta Avenida 12-40, Zona 1, Centro Histórico',
-    city: 'Ciudad de Guatemala',
-    department: 'Guatemala',
-    phone: '2234-5678',
-    email: 'central@yaapos.com',
-    manager: 'Luis Fernando Mijangos',
-    openingHours: 'Lun - Sáb: 07:30 - 20:30',
-    isMain: true,
-    isActive: true,
-    notes: 'Sede central con almacén principal y atención al público.',
-    createdAt: '2026-01-15T08:00:00.000Z'
-  },
-  {
-    id: 'branch-2',
-    name: 'Sucursal Zona 10 - Pradera',
-    code: 'SUC-02',
-    address: 'Boulevard Los Próceres 18-20, Zona 10',
-    city: 'Ciudad de Guatemala',
-    department: 'Guatemala',
-    phone: '2367-8901',
-    email: 'zona10@yaapos.com',
-    manager: 'Karla Estrada',
-    openingHours: 'Lun - Dom: 08:00 - 21:00',
-    isMain: false,
-    isActive: true,
-    notes: 'Punto de venta zona comercial, alto flujo de clientes.',
-    createdAt: '2026-03-10T09:30:00.000Z'
-  },
-  {
-    id: 'branch-3',
-    name: 'Sucursal Mixco - San Cristóbal',
-    code: 'SUC-03',
-    address: '3ra Calle 8-15, Sector B-1, Boulevard San Cristóbal',
-    city: 'Mixco',
-    department: 'Guatemala',
-    phone: '2478-1122',
-    email: 'mixco@yaapos.com',
-    manager: 'Roberto Gómez',
-    openingHours: 'Lun - Sáb: 08:00 - 19:30',
-    isMain: false,
-    isActive: true,
-    notes: 'Sucursal residencial con servicio a domicilio.',
-    createdAt: '2026-05-20T10:00:00.000Z'
-  }
-];
+const defaultBranchesSeed: Branch[] = [];
 
 export default function Branches({ 
   config, 
   products = [], 
   branchProducts = [],
   user, 
+  userLicense,
+  onOpenPlanUpgrade,
   onSaveConfig, 
   onNavigate,
   sales = [],
@@ -115,7 +72,7 @@ export default function Branches({
 }: BranchesProps) {
   // Current branches list from config or defaults
   const allBranches: Branch[] = useMemo(() => {
-    if (config.branches && config.branches.length > 0) {
+    if (config.branches) {
       return config.branches;
     }
     return defaultBranchesSeed;
@@ -269,8 +226,19 @@ export default function Branches({
 
   const activeBranch = branches.find(b => b.id === activeBranchId) || branches[0];
 
+  const plan = useMemo(() => getPlanDefinition(userLicense?.planType), [userLicense?.planType]);
+  const branchLimitInfo = useMemo(() => checkBranchLimit(branches.length, userLicense?.planType), [branches.length, userLicense?.planType]);
+
   // Open modal for Create
   const handleOpenCreateModal = () => {
+    if (!branchLimitInfo.allowed && user?.id !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
+      if (onOpenPlanUpgrade) {
+        onOpenPlanUpgrade();
+      } else {
+        alert(branchLimitInfo.message);
+      }
+      return;
+    }
     setEditingBranch(null);
     const nextNum = branches.length + 1;
     const formattedCode = `SUC-0${nextNum}`;
@@ -327,6 +295,12 @@ export default function Branches({
 
     setIsSaving(true);
     setFormError('');
+
+    if (!editingBranch && !branchLimitInfo.allowed) {
+      setFormError(branchLimitInfo.message || 'Has alcanzado el límite de sucursales de tu plan.');
+      setIsSaving(false);
+      return;
+    }
 
     try {
       let updatedBranches: Branch[] = [];
@@ -460,21 +434,15 @@ export default function Branches({
 
   // Delete Branch
   const handleDeleteBranch = async (branch: Branch) => {
-    if (branch.isMain) {
-      alert('No se puede eliminar la sucursal principal. Asigne otra como principal primero.');
-      return;
-    }
-    if (branches.length <= 1) {
-      alert('Debe mantener al menos una sucursal registrada en el sistema.');
-      return;
-    }
-
     if (!confirm(`¿Está seguro de eliminar la sucursal "${branch.name}" (${branch.code})?`)) {
       return;
     }
 
     try {
-      const updated = branches.filter(b => b.id !== branch.id);
+      let updated = branches.filter(b => b.id !== branch.id);
+      if (branch.isMain && updated.length > 0) {
+        updated = updated.map((b, idx) => ({ ...b, isMain: idx === 0 }));
+      }
       const newActive = activeBranchId === branch.id ? (updated[0]?.id || '') : activeBranchId;
       const newConfig: AppConfig = {
         ...config,
@@ -547,30 +515,21 @@ export default function Branches({
                 Sucursales y Puntos de Emisión
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100/80 text-blue-800 border border-blue-200/60">
-                {branches.length} Sedes
+                Sucursales: {branches.length}
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 font-medium">
-              Administre las distintas ubicaciones físicas, almacenes y cajas de cobro de su negocio.
+              Administre las distintas ubicaciones físicas, almacenes y cajas de cobro para operar su negocio.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setIsTransferModalOpen(true)}
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer border border-slate-200 shadow-2xs"
-          >
-            <ArrowRightLeft className="w-4 h-4 text-slate-600" />
-            <span>Transferir Stock</span>
-          </button>
-
           {!isBranchRestricted && (
             <button
               type="button"
               onClick={handleOpenCreateModal}
-              className="px-5 py-2.5 bg-[#0086F0] hover:bg-[#0076d6] text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+              className="px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-sm transition-all active:scale-[0.98] cursor-pointer bg-[#0086F0] hover:bg-[#0076d6] text-white"
             >
               <Plus className="w-4 h-4" />
               <span>Nueva Sucursal</span>
@@ -588,43 +547,6 @@ export default function Branches({
           </div>
         </div>
       )}
-
-      {/* 2. Active Branch Operational Context Banner */}
-      <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-blue-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-blue-200 shrink-0">
-            <Store className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">Sucursal Activa para Operaciones:</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            </div>
-            <p className="font-extrabold text-sm sm:text-base text-white flex items-center gap-1.5">
-              {activeBranch?.name || 'Sucursal Central'}
-              <span className="font-mono text-xs px-2 py-0.5 rounded bg-blue-800/80 text-blue-200 font-bold">
-                {activeBranch?.code || 'SUC-01'}
-              </span>
-            </p>
-          </div>
-        </div>
-
-        {/* Quick switcher select */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-blue-200 font-medium hidden md:inline">Cambiar sede activa:</label>
-          <select
-            value={activeBranchId}
-            onChange={(e) => handleSetActiveBranch(e.target.value)}
-            className="bg-slate-900/90 text-white text-xs font-bold border border-blue-500/40 rounded-xl px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-blue-400 cursor-pointer shadow-inner"
-          >
-            {branches.map(b => (
-              <option key={b.id} value={b.id}>
-                {b.name} ({b.code}) {b.isMain ? '★ Principal' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
 
       {/* 3. Metrics Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -656,9 +578,9 @@ export default function Branches({
             <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
           </div>
           <div className="text-sm font-extrabold text-slate-800 truncate">
-            {branches.find(b => b.isMain)?.name.replace(/\(.*\)/, '') || 'Central'}
+            {branches.find(b => b.isMain)?.name.replace(/\(.*\)/, '') || (branches.length > 0 ? branches[0].name : 'No definida')}
           </div>
-          <p className="text-[10px] text-slate-400">Almacén y bodega matriz</p>
+          <p className="text-[10px] text-slate-400">{branches.length > 0 ? 'Almacén y bodega matriz' : 'Crea una sede como principal'}</p>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs space-y-1">
@@ -746,18 +668,45 @@ export default function Branches({
 
       {/* 5. Branch List (Cards View) */}
       {viewMode === 'cards' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredBranches.map((branch) => {
-            const isCurrentActive = branch.id === activeBranchId;
-            return (
-              <div 
-                key={branch.id}
-                className={`bg-white rounded-2xl border transition-all shadow-xs flex flex-col justify-between overflow-hidden ${
-                  isCurrentActive 
-                    ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md' 
-                    : 'border-slate-200/80 hover:border-slate-300 hover:shadow-sm'
-                }`}
+        filteredBranches.length === 0 ? (
+          <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-xs space-y-4">
+            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl mx-auto flex items-center justify-center border border-blue-100 shadow-inner">
+              <Building2 className="w-8 h-8 stroke-[1.8]" />
+            </div>
+            <div className="max-w-md mx-auto space-y-1.5">
+              <h3 className="text-base font-extrabold text-slate-800">
+                {branches.length === 0 ? 'No hay sucursales registradas' : 'No se encontraron sucursales'}
+              </h3>
+              <p className="text-xs text-slate-500 font-medium">
+                {branches.length === 0 
+                  ? 'Como Propietario / Administrador, usted decide qué sucursales y puntos de venta desea crear para operar su negocio.'
+                  : 'No hay ninguna sede que coincida con los filtros de búsqueda aplicados.'}
+              </p>
+            </div>
+            {!isBranchRestricted && branches.length === 0 && (
+              <button
+                type="button"
+                onClick={handleOpenCreateModal}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0086F0] hover:bg-[#0076d6] text-white rounded-xl text-xs font-extrabold shadow-sm transition-all active:scale-95 cursor-pointer"
               >
+                <Plus className="w-4 h-4" />
+                <span>Crear Primera Sucursal</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredBranches.map((branch) => {
+              const isCurrentActive = branch.id === activeBranchId;
+              return (
+                <div 
+                  key={branch.id}
+                  className={`bg-white rounded-2xl border transition-all shadow-xs flex flex-col justify-between overflow-hidden ${
+                    isCurrentActive 
+                      ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md' 
+                      : 'border-slate-200/80 hover:border-slate-300 hover:shadow-sm'
+                  }`}
+                >
                 {/* Card Top */}
                 <div className="p-5 space-y-3.5">
                   <div className="flex items-start justify-between gap-2">
@@ -864,16 +813,14 @@ export default function Branches({
                         <Edit3 className="w-4 h-4" />
                       </button>
 
-                      {!branch.isMain && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteBranch(branch)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-white transition-colors cursor-pointer"
-                          title="Eliminar sucursal"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteBranch(branch)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-white transition-colors cursor-pointer"
+                        title="Eliminar sucursal"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   )}
                 </div>
@@ -881,8 +828,7 @@ export default function Branches({
             );
           })}
         </div>
-      ) : (
-        /* Table View */
+      )) : (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -898,68 +844,75 @@ export default function Branches({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredBranches.map((branch) => {
-                  const isCurrentActive = branch.id === activeBranchId;
-                  return (
-                    <tr key={branch.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-bold text-slate-700">
-                        {branch.code}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                          {branch.name}
-                          {branch.isMain && (
-                            <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                          )}
-                          {isCurrentActive && (
-                            <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
-                              Activa POS
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-slate-400">{branch.openingHours}</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-600 max-w-xs truncate">
-                        {branch.address}, {branch.city}
-                      </td>
-                      <td className="py-3.5 px-4 font-medium text-slate-700">
-                        {branch.manager || '-'}
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-slate-600">
-                        {branch.phone || '-'}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleBranchActive(branch)}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-colors ${
-                            branch.isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {branch.isActive ? 'Activa' : 'Inactiva'}
-                        </button>
-                      </td>
-                      <td className="py-3.5 px-4 text-right space-x-1 whitespace-nowrap">
-                        {!isCurrentActive && (
+                {filteredBranches.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <p className="text-sm font-bold text-slate-700">No hay sucursales registradas</p>
+                      <p className="text-xs text-slate-400 mt-1">El Propietario / Administrador puede registrar una nueva sucursal con el botón "Nueva Sucursal".</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredBranches.map((branch) => {
+                    const isCurrentActive = branch.id === activeBranchId;
+                    return (
+                      <tr key={branch.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-700">
+                          {branch.code}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                            {branch.name}
+                            {branch.isMain && (
+                              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                            )}
+                            {isCurrentActive && (
+                              <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded">
+                                Activa POS
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400">{branch.openingHours}</span>
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-600 max-w-xs truncate">
+                          {branch.address}, {branch.city}
+                        </td>
+                        <td className="py-3.5 px-4 font-medium text-slate-700">
+                          {branch.manager || '-'}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-600">
+                          {branch.phone || '-'}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
                           <button
                             type="button"
-                            onClick={() => handleSetActiveBranch(branch.id)}
-                            className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-[11px] font-bold cursor-pointer"
+                            onClick={() => handleToggleBranchActive(branch)}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-colors ${
+                              branch.isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'
+                            }`}
                           >
-                            Seleccionar
+                            {branch.isActive ? 'Activa' : 'Inactiva'}
                           </button>
-                        )}
-                        {!user?.isOperator && (
-                          <>
+                        </td>
+                        <td className="py-3.5 px-4 text-right space-x-1 whitespace-nowrap">
+                          {!isCurrentActive && (
                             <button
                               type="button"
-                              onClick={() => handleOpenEditModal(branch)}
-                              className="p-1.5 text-slate-500 hover:text-blue-600 rounded cursor-pointer"
-                              title="Editar sucursal"
+                              onClick={() => handleSetActiveBranch(branch.id)}
+                              className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-[11px] font-bold cursor-pointer"
                             >
-                              <Edit3 className="w-4 h-4" />
+                              Seleccionar
                             </button>
-                            {!branch.isMain && (
+                          )}
+                          {!user?.isOperator && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(branch)}
+                                className="p-1.5 text-slate-500 hover:text-blue-600 rounded cursor-pointer"
+                                title="Editar sucursal"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteBranch(branch)}
@@ -968,13 +921,13 @@ export default function Branches({
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
-                            )}
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -987,22 +940,22 @@ export default function Branches({
           <div className="bg-white rounded-3xl max-w-xl w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
             
             {/* Modal Header */}
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div className="bg-[#ffffff] text-slate-800 px-6 py-4 flex items-center justify-between border-b border-slate-150">
               <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400">
+                <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-100">
                   <Building2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
                     {editingBranch ? 'Editar Sucursal' : 'Registrar Nueva Sucursal'}
                   </h3>
-                  <p className="text-[10px] text-slate-400">Configure los datos de la sede comercial</p>
+                  <p className="text-[10px] text-slate-500">Configure los datos de la sede comercial</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1190,17 +1143,22 @@ export default function Branches({
       {isTransferModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ArrowRightLeft className="w-5 h-5 text-sky-400" />
-                <h3 className="font-extrabold text-sm sm:text-base">
-                  Transferencia de Inventario entre Sucursales
-                </h3>
+            <div className="bg-[#ffffff] text-slate-800 px-6 py-4 flex items-center justify-between border-b border-slate-150">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-sky-50 text-sky-600 border border-sky-100">
+                  <ArrowRightLeft className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                    Transferencia de Inventario entre Sucursales
+                  </h3>
+                  <p className="text-[10px] text-slate-500">Mueva existencias entre sedes activas</p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsTransferModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>

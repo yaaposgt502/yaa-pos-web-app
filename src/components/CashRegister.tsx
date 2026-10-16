@@ -72,7 +72,7 @@ export default function CashRegister({
       const b = availableBranches.find(br => br.id === config.activeBranchId);
       if (b) return b.name;
     }
-    return availableBranches[0]?.name || 'Sucursal Central';
+    return availableBranches[0]?.name || '';
   }, [activeBranchName, userAllowedBranches, config?.activeBranchId, availableBranches]);
 
   const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch);
@@ -354,7 +354,7 @@ export default function CashRegister({
 
     setErrorMessage('');
 
-    const shiftBranch = selectedBranch || 'Sucursal Central';
+    const shiftBranch = selectedBranch || (availableBranches[0]?.name || '');
 
     const newShift: Shift = {
       id: '', // Server generates UUID
@@ -455,7 +455,7 @@ export default function CashRegister({
 
                   <td className="py-3.5 px-4">
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                      {sh.branch || 'Sucursal Central'}
+                      {sh.branch || 'Principal'}
                     </span>
                   </td>
 
@@ -564,54 +564,54 @@ export default function CashRegister({
       {activeShift ? (
         /* ACTIVE OPEN SHIFT VIEW - MATCHING THE DESIGN OF THE USER IMAGE */
         <div className="space-y-6">
-          <div className="bg-white rounded-3xl shadow-xl border border-slate-150/80 overflow-hidden animate-in fade-in duration-200">
+          <div className="bg-white rounded-lg shadow-xs border border-[#E2E8F0] overflow-hidden animate-in fade-in duration-200">
           
           {/* Header */}
-          <div className="bg-[#0084FF] text-white px-6 py-5 relative flex justify-between items-center shadow-xs">
+          <div className="bg-[#172B4D] text-white px-6 py-4 relative flex justify-between items-center shadow-xs">
             <div className="space-y-0.5">
-              <h2 className="font-extrabold text-lg flex items-center gap-2">
-                <span className="p-1 bg-white/10 rounded-lg">
-                  <CheckCircle2 className="w-5 h-5 text-blue-100" />
+              <h2 className="font-bold text-base flex items-center gap-2">
+                <span className="p-1 bg-white/10 rounded-md">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
                 </span>
                 Cierre de Turno y Arqueo
               </h2>
-              <p className="text-xs text-blue-100 font-medium">Verifique los montos antes de cerrar el turno</p>
+              <p className="text-xs text-slate-300 font-normal">Verifique los montos de efectivo físico antes de finalizar el turno</p>
             </div>
             <button 
               onClick={() => onNavigate?.('dashboard')} 
-              className="p-2 hover:bg-white/15 rounded-full text-blue-100 hover:text-white transition-all cursor-pointer"
+              className="p-1.5 hover:bg-white/15 rounded-md text-slate-300 hover:text-white transition-all cursor-pointer"
               title="Volver al Dashboard"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Two Columns Body */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 p-6 lg:p-8 bg-slate-50/45">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 p-5 sm:p-6 bg-slate-50/50">
             
             {/* Left Column (col-span-7) */}
-            <div id="cash-register-left" className="lg:col-span-7 space-y-6">
+            <div id="cash-register-left" className="lg:col-span-7 space-y-5">
               
               {/* 1. BALANCE GENERAL */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase">
-                  <span className="w-1 h-3 bg-indigo-500 rounded-full"></span>
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#64748B] tracking-wider uppercase">
+                  <span className="w-1 h-3 bg-[#2563EB] rounded-full"></span>
                   Balance General
                 </div>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {/* Caja Inicial */}
-                  <div className="bg-white border border-slate-150/70 rounded-2xl p-4 shadow-xs border-l-4 border-blue-500">
-                    <span className="text-xs font-bold text-slate-500 block mb-1">Caja Inicial</span>
-                    <div className="text-xl font-black text-slate-800 font-mono">
-                      {currency} {activeShift.initialCash.toFixed(2)}
+                  <div className="bg-white border border-[#E2E8F0] rounded-lg p-4 shadow-2xs border-l-4 border-l-[#2563EB]">
+                    <span className="text-xs font-semibold text-[#64748B] block mb-1">Caja Inicial</span>
+                    <div className="text-xl font-bold text-[#1F2937] font-mono tracking-tight">
+                      {currency}{activeShift.initialCash.toFixed(2)}
                     </div>
                   </div>
                   {/* Total Ingresos */}
-                  <div className="bg-white border border-slate-150/70 rounded-2xl p-4 shadow-xs border-l-4 border-emerald-500">
-                    <span className="text-xs font-bold text-slate-500 block mb-1">Total Ingresos</span>
-                    <div className="text-xl font-black text-emerald-600 font-mono">
-                      {currency} {shiftMetrics.totalIngresos.toFixed(2)}
+                  <div className="bg-white border border-[#E2E8F0] rounded-lg p-4 shadow-2xs border-l-4 border-l-[#16A34A]">
+                    <span className="text-xs font-semibold text-[#64748B] block mb-1">Total Ingresos</span>
+                    <div className="text-xl font-bold text-[#16A34A] font-mono tracking-tight">
+                      {currency}{shiftMetrics.totalIngresos.toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -728,47 +728,47 @@ export default function CashRegister({
             <div id="cash-register-right" className="lg:col-span-5 space-y-6">
               
               {/* 1. ARQUEO DE EFECTIVO */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase">
-                  <span className="w-1 h-3 bg-indigo-500 rounded-full"></span>
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#64748B] tracking-wider uppercase">
+                  <span className="w-1 h-3 bg-[#2563EB] rounded-full"></span>
                   Arqueo de Efectivo
                 </div>
 
-                <div className="bg-white border border-slate-150/80 rounded-2xl p-4 shadow-xs space-y-3">
-                  <div className="flex justify-between items-center text-xs text-slate-600">
+                <div className="bg-white border border-[#E2E8F0] rounded-lg p-4 shadow-2xs space-y-2.5">
+                  <div className="flex justify-between items-center text-xs text-[#64748B]">
                     <span>Saldo Inicial:</span>
-                    <span className="font-mono font-bold text-slate-800">{currency} {activeShift.initialCash.toFixed(2)}</span>
+                    <span className="font-mono font-semibold text-[#1F2937]">{currency}{activeShift.initialCash.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs text-slate-600">
+                  <div className="flex justify-between items-center text-xs text-[#64748B]">
                     <span>(+) Ventas Efectivo:</span>
-                    <span className="font-mono font-bold text-emerald-600">{currency} {shiftMetrics.cashSales.toFixed(2)}</span>
+                    <span className="font-mono font-semibold text-[#16A34A]">+{currency}{shiftMetrics.cashSales.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs text-slate-600">
+                  <div className="flex justify-between items-center text-xs text-[#64748B]">
                     <span>(+) Adelantos Crédito:</span>
-                    <span className="font-mono font-bold text-emerald-600">{currency} 0.00</span>
+                    <span className="font-mono font-semibold text-[#16A34A]">+{currency}0.00</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs text-slate-600">
+                  <div className="flex justify-between items-center text-xs text-[#64748B]">
                     <span>(+) Pagos de Cuotas:</span>
-                    <span className="font-mono font-bold text-emerald-600">{currency} 0.00</span>
+                    <span className="font-mono font-semibold text-[#16A34A]">+{currency}0.00</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs text-slate-600">
+                  <div className="flex justify-between items-center text-xs text-[#64748B]">
                     <span>(-) Gastos Efectivo:</span>
-                    <span className="font-mono font-bold text-red-500">-{currency} {shiftMetrics.totalExpenses.toFixed(2)}</span>
+                    <span className="font-mono font-semibold text-[#DC2626]">-{currency}{shiftMetrics.totalExpenses.toFixed(2)}</span>
                   </div>
                   
-                  <div className="border-t border-slate-100 pt-3 flex justify-between items-center font-black text-slate-800">
+                  <div className="border-t border-[#E2E8F0] pt-2.5 flex justify-between items-center font-bold text-[#1F2937]">
                     <span className="text-xs">Esperado en Caja:</span>
-                    <span className="font-mono text-base">{currency} {expectedCash.toFixed(2)}</span>
+                    <span className="font-mono text-base">{currency}{expectedCash.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
 
               {/* 2. EFECTIVO FÍSICO REAL INPUT */}
-              <form onSubmit={handleCloseRegister} className="space-y-4">
+              <form onSubmit={handleCloseRegister} className="space-y-3.5">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-600">Efectivo Físico Real</label>
-                  <div className="flex rounded-2xl border-2 border-blue-500 overflow-hidden bg-white shadow-xs focus-within:ring-2 focus-within:ring-blue-300 transition-all">
-                    <div className="bg-blue-600 text-white font-black font-mono px-5 flex items-center justify-center text-sm">
+                  <label className="block text-xs font-semibold text-[#1F2937]">Efectivo Físico Contado</label>
+                  <div className="flex rounded-lg border border-[#E2E8F0] overflow-hidden bg-white shadow-2xs focus-within:ring-1 focus-within:ring-[#2563EB] transition-all">
+                    <div className="bg-slate-100 text-[#1F2937] font-bold font-mono px-4 flex items-center justify-center text-xs border-r border-[#E2E8F0]">
                       {currency}
                     </div>
                     <input
@@ -779,31 +779,31 @@ export default function CashRegister({
                       placeholder="0.00"
                       value={finalCashInput}
                       onChange={(e) => setFinalCashInput(e.target.value)}
-                      className="w-full px-4 py-3 focus:outline-hidden font-mono text-right font-black text-xl text-slate-700 bg-white"
+                      className="w-full px-3.5 py-2.5 focus:outline-hidden font-mono text-right font-bold text-lg text-[#1F2937] bg-white"
                     />
                   </div>
                   
                   {/* Difference Gray Badge */}
-                  <div className="flex justify-end">
+                  <div className="flex justify-end pt-1">
                     {(() => {
                       const physical = parseFloat(finalCashInput) || 0;
                       const diff = physical - expectedCash;
-                      let badgeColor = "bg-slate-500 text-white";
-                      let diffText = `${currency} ${diff.toFixed(2)}`;
+                      let badgeColor = "bg-slate-100 text-[#64748B] border border-[#E2E8F0]";
+                      let diffText = `${currency}${diff.toFixed(2)}`;
                       if (finalCashInput) {
                         if (Math.abs(diff) < 0.01) {
-                          badgeColor = "bg-emerald-600 text-white";
+                          badgeColor = "bg-emerald-50 text-[#16A34A] border border-emerald-200";
                           diffText = "Caja Cuadra (0.00)";
                         } else if (diff > 0) {
-                          badgeColor = "bg-blue-600 text-white";
+                          badgeColor = "bg-blue-50 text-[#2563EB] border border-blue-200";
                           diffText = `Sobrante: +${currency}${diff.toFixed(2)}`;
                         } else {
-                          badgeColor = "bg-rose-600 text-white";
-                          diffText = `Faltante: ${currency}${diff.toFixed(2)}`;
+                          badgeColor = "bg-rose-50 text-[#DC2626] border border-rose-200";
+                          diffText = `Faltante: -${currency}${Math.abs(diff).toFixed(2)}`;
                         }
                       }
                       return (
-                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold shadow-xs ${badgeColor} transition-all`}>
+                        <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-mono font-semibold ${badgeColor} transition-all`}>
                           {diffText}
                         </span>
                       );
@@ -813,34 +813,34 @@ export default function CashRegister({
 
                 {/* 3. OBSERVACIONES */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-600">Observaciones</label>
+                  <label className="block text-xs font-semibold text-[#1F2937]">Observaciones / Justificación</label>
                   <textarea
-                    placeholder="Justificación de diferencias..."
+                    placeholder="Justificación de diferencias o notas de turno..."
                     value={formObservations}
                     onChange={(e) => setFormObservations(e.target.value)}
-                    className="w-full text-xs border border-slate-200 rounded-2xl p-3 focus:ring-2 focus:ring-blue-500 focus:outline-hidden min-h-[85px] bg-white text-slate-800 placeholder-slate-400"
+                    className="w-full text-xs border border-[#E2E8F0] rounded-lg p-2.5 focus:ring-1 focus:ring-[#2563EB] focus:outline-hidden min-h-[70px] bg-white text-[#1F2937] placeholder-slate-400"
                   />
                 </div>
 
                 {errorMessage && (
-                  <div className="text-xs text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-100 font-semibold">
+                  <div className="text-xs text-[#DC2626] bg-rose-50 p-2.5 rounded-lg border border-rose-200 font-medium">
                     {errorMessage}
                   </div>
                 )}
 
                 {/* Action Buttons */}
-                <div className="space-y-2 pt-2">
+                <div className="space-y-2 pt-1">
                   <button
                     type="submit"
-                    className="w-full py-3.5 bg-[#f05a30] hover:bg-[#d84a22] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md hover:shadow-lg active:scale-98 transition-all cursor-pointer uppercase tracking-wider"
+                    className="w-full py-2.5 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <Lock className="w-4 h-4 text-white" />
-                    CERRAR TURNO
+                    Cerrar Turno de Caja
                   </button>
                   <button
                     type="button"
                     onClick={() => onNavigate?.('dashboard')}
-                    className="w-full py-2 text-slate-400 hover:text-slate-600 text-xs font-bold transition-all cursor-pointer"
+                    className="w-full py-2 text-[#64748B] hover:text-[#1F2937] text-xs font-medium transition-all cursor-pointer"
                   >
                     Cancelar
                   </button>
@@ -858,38 +858,35 @@ export default function CashRegister({
         <div className="space-y-6">
           
           {/* Main Shift Action Console */}
-          <div 
-            className="bg-white rounded-2xl border shadow-xs p-6 space-y-6 max-w-2xl"
-            style={{ borderColor: '#1E88E5' }}
-          >
+          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs p-5 space-y-5 max-w-xl">
             
             {/* State Banner */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3.5">
               <div className="space-y-0.5">
-                <h2 className="font-bold text-slate-800 text-lg">Caja de Cobro</h2>
-                <p className="text-xs text-slate-500">Controle el flujo de dinero físico de su tienda.</p>
+                <h2 className="font-bold text-[#1F2937] text-base">Caja de Cobro</h2>
+                <p className="text-xs text-[#64748B]">Control de turno y flujo de efectivo para ventas presenciales.</p>
               </div>
-              <div className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 uppercase bg-red-50 text-red-700 border border-red-200">
+              <div className="px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 uppercase bg-rose-50 text-[#DC2626] border border-rose-200">
                 <Lock className="w-3.5 h-3.5" /> Cerrada
               </div>
             </div>
 
             {/* FORM TO OPEN REGISTER */}
             <form onSubmit={handleOpenRegister} className="space-y-4 animate-in fade-in duration-150">
-              <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl space-y-2">
-                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-                  <Unlock className="w-4 h-4 text-emerald-600" />
+              <div className="bg-slate-50 border border-[#E2E8F0] p-3.5 rounded-lg space-y-1">
+                <h3 className="font-semibold text-xs text-[#1F2937] flex items-center gap-1.5">
+                  <Unlock className="w-4 h-4 text-[#16A34A]" />
                   Apertura de Caja
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Ingrese el efectivo base en caja física antes de iniciar ventas hoy (para dar cambios a clientes).
+                <p className="text-[11px] text-[#64748B]">
+                  Ingrese el fondo de efectivo inicial en gaveta para dar cambio antes de iniciar operaciones en este turno.
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-500 uppercase">Fondo de Caja Inicial *</label>
+                <label className="block text-xs font-semibold text-[#1F2937]">Fondo de Caja Inicial *</label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500 font-bold font-mono">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-[#64748B] font-bold font-mono text-xs">
                     {currency}
                   </span>
                   <input
@@ -900,16 +897,16 @@ export default function CashRegister({
                     placeholder="0.00"
                     value={initialCashInput}
                     onChange={(e) => setInitialCashInput(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                    className="w-full pl-8 pr-3.5 py-2 rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] font-mono font-bold text-xs text-[#1F2937] bg-white"
                   />
                 </div>
               </div>
 
-              {errorMessage && <div className="text-xs text-red-600 bg-red-50 p-2.5 rounded-lg">{errorMessage}</div>}
+              {errorMessage && <div className="text-xs text-[#DC2626] bg-rose-50 p-2.5 rounded-lg border border-rose-200 font-medium">{errorMessage}</div>}
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs active:scale-98 transition-all cursor-pointer"
+                className="w-full py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-lg text-xs font-semibold shadow-xs active:scale-[0.98] transition-all cursor-pointer"
               >
                 Iniciar Apertura de Caja
               </button>

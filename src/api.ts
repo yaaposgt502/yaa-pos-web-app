@@ -2,7 +2,8 @@ import {
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut,
-  updatePassword
+  updatePassword,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { initializeApp, getApp, deleteApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
@@ -29,6 +30,7 @@ import { auth, db, storage } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License } from './types';
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
+import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './utils/planLimits';
 
 export enum OperationType {
   CREATE = 'create',
@@ -147,6 +149,34 @@ export async function registerUser(email: string, name: string, password: string
   
   // Save user profile metadata to Firestore
   await setDoc(doc(db, 'users', firebaseUser.uid), safeUser);
+  
+  // Assign default Básico subscription plan to the new company
+  const defaultLicense: License = {
+    userId: firebaseUser.uid,
+    clientName: name,
+    clientEmail: firebaseUser.email || email,
+    application: 'Yaa POS',
+    planType: 'Básico',
+    expirationDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+    status: 'Activa',
+    licenseStartDate: new Date().toISOString().split('T')[0],
+    maxUsers: 3,
+    maxBranches: 1
+  };
+  try {
+    await setDoc(doc(db, 'licenses', firebaseUser.uid), defaultLicense);
+    const saved = localStorage.getItem('yaa_pos_licenses');
+    let list: License[] = [];
+    if (saved) {
+      try { list = JSON.parse(saved); } catch {}
+    }
+    list = [defaultLicense, ...list.filter(l => l.userId !== firebaseUser.uid)];
+    localStorage.setItem('yaa_pos_licenses', JSON.stringify(list));
+    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
+  } catch (licErr) {
+    console.warn("Could not set initial license in Firestore:", licErr);
+  }
+
   setToken(firebaseUser.uid);
   return { token: firebaseUser.uid, user: safeUser };
 }
@@ -162,52 +192,116 @@ export interface Operator {
   branches?: string[];
   ownerId?: string;
   disabledTabs?: string[];
+  passwordProtected?: boolean;
 }
 
-// Helper to register standard user or sync operator passwords across standard Firebase Auth and Firestore
-async function syncOperatorAuth(email: string, oldPassword?: string, newPassword?: string) {
-  const normalizedEmail = email.toLowerCase();
+// Helper to register operator accounts in standard Firebase Auth with real passwords
+export async function provisionOperatorAuth(email: string, password?: string, oldPassword?: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
   const apiKey = firebaseConfig.apiKey;
   
-  try {
-    // 1. Try to create standard Firebase Auth user account via REST API
-    const signUpUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`;
-    const res = await fetch(signUpUrl, {
+  if (!password || !password.trim()) {
+    return;
+  }
+  
+  const trimmedPassword = password.trim();
+  if (trimmedPassword.length < 6) {
+    throw new Error('La contraseña debe tener al menos 6 caracteres para ser válida en el sistema de autenticación.');
+  }
+
+  // 1. Try to register new user in Firebase Auth via Identity Toolkit
+  const signUpUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`;
+  const res = await fetch(signUpUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: normalizedEmail,
+      password: trimmedPassword,
+      returnSecureToken: true
+    })
+  });
+  
+  const data = await res.json();
+  
+  if (res.ok) {
+    return;
+  }
+
+  const errorMsg = data.error?.message;
+  if (errorMsg === 'EMAIL_EXISTS') {
+    const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
+    
+    // 2. Check if user already has this exact password
+    const checkCurrent = await fetch(signInUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: normalizedEmail,
-        password: newPassword || 'cajero123',
+        password: trimmedPassword,
         returnSecureToken: true
       })
     });
-    const data = await res.json();
-    
-    // 2. If user already exists and we want to change their password:
-    if (!res.ok && data.error?.message === 'EMAIL_EXISTS' && oldPassword && newPassword && oldPassword !== newPassword) {
-      const tempAppName = 'TempApp_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
-      let tempApp;
+    if (checkCurrent.ok) {
+      return;
+    }
+
+    // 3. If oldPassword was provided, sign in and update to new password
+    if (oldPassword && oldPassword !== trimmedPassword) {
       try {
-        tempApp = initializeApp(firebaseConfig, tempAppName);
-      } catch {
-        tempApp = getApp(tempAppName);
-      }
-      const tempAuth = getAuth(tempApp);
-      try {
-        const cred = await signInWithEmailAndPassword(tempAuth, normalizedEmail, oldPassword);
-        if (cred.user) {
-          await updatePassword(cred.user, newPassword);
+        const signInOld = await fetch(signInUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: normalizedEmail,
+            password: oldPassword,
+            returnSecureToken: true
+          })
+        });
+        const oldData = await signInOld.json();
+        if (signInOld.ok && oldData.idToken) {
+          const updateUrl = `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`;
+          const updateRes = await fetch(updateUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              idToken: oldData.idToken,
+              password: trimmedPassword,
+              returnSecureToken: true
+            })
+          });
+          if (updateRes.ok) {
+            return;
+          }
         }
       } catch (err) {
-        console.warn("Failed to update operator password on temporary auth instance:", err);
-      } finally {
-        await signOut(tempAuth);
-        await deleteApp(tempApp);
+        console.warn("Failed to update password with oldPassword:", err);
       }
     }
-  } catch (err) {
-    console.warn("Operator Auth Sync failed:", err);
+
+    // 4. Send official password reset email if it could not be updated directly
+    try {
+      await sendPasswordReset(normalizedEmail);
+    } catch (resetErr) {
+      console.warn("Password reset email dispatch:", resetErr);
+    }
+    return;
   }
+
+  if (errorMsg && (errorMsg.includes('WEAK_PASSWORD') || errorMsg.includes('Password should be at least 6 characters'))) {
+    throw new Error('La contraseña debe tener al menos 6 caracteres.');
+  }
+  if (errorMsg === 'INVALID_EMAIL') {
+    throw new Error('El correo electrónico no tiene un formato válido.');
+  }
+
+  throw new Error(data.error?.message || 'Error al registrar credenciales en el sistema de autenticación');
+}
+
+// Official, secure Firebase Auth password reset service
+export async function sendPasswordReset(email: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) throw new Error('Correo electrónico requerido');
+  await sendPasswordResetEmail(auth, normalizedEmail);
 }
 
 export function performValidation(lic: License | null | any, currentUser: User | null | any): { isBlocked: boolean; reason: string } {
@@ -465,64 +559,75 @@ export async function getOperators(): Promise<Operator[]> {
     const correctEmail = baseUser.email || authEmail || 'propietario@yaapos.com';
     const correctName = baseUser.name || authName || 'Propietario / Administrador';
 
-    if (list.length === 0) {
-      // Prepopulate with default operators using real owner info
-      const defaults: Operator[] = [
-        { 
-          id: '1', 
-          name: correctName, 
-          email: correctEmail, 
-          role: 'Propietario / Administrador', 
-          password: 'adminpassword123', 
-          status: 'active', 
-          branch: 'Todas',
-          ownerId: uid,
-          disabledTabs: []
-        },
-        { id: '2', name: 'Cajero Principal', email: 'cajero1@yaapos.com', role: 'Cajero', password: 'cajero123', status: 'active', branch: 'Todas', ownerId: uid, disabledTabs: [] },
-        { id: '3', name: 'Almacenero Turno Mañana', email: 'almacen@yaapos.com', role: 'Supervisor de Almacén', password: 'almacen123', status: 'active', branch: 'ferreteria 2', ownerId: uid, disabledTabs: [] }
-      ];
-      for (const op of defaults) {
-        await saveOperator(op);
+    // Clean up legacy fictitious operators if present in Firestore (cajero1@yaapos.com, almacen@yaapos.com)
+    const cleanedList = list.filter(op => {
+      const email = (op.email || '').toLowerCase();
+      if (email === 'cajero1@yaapos.com' || email === 'almacen@yaapos.com') {
+        try {
+          deleteDoc(doc(db, 'users', uid, 'operators', email));
+          deleteDoc(doc(db, 'operators', email));
+        } catch {}
+        return false;
       }
-      return defaults;
+      return true;
+    });
+
+    if (cleanedList.length === 0) {
+      // Default to only the authenticated owner, protected by Firebase Auth
+      const ownerOp: Operator = { 
+        id: '1', 
+        name: correctName, 
+        email: correctEmail, 
+        role: 'Propietario / Administrador', 
+        status: 'active', 
+        branch: 'Todas',
+        ownerId: uid,
+        disabledTabs: [],
+        passwordProtected: true
+      };
+      await saveOperator(ownerOp);
+      return [ownerOp];
     }
 
-    // Dynamic retroactive correction:
-    // If we have an existing operator that is ID "1", has the role "Propietario / Administrador", 
-    // or has the old placeholder email "juancastr19.14@gmail.com", we correct its info with the real owner's details.
-    let updatedAny = false;
-    const correctedList = await Promise.all(list.map(async (op) => {
-      if (op.role === 'Propietario / Administrador' || op.email === 'juancastr19.14@gmail.com' || op.id === '1') {
-        if (op.email !== correctEmail || op.name !== correctName) {
-          const updatedOp: Operator = {
-            ...op,
-            name: correctName,
-            email: correctEmail,
-            role: 'Propietario / Administrador'
-          };
-          
-          // Delete old document if the email changed to prevent duplicate keys
-          if (op.email && op.email.toLowerCase() !== correctEmail.toLowerCase()) {
-            const oldNormalized = op.email.toLowerCase();
-            try {
-              await deleteDoc(doc(db, 'users', uid, 'operators', oldNormalized));
-              await deleteDoc(doc(db, 'operators', oldNormalized));
-            } catch (delErr) {
-              console.warn("Failed to delete stale/pre-migrated admin operator doc:", delErr);
-            }
-          }
+    const sessionOwnerPassword = typeof window !== 'undefined' 
+      ? (sessionStorage.getItem('yaa_pos_session_password') || localStorage.getItem('yaa_pos_owner_password') || '') 
+      : '';
 
+    // Dynamic retroactive correction and real password security assurance
+    const correctedList = await Promise.all(cleanedList.map(async (op) => {
+      const isOwner = op.role === 'Propietario / Administrador' || op.email === 'juancastr19.14@gmail.com' || op.id === '1';
+      
+      // Strictly ensure passwords are never stored in plaintext in Firestore
+      const hasStalePlaintextPassword = !!op.password;
+
+      const updatedOp: Operator = {
+        ...op,
+        name: isOwner ? correctName : op.name,
+        email: isOwner ? correctEmail : op.email,
+        password: undefined, // Never store or expose plaintext passwords
+        passwordProtected: true
+      };
+
+      // If document had a stale plaintext password or owner details changed, clean it in Firestore
+      if (hasStalePlaintextPassword || (isOwner && (op.email !== correctEmail || op.name !== correctName))) {
+        if (isOwner && op.email && op.email.toLowerCase() !== correctEmail.toLowerCase()) {
+          const oldNormalized = op.email.toLowerCase();
           try {
-            await saveOperator(updatedOp);
-            updatedAny = true;
-          } catch (e) {
-            console.error("Failed to dynamically update admin operator seed info:", e);
+            await deleteDoc(doc(db, 'users', uid, 'operators', oldNormalized));
+            await deleteDoc(doc(db, 'operators', oldNormalized));
+          } catch (delErr) {
+            console.warn("Failed to delete stale admin operator doc:", delErr);
           }
-          return updatedOp;
+        }
+
+        try {
+          await saveOperator(updatedOp);
+        } catch (e) {
+          console.error("Failed to clean operator document:", e);
         }
       }
-      return op;
+
+      return updatedOp;
     }));
 
     // Filter out duplicates by operator id or email to ensure we never have non-unique keys in React
@@ -560,10 +665,25 @@ export async function saveOperator(operator: Operator): Promise<Operator> {
   const uid = getToken();
   if (!uid) throw new Error('No autorizado');
   
-  const opToSave = { ...operator, ownerId: uid };
-  const normalizedEmail = opToSave.email.toLowerCase();
-  
-  // Fetch existing operator password if any, to check if password changed
+  const normalizedEmail = operator.email.toLowerCase().trim();
+  const rawPassword = operator.password;
+
+  // Validate plan limit on total users (owner + operators)
+  if (uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
+    const existingSnap = await getDoc(doc(db, 'users', uid, 'operators', normalizedEmail));
+    if (!existingSnap.exists()) {
+      const allOpsSnap = await getDocs(getCollectionRef('operators'));
+      const currentOpCount = allOpsSnap.docs.length;
+      const totalUsers = currentOpCount + 1; // owner + existing operators
+      const lic = await getUserLicense(uid);
+      const userCheck = checkUserLimit(totalUsers, lic?.planType);
+      if (!userCheck.allowed) {
+        throw new Error(userCheck.message);
+      }
+    }
+  }
+
+  // Retrieve existing operator to get oldPassword if updating
   let oldPassword: string | undefined;
   try {
     const existingSnap = await getDoc(doc(db, 'operators', normalizedEmail));
@@ -571,12 +691,27 @@ export async function saveOperator(operator: Operator): Promise<Operator> {
       const existingData = existingSnap.data() as Operator;
       oldPassword = existingData.password;
     }
-  } catch (err) {
-    console.warn("Could not read existing operator password for sync:", err);
+  } catch {}
+
+  // Provision real credentials in Firebase Auth if a valid password is provided
+  if (rawPassword && rawPassword.trim()) {
+    await provisionOperatorAuth(normalizedEmail, rawPassword.trim(), oldPassword);
   }
 
-  // Create standard Auth user or sync credentials
-  await syncOperatorAuth(opToSave.email, oldPassword, opToSave.password);
+  // Strictly enforce security: NEVER save passwords in plain text in Firestore.
+  // Passwords are authenticated and encrypted exclusively in Firebase Authentication.
+  const opToSave: any = {
+    id: operator.id,
+    name: operator.name.trim(),
+    email: normalizedEmail,
+    role: operator.role,
+    status: operator.status || 'active',
+    branch: operator.branch || 'Todas',
+    branches: operator.branches || [],
+    disabledTabs: operator.disabledTabs || [],
+    ownerId: uid,
+    passwordProtected: true
+  };
   
   // 1. Save in the owner's isolated subcollection using email as doc ID
   await setDoc(doc(db, 'users', uid, 'operators', normalizedEmail), opToSave);
@@ -585,7 +720,7 @@ export async function saveOperator(operator: Operator): Promise<Operator> {
   const globalRef = doc(db, 'operators', normalizedEmail);
   await setDoc(globalRef, opToSave);
   
-  return opToSave;
+  return opToSave as Operator;
 }
 
 export async function deleteOperator(id: string, email: string): Promise<void> {
@@ -698,11 +833,70 @@ export async function getUserLicense(userId: string): Promise<License | null> {
     if (docSnap.exists()) {
       return docSnap.data() as License;
     }
-    return null;
+    // Automatically seed default Básico license if none exists
+    const userSnap = await getDoc(doc(db, 'users', userId));
+    const uData = userSnap.exists() ? userSnap.data() as User : null;
+    const defaultLic: License = {
+      userId,
+      clientName: uData?.name || 'Empresa',
+      clientEmail: uData?.email || '',
+      application: 'Yaa POS',
+      planType: 'Básico',
+      expirationDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+      status: 'Activa',
+      licenseStartDate: new Date().toISOString().split('T')[0],
+      maxUsers: 3,
+      maxBranches: 1
+    };
+    try {
+      await setDoc(doc(db, 'licenses', userId), defaultLic);
+    } catch {}
+    return defaultLic;
   } catch (error) {
     console.error('Error fetching user license from Firestore:', error);
     return null;
   }
+}
+
+export async function changeUserPlan(userId: string, newPlanType: string): Promise<License> {
+  const planDef = getPlanDefinition(newPlanType);
+  const currentLic = await getUserLicense(userId);
+  const updatedLicense: License = {
+    ...(currentLic || {}),
+    userId,
+    clientName: currentLic?.clientName || 'Empresa',
+    clientEmail: currentLic?.clientEmail || '',
+    application: 'Yaa POS',
+    planType: planDef.name,
+    maxUsers: planDef.maxUsers,
+    maxBranches: planDef.maxBranches,
+    expirationDate: currentLic?.expirationDate || new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+    status: currentLic?.status || 'Activa',
+    licenseStartDate: currentLic?.licenseStartDate || new Date().toISOString().split('T')[0]
+  };
+
+  await setDoc(doc(db, 'licenses', userId), updatedLicense);
+
+  // Sync locally
+  const saved = localStorage.getItem('yaa_pos_licenses');
+  let list: License[] = [];
+  if (saved) {
+    try { list = JSON.parse(saved); } catch {}
+  }
+  const idx = list.findIndex(l => l.userId === userId);
+  if (idx >= 0) list[idx] = updatedLicense;
+  else list.push(updatedLicense);
+  localStorage.setItem('yaa_pos_licenses', JSON.stringify(list));
+  window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
+
+  // Notify backend API if running
+  fetch('/api/license/change-plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+    body: JSON.stringify({ planType: planDef.name })
+  }).catch(() => {});
+
+  return updatedLicense;
 }
 
 export function subscribeUserLicense(userId: string, callback: (license: License | null) => void): () => void {
@@ -741,6 +935,14 @@ export function subscribeUserProfile(userId: string, callback: (user: User | nul
   }
 }
 
+// Helper to remove any undefined fields before writing to Firestore
+export function cleanDataForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) return data;
+  return JSON.parse(JSON.stringify(data, (key, value) => {
+    return value === undefined ? undefined : value;
+  }));
+}
+
 // --- CLOUD CRUD API (Isolated under /users/{userId}/... for complete security) ---
 
 // Products
@@ -749,11 +951,25 @@ export async function getProducts(): Promise<Product[]> {
 }
 
 export async function saveProduct(product: Product): Promise<Product> {
+  const uid = getToken();
   let docId = product.id;
   if (!docId) {
     const colRef = getCollectionRef('products');
     docId = doc(colRef).id;
     product = { ...product, id: docId };
+  }
+
+  // Validate product limit on creation
+  if (uid && uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
+    const existingDoc = await getDoc(getDocRef('products', docId));
+    if (!existingDoc.exists()) {
+      const existingList = await getProducts();
+      const lic = await getUserLicense(uid);
+      const check = checkProductLimit(existingList.length, lic?.planType);
+      if (!check.allowed) {
+        throw new Error(check.message);
+      }
+    }
   }
 
   // Ensure image is compressed if it's a large base64 data URL
@@ -766,7 +982,8 @@ export async function saveProduct(product: Product): Promise<Product> {
     }
   }
 
-  await setDoc(getDocRef('products', docId), product);
+  const cleanDoc = cleanDataForFirestore(product);
+  await setDoc(getDocRef('products', docId), cleanDoc);
   return product;
 }
 
@@ -787,7 +1004,7 @@ export async function saveClient(client: Client): Promise<Client> {
     docId = doc(colRef).id;
     client = { ...client, id: docId };
   }
-  await setDoc(getDocRef('clients', docId), client);
+  await setDoc(getDocRef('clients', docId), cleanDataForFirestore(client));
   return client;
 }
 
@@ -808,7 +1025,7 @@ export async function saveProvider(provider: Provider): Promise<Provider> {
     docId = doc(colRef).id;
     provider = { ...provider, id: docId };
   }
-  await setDoc(getDocRef('providers', docId), provider);
+  await setDoc(getDocRef('providers', docId), cleanDataForFirestore(provider));
   return provider;
 }
 
@@ -829,7 +1046,7 @@ export async function saveSale(sale: Sale): Promise<Sale> {
     docId = doc(colRef).id;
     sale = { ...sale, id: docId };
   }
-  await setDoc(getDocRef('sales', docId), sale);
+  await setDoc(getDocRef('sales', docId), cleanDataForFirestore(sale));
   return sale;
 }
 
@@ -845,7 +1062,7 @@ export async function savePurchase(purchase: Purchase): Promise<Purchase> {
     docId = doc(colRef).id;
     purchase = { ...purchase, id: docId };
   }
-  await setDoc(getDocRef('purchases', docId), purchase);
+  await setDoc(getDocRef('purchases', docId), cleanDataForFirestore(purchase));
   return purchase;
 }
 
@@ -861,7 +1078,7 @@ export async function saveExpense(expense: Expense): Promise<Expense> {
     docId = doc(colRef).id;
     expense = { ...expense, id: docId };
   }
-  await setDoc(getDocRef('expenses', docId), expense);
+  await setDoc(getDocRef('expenses', docId), cleanDataForFirestore(expense));
   return expense;
 }
 
@@ -908,6 +1125,20 @@ export async function getConfig(): Promise<AppConfig> {
 export async function saveConfig(config: AppConfig): Promise<AppConfig> {
   const uid = getToken();
   if (!uid) throw new Error('No autorizado. Inicie sesión.');
+
+  // Validate branch limit if new branches were added
+  if (uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' && config.branches && config.branches.length > 0) {
+    const existingConfigSnap = await getDoc(doc(db, 'users', uid, 'configs', 'storeConfig'));
+    const prevBranches = (existingConfigSnap.exists() ? (existingConfigSnap.data() as AppConfig).branches : []) || [];
+    if (config.branches.length > prevBranches.length) {
+      const lic = await getUserLicense(uid);
+      const branchCheck = checkBranchLimit(prevBranches.length, lic?.planType);
+      if (!branchCheck.allowed) {
+        throw new Error(branchCheck.message);
+      }
+    }
+  }
+
   const docRef = doc(db, 'users', uid, 'configs', 'storeConfig');
   await setDoc(docRef, config);
   return config;

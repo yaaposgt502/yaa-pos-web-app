@@ -77,7 +77,7 @@ export default function DailyReports({
       const b = availableBranches.find(br => br.id === config.activeBranchId);
       if (b) return b.name;
     }
-    return availableBranches[0]?.name || 'Sucursal Central';
+    return availableBranches[0]?.name || '';
   }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches]);
 
   const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch);

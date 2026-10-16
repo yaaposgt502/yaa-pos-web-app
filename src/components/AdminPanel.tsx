@@ -47,8 +47,12 @@ import {
   XCircle,
   TrendingUp,
   MapPin,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Package,
+  Sparkles
 } from 'lucide-react';
+import { PlanDefinition, getAllPlans, getPlanDefinition, savePlans } from '../utils/planLimits';
+import PlanModal from './PlanModal';
 
 interface AdminPanelProps {
   user: User;
@@ -86,64 +90,42 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   const [formUserId, setFormUserId] = useState('');
   const [formClientName, setFormClientName] = useState('');
   const [formClientEmail, setFormClientEmail] = useState('');
-  const [formPlanType, setFormPlanType] = useState('Mensual Básico');
+  const [formPlanType, setFormPlanType] = useState('Básico');
   const [formExpirationDate, setFormExpirationDate] = useState('');
   const [formStatus, setFormStatus] = useState<License['status']>('Activo');
 
-  // Plans modification state
-  const [plans, setPlans] = useState(() => {
-    const saved = localStorage.getItem('yaa_pos_plans');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((p: any) => ({
-            ...p,
-            price: typeof p.price === 'string' ? p.price.replace('S/', 'Q').replace('PEN', 'GTQ') : p.price
-          }));
-        }
-      } catch {}
-    }
-    return [
-      {
-        id: 'basico',
-        name: 'Básico',
-        price: 'Q 199.00',
-        period: '/mes',
-        status: 'Activo',
-        badge: 'Activo',
-        features: ['1000 productos', '2 usuarios', '100.000 ventas/mes']
-      },
-      {
-        id: 'profesional',
-        name: 'Profesional',
-        price: 'Q 349.00',
-        period: '/mes',
-        status: 'Activo',
-        badge: 'Activo',
-        features: ['Productos ilimitados', '5 usuarios', 'Ventas ilimitadas', 'Facturación electrónica']
-      },
-      {
-        id: 'empresarial',
-        name: 'Empresarial',
-        price: 'Q 599.00',
-        period: '/mes',
-        status: 'Activo',
-        badge: 'Activo',
-        features: ['Multi-sucursal', 'Usuarios ilimitados', 'API y sincronización', 'Soporte 24/7 dedicado']
-      }
-    ];
-  });
+  // Synchronized Plans catalog state
+  const [plans, setPlans] = useState<PlanDefinition[]>(() => getAllPlans());
+  const [isPreviewPlanModalOpen, setIsPreviewPlanModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handlePlansUpdated = () => {
+      setPlans(getAllPlans());
+    };
+    window.addEventListener('yaa_pos_plans_updated', handlePlansUpdated);
+    window.addEventListener('storage', handlePlansUpdated);
+    return () => {
+      window.removeEventListener('yaa_pos_plans_updated', handlePlansUpdated);
+      window.removeEventListener('storage', handlePlansUpdated);
+    };
+  }, []);
 
   // Plan creation & editing modal states
   const [isNewPlanModalOpen, setIsNewPlanModalOpen] = useState(false);
   const [isEditPlanModalOpen, setIsEditPlanModalOpen] = useState(false);
-  const [editingPlan, setEditingPlan] = useState<any>(null);
+  const [editingPlan, setEditingPlan] = useState<PlanDefinition | null>(null);
   const [planName, setPlanName] = useState('');
   const [planPrice, setPlanPrice] = useState('');
   const [planPeriod, setPlanPeriod] = useState('/mes');
+  const [planBadge, setPlanBadge] = useState('Activo');
   const [planFeaturesText, setPlanFeaturesText] = useState('');
   const [planStatus, setPlanStatus] = useState('Activo');
+  const [planMaxBranches, setPlanMaxBranches] = useState<number>(1);
+  const [planMaxUsers, setPlanMaxUsers] = useState<number>(3);
+  const [planMaxProducts, setPlanMaxProducts] = useState<number>(250);
+  const [planFelAllowed, setPlanFelAllowed] = useState<boolean>(false);
+  const [planAiAssistantAllowed, setPlanAiAssistantAllowed] = useState<boolean>(false);
+  const [planMultiBranchAllowed, setPlanMultiBranchAllowed] = useState<boolean>(false);
   const [countries, setCountries] = useState([
     { id: 'GT', name: 'Guatemala', currency: 'Q (GTQ)', defaultTax: 12, taxName: 'IVA', isDefault: true },
     { id: 'PE', name: 'Perú', currency: 'S/ (PEN)', defaultTax: 18, taxName: 'IGV', isDefault: false },
@@ -346,7 +328,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     setFormUserId('');
     setFormClientName('');
     setFormClientEmail('');
-    setFormPlanType('Mensual Básico');
+    setFormPlanType('Básico');
     setFormExpirationDate('');
     setFormStatus('Activo');
   };
@@ -817,39 +799,60 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
   // Plans handlers (Nuevo, Editar, Eliminar)
   const handleOpenNewPlan = () => {
+    setEditingPlan(null);
     setPlanName('');
     setPlanPrice('Q 199.00');
     setPlanPeriod('/mes');
-    setPlanFeaturesText('1000 productos\n2 usuarios\n100.000 ventas/mes');
+    setPlanBadge('Nuevo');
+    setPlanFeaturesText('1 sucursal o punto de venta\nHasta 3 usuarios (operadores y admin)\nHasta 250 productos en catálogo\nControl de ventas y caja');
     setPlanStatus('Activo');
+    setPlanMaxBranches(1);
+    setPlanMaxUsers(3);
+    setPlanMaxProducts(250);
+    setPlanFelAllowed(false);
+    setPlanAiAssistantAllowed(false);
+    setPlanMultiBranchAllowed(false);
     setIsNewPlanModalOpen(true);
   };
 
   const handleCreatePlan = (e: React.FormEvent) => {
     e.preventDefault();
     const newFeatures = planFeaturesText.split('\n').map(s => s.trim()).filter(Boolean);
-    const newPlan = {
+    const newPlan: PlanDefinition = {
       id: `plan_${Date.now()}`,
       name: planName || 'Nuevo Plan',
       price: planPrice || 'Q 0.00',
       period: planPeriod || '/mes',
       status: planStatus || 'Activo',
-      badge: planStatus || 'Activo',
-      features: newFeatures.length > 0 ? newFeatures : ['Acceso al sistema']
+      badge: planBadge || 'Activo',
+      maxBranches: Number(planMaxBranches) || 1,
+      maxUsers: Number(planMaxUsers) || 3,
+      maxProducts: Number(planMaxProducts) || 250,
+      felAllowed: Boolean(planFelAllowed),
+      aiAssistantAllowed: Boolean(planAiAssistantAllowed),
+      multiBranchAllowed: Boolean(planMultiBranchAllowed),
+      features: newFeatures.length > 0 ? newFeatures : ['Acceso al sistema POS']
     };
     const updated = [...plans, newPlan];
     setPlans(updated);
-    localStorage.setItem('yaa_pos_plans', JSON.stringify(updated));
+    savePlans(updated);
     setIsNewPlanModalOpen(false);
   };
 
-  const handleEditPlanClick = (plan: any) => {
+  const handleEditPlanClick = (plan: PlanDefinition) => {
     setEditingPlan(plan);
     setPlanName(plan.name);
     setPlanPrice(plan.price);
     setPlanPeriod(plan.period || '/mes');
+    setPlanBadge(plan.badge || 'Activo');
     setPlanFeaturesText((plan.features || []).join('\n'));
     setPlanStatus(plan.status || 'Activo');
+    setPlanMaxBranches(typeof plan.maxBranches === 'number' ? plan.maxBranches : 1);
+    setPlanMaxUsers(typeof plan.maxUsers === 'number' ? plan.maxUsers : 3);
+    setPlanMaxProducts(typeof plan.maxProducts === 'number' ? plan.maxProducts : 250);
+    setPlanFelAllowed(Boolean(plan.felAllowed));
+    setPlanAiAssistantAllowed(Boolean(plan.aiAssistantAllowed));
+    setPlanMultiBranchAllowed(Boolean(plan.multiBranchAllowed));
     setIsEditPlanModalOpen(true);
   };
 
@@ -858,7 +861,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     if (!editingPlan) return;
 
     const newFeatures = planFeaturesText.split('\n').map(s => s.trim()).filter(Boolean);
-    const updated = plans.map(p => {
+    const updated: PlanDefinition[] = plans.map(p => {
       if (p.id === editingPlan.id) {
         return {
           ...p,
@@ -866,24 +869,30 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
           price: planPrice,
           period: planPeriod,
           status: planStatus,
-          badge: planStatus,
-          features: newFeatures
+          badge: planBadge,
+          maxBranches: Number(planMaxBranches) || 1,
+          maxUsers: Number(planMaxUsers) || 3,
+          maxProducts: Number(planMaxProducts) || 250,
+          felAllowed: Boolean(planFelAllowed),
+          aiAssistantAllowed: Boolean(planAiAssistantAllowed),
+          multiBranchAllowed: Boolean(planMultiBranchAllowed),
+          features: newFeatures.length > 0 ? newFeatures : p.features
         };
       }
       return p;
     });
 
     setPlans(updated);
-    localStorage.setItem('yaa_pos_plans', JSON.stringify(updated));
+    savePlans(updated);
     setIsEditPlanModalOpen(false);
     setEditingPlan(null);
   };
 
   const handleDeletePlan = (planId: string) => {
-    if (!confirm('¿Estás seguro de eliminar este plan de suscripción?')) return;
+    if (!confirm('¿Estás seguro de eliminar este plan de suscripción? Esta acción actualizará los planes disponibles para todos los clientes.')) return;
     const updated = plans.filter(p => p.id !== planId);
     setPlans(updated);
-    localStorage.setItem('yaa_pos_plans', JSON.stringify(updated));
+    savePlans(updated);
   };
 
   // Save Config handler
@@ -1004,14 +1013,21 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
           <button
             type="button"
             onClick={() => setActiveTab('planes')}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               activeTab === 'planes'
                 ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
                 : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
             }`}
           >
-            <Layers className="w-4 h-4 shrink-0" />
-            <span>Planes</span>
+            <div className="flex items-center gap-3">
+              <Layers className="w-4 h-4 shrink-0" />
+              <span>Planes</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+              activeTab === 'planes' ? 'bg-white/25 text-white' : 'bg-slate-800/80 text-slate-400'
+            }`}>
+              {plans.length}
+            </span>
           </button>
 
           {/* TAB: METODOS DE PAGO */}
@@ -1910,49 +1926,75 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
             </div>
           )}
 
-          {/* TAB: PLANES (MATCHING EXACT SCREENSHOT DESIGN) */}
+          {/* TAB: PLANES (SINCRONIZADO EN TIEMPO REAL CON EL MODAL DE CLIENTES) */}
           {activeTab === 'planes' && (
             <div className="space-y-6 animate-fade-in">
-              {/* Header: Exact match */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              {/* Header with live sync indicator and Preview button */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-[#00a86b] text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <div className="w-12 h-12 rounded-2xl bg-[#00a86b] text-white flex items-center justify-center shrink-0 shadow-sm">
                     <Layers className="w-6 h-6" />
                   </div>
                   <div>
-                    <span className="text-[11px] font-black text-[#00a86b] tracking-wider uppercase block">
-                      ADMINISTRACIÓN
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-black text-[#00a86b] tracking-wider uppercase block">
+                        ADMINISTRACIÓN
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Sincronizado en tiempo real con Modal de Suscripción
+                      </span>
+                    </div>
                     <h2 className="text-2xl font-bold text-slate-900 leading-tight">
-                      Planes
+                      Planes de Suscripción
                     </h2>
                     <p className="text-xs text-slate-500 font-medium">
-                      Catálogo de planes de la plataforma.
+                      Catálogo central de planes. Las modificaciones se reflejan en vivo en el modal de suscripción de los clientes.
                     </p>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleOpenNewPlan}
-                  className="px-5 py-2.5 bg-[#00a86b] hover:bg-[#00925d] text-white rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer self-start sm:self-auto"
-                >
-                  <Plus className="w-4 h-4" /> Nuevo plan
-                </button>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setIsPreviewPlanModalOpen(true)}
+                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-full text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95"
+                    title="Previsualizar el modal de planes exactamente como lo ve el cliente"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span>Ver Modal de Suscripción</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenNewPlan}
+                    className="px-5 py-2.5 bg-[#00a86b] hover:bg-[#00925d] text-white rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" /> Nuevo plan
+                  </button>
+                </div>
               </div>
 
               {/* Plans Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
-                {plans.map((p: any) => (
+                {plans.map((p: PlanDefinition) => (
                   <div
                     key={p.id}
-                    className="bg-white rounded-3xl border border-slate-200/90 p-7 shadow-xs flex flex-col justify-between space-y-6"
+                    className="bg-white rounded-3xl border border-slate-200/90 p-7 shadow-xs flex flex-col justify-between space-y-6 hover:shadow-md transition-all relative overflow-hidden"
                   >
+                    {p.badge && (
+                      <div className="absolute top-0 right-0 bg-gradient-to-l from-emerald-600 to-teal-600 text-white text-[10px] font-extrabold uppercase tracking-widest px-3.5 py-1 rounded-bl-xl shadow-2xs">
+                        {p.badge}
+                      </div>
+                    )}
+
                     <div className="space-y-4">
                       {/* Top Header of Card */}
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-bold text-base text-slate-900">{p.name}</h3>
-                        <span className="bg-emerald-50 text-emerald-600 px-3 py-0.5 rounded-full text-xs font-semibold">
+                      <div className="flex items-center justify-between pr-16">
+                        <h3 className="font-bold text-lg text-slate-900">{p.name}</h3>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          p.status === 'Activo' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600'
+                        }`}>
                           {p.status || 'Activo'}
                         </span>
                       </div>
@@ -1962,16 +2004,54 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                         <span className="text-3xl font-black text-slate-900 tracking-tight">
                           {p.price}
                         </span>
-                        <span className="text-xs text-slate-400 font-normal ml-1">
+                        <span className="text-xs text-slate-500 font-semibold ml-1.5">
                           {p.period || '/mes'}
                         </span>
                       </div>
 
+                      {/* Resource limits indicator */}
+                      <div className="py-2.5 border-y border-slate-100 grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-slate-50/80 rounded-xl p-2 border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">Sucursales</span>
+                          <span className="text-xs font-black text-slate-800">
+                            {p.maxBranches >= 999 ? 'Ilimitadas' : p.maxBranches || 1}
+                          </span>
+                        </div>
+                        <div className="bg-slate-50/80 rounded-xl p-2 border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">Usuarios</span>
+                          <span className="text-xs font-black text-slate-800">
+                            {p.maxUsers >= 999 ? 'Ilimitados' : p.maxUsers || 3}
+                          </span>
+                        </div>
+                        <div className="bg-slate-50/80 rounded-xl p-2 border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">Productos</span>
+                          <span className="text-xs font-black text-slate-800">
+                            {p.maxProducts >= 999999 ? 'Ilimitados' : p.maxProducts || 250}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Feature chips */}
+                      <div className="space-y-1.5">
+                        {p.felAllowed && (
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-xl px-2.5 py-1">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Facturación Electrónica SAT (FEL)</span>
+                          </div>
+                        )}
+                        {p.aiAssistantAllowed && (
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/70 rounded-xl px-2.5 py-1">
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Asistente Inteligente IA Gemini</span>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Feature checklist */}
-                      <ul className="space-y-2.5 pt-2">
+                      <ul className="space-y-2 pt-1 border-t border-slate-100">
                         {p.features && p.features.map((f: string, idx: number) => (
-                          <li key={idx} className="flex items-center gap-2.5 text-xs text-slate-600 font-medium">
-                            <Check className="w-4 h-4 text-[#00a86b] shrink-0 stroke-[2.5]" />
+                          <li key={idx} className="flex items-start gap-2 text-xs text-slate-600 font-medium">
+                            <Check className="w-4 h-4 text-[#00a86b] shrink-0 mt-0.5 stroke-[2.5]" />
                             <span>{f}</span>
                           </li>
                         ))}
@@ -1979,11 +2059,11 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                     </div>
 
                     {/* Actions at bottom */}
-                    <div className="flex items-center gap-2 pt-2">
+                    <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
                       <button
                         type="button"
                         onClick={() => handleEditPlanClick(p)}
-                        className="px-5 py-2 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-3xs"
+                        className="flex-1 px-4 py-2 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-3xs"
                       >
                         <Edit className="w-3.5 h-3.5 text-slate-500" />
                         <span>Editar</span>
@@ -1992,6 +2072,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                         type="button"
                         onClick={() => handleDeletePlan(p.id)}
                         className="px-3.5 py-2 rounded-full text-rose-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                        title="Eliminar este plan"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>Eliminar</span>
@@ -2337,9 +2418,12 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                   onChange={(e) => setFormPlanType(e.target.value)}
                   className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-700 font-medium focus:ring-2 focus:ring-emerald-500"
                 >
+                  {plans.map((p: any) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name} ({p.price}{p.period})
+                    </option>
+                  ))}
                   <option value="Demo 15 días">Demo 15 días</option>
-                  <option value="Mensual Básico">Mensual Básico</option>
-                  <option value="Premium Anual">Premium Anual</option>
                   <option value="Gratuito">Gratuito</option>
                 </select>
               </div>
@@ -2427,9 +2511,12 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                   onChange={(e) => setFormPlanType(e.target.value)}
                   className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-700 font-medium focus:ring-2 focus:ring-blue-500"
                 >
+                  {plans.map((p: any) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name} ({p.price}{p.period})
+                    </option>
+                  ))}
                   <option value="Demo 15 días">Demo 15 días</option>
-                  <option value="Mensual Básico">Mensual Básico</option>
-                  <option value="Premium Anual">Premium Anual</option>
                   <option value="Gratuito">Gratuito</option>
                 </select>
               </div>
@@ -2508,17 +2595,29 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
             {/* Form */}
             <form onSubmit={handleCreatePlan} className="p-6 space-y-4 text-left bg-slate-50/20">
-              {/* Plan Name */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">Nombre del Plan *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Básico, Profesional, etc."
-                  value={planName}
-                  onChange={(e) => setPlanName(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
-                />
+              {/* Plan Name and Badge */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Nombre del Plan *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Básico, Profesional, etc."
+                    value={planName}
+                    onChange={(e) => setPlanName(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Insignia / Badge (Opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Recomendado, Popular, Ilimitado"
+                    value={planBadge}
+                    onChange={(e) => setPlanBadge(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
               </div>
 
               {/* Price and Period */}
@@ -2559,6 +2658,84 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                   <option value="Inactivo">Inactivo</option>
                   <option value="Próximamente">Próximamente</option>
                 </select>
+              </div>
+
+              {/* Resource Limits */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 block">Límites y Permisos del Plan</span>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Sucursales</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="1"
+                      value={planMaxBranches}
+                      onChange={(e) => setPlanMaxBranches(parseInt(e.target.value) || 1)}
+                      className="w-full text-xs border border-slate-200 rounded-xl px-2.5 py-2 bg-white text-slate-800 font-bold focus:ring-2 focus:ring-[#00a86b]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">999 = Ilim.</span>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Usuarios</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="3"
+                      value={planMaxUsers}
+                      onChange={(e) => setPlanMaxUsers(parseInt(e.target.value) || 1)}
+                      className="w-full text-xs border border-slate-200 rounded-xl px-2.5 py-2 bg-white text-slate-800 font-bold focus:ring-2 focus:ring-[#00a86b]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">999 = Ilim.</span>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Productos</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="250"
+                      value={planMaxProducts}
+                      onChange={(e) => setPlanMaxProducts(parseInt(e.target.value) || 250)}
+                      className="w-full text-xs border border-slate-200 rounded-xl px-2.5 py-2 bg-white text-slate-800 font-bold focus:ring-2 focus:ring-[#00a86b]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">999999 = Ilim.</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mt-2">
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planFelAllowed}
+                      onChange={(e) => setPlanFelAllowed(e.target.checked)}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span>Habilitar Facturación Electrónica SAT (FEL)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planAiAssistantAllowed}
+                      onChange={(e) => setPlanAiAssistantAllowed(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>Habilitar Asistente Inteligente con IA (Gemini)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planMultiBranchAllowed}
+                      onChange={(e) => setPlanMultiBranchAllowed(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span>Habilitar Múltiples Sucursales y Traslado de Stock</span>
+                  </label>
+                </div>
               </div>
 
               {/* Plan Features */}
@@ -2620,17 +2797,29 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
             {/* Form */}
             <form onSubmit={handleSavePlan} className="p-6 space-y-4 text-left bg-slate-50/20">
-              {/* Plan Name */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">Nombre del Plan *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Básico, Profesional, etc."
-                  value={planName}
-                  onChange={(e) => setPlanName(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
-                />
+              {/* Plan Name and Badge */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Nombre del Plan *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Básico, Profesional, etc."
+                    value={planName}
+                    onChange={(e) => setPlanName(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">Insignia / Badge (Opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Recomendado, Popular, Ilimitado"
+                    value={planBadge}
+                    onChange={(e) => setPlanBadge(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-800 font-medium focus:ring-2 focus:ring-[#00a86b] focus:border-transparent outline-none"
+                  />
+                </div>
               </div>
 
               {/* Price and Period */}
@@ -2671,6 +2860,84 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                   <option value="Inactivo">Inactivo</option>
                   <option value="Próximamente">Próximamente</option>
                 </select>
+              </div>
+
+              {/* Resource Limits */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 block">Límites y Permisos del Plan</span>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Sucursales</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="1"
+                      value={planMaxBranches}
+                      onChange={(e) => setPlanMaxBranches(parseInt(e.target.value) || 1)}
+                      className="w-full text-xs border border-slate-200 rounded-xl px-2.5 py-2 bg-white text-slate-800 font-bold focus:ring-2 focus:ring-[#00a86b]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">999 = Ilim.</span>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Usuarios</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="3"
+                      value={planMaxUsers}
+                      onChange={(e) => setPlanMaxUsers(parseInt(e.target.value) || 1)}
+                      className="w-full text-xs border border-slate-200 rounded-xl px-2.5 py-2 bg-white text-slate-800 font-bold focus:ring-2 focus:ring-[#00a86b]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">999 = Ilim.</span>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-slate-600">Productos</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="250"
+                      value={planMaxProducts}
+                      onChange={(e) => setPlanMaxProducts(parseInt(e.target.value) || 250)}
+                      className="w-full text-xs border border-slate-200 rounded-xl px-2.5 py-2 bg-white text-slate-800 font-bold focus:ring-2 focus:ring-[#00a86b]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">999999 = Ilim.</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mt-2">
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planFelAllowed}
+                      onChange={(e) => setPlanFelAllowed(e.target.checked)}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span>Habilitar Facturación Electrónica SAT (FEL)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planAiAssistantAllowed}
+                      onChange={(e) => setPlanAiAssistantAllowed(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>Habilitar Asistente Inteligente con IA (Gemini)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planMultiBranchAllowed}
+                      onChange={(e) => setPlanMultiBranchAllowed(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span>Habilitar Múltiples Sucursales y Traslado de Stock</span>
+                  </label>
+                </div>
               </div>
 
               {/* Plan Features */}
@@ -2751,7 +3018,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                     }`}
                   >
                     <span className="block text-lg font-black tracking-tight font-sans">30 Días</span>
-                    <span className="text-[10px] text-slate-400 font-medium font-sans">Mensual Básico</span>
+                    <span className="text-[10px] text-slate-400 font-medium font-sans">Plan Mensual</span>
                   </button>
 
                   <button
@@ -2764,7 +3031,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                     }`}
                   >
                     <span className="block text-lg font-black tracking-tight font-sans">365 Días</span>
-                    <span className="text-[10px] text-slate-400 font-medium font-sans">Premium Anual</span>
+                    <span className="text-[10px] text-slate-400 font-medium font-sans">Plan Anual</span>
                   </button>
                 </div>
               </div>
@@ -2806,6 +3073,30 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
           </div>
         </div>
       )}
+
+      {/* Plan Subscription Modal (Vista Previa Cliente en Tiempo Real) */}
+      <PlanModal
+        isOpen={isPreviewPlanModalOpen}
+        onClose={() => setIsPreviewPlanModalOpen(false)}
+        userId={user.id}
+        userLicense={{
+          id: 'admin_preview_license',
+          userId: user.id,
+          application: 'Yaa POS',
+          clientName: 'Vista Previa Cliente',
+          clientEmail: user.email,
+          planType: 'Profesional',
+          issueDate: new Date().toISOString().split('T')[0],
+          expirationDate: '2030-12-31',
+          status: 'Activo'
+        }}
+        currentBranchesCount={1}
+        currentUsersCount={2}
+        currentProductsCount={48}
+        onPlanUpdated={(newLic) => {
+          console.log('Vista previa plan actualizado:', newLic);
+        }}
+      />
 
     </div>
   );

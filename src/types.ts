@@ -267,12 +267,16 @@ export interface Branch {
 }
 
 export interface License {
+  id?: string;
   userId: string;
   clientName: string;
   clientEmail: string;
   application: string; // "Yaa POS"
-  planType: string; // 'Premium Anual' | 'Mensual Básico' | 'Demo 15 días' | 'Gratuito'
+  planType: string; // 'Básico' | 'Profesional' | 'Empresarial' | 'Premium Anual' | 'Mensual Básico' | 'Demo 15 días' | 'Gratuito'
+  issueDate?: string;
   expirationDate: string; // YYYY-MM-DD
   status: 'Pendiente' | 'Activa' | 'Vencida' | 'Suspendida' | 'Activo' | 'Por Vencer' | 'Por vencer' | 'Expirada' | 'Desactivada';
   licenseStartDate?: string; // YYYY-MM-DD
+  maxUsers?: number;
+  maxBranches?: number;
 }

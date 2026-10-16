@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product, AppConfig, Sale, Purchase, Branch, User } from '../types';
-import { isItemInBranch } from '../utils/branchHelper';
+import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
 import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
 import { 
   Plus, 
@@ -38,15 +38,20 @@ import {
   Clock,
   Folder,
   Eye,
-  List
+  List,
+  ArrowRightLeft,
+  ArrowRight,
+  Loader2
 } from 'lucide-react';
 
 interface InventoryProps {
   products: Product[];
+  allProducts?: Product[];
   config: AppConfig;
   onSaveProduct: (product: Product) => Promise<Product>;
   onDeleteProduct: (id: string) => Promise<{ success: boolean }>;
   onRefreshData: () => void;
+  onTransferStock?: (sourceBranchId: string, targetBranchId: string, productId: string, quantity: number) => Promise<void>;
   sales?: Sale[];
   purchases?: Purchase[];
   user?: User | null;
@@ -123,10 +128,12 @@ export const getProductStock = (p: Product | null | undefined): number => {
 
 export default function Inventory({ 
   products, 
+  allProducts,
   config, 
   onSaveProduct, 
   onDeleteProduct, 
   onRefreshData, 
+  onTransferStock,
   sales = [], 
   purchases = [],
   user,
@@ -134,6 +141,225 @@ export default function Inventory({
   branches
 }: InventoryProps) {
   const currency = config.currency || 'Q';
+
+  // Transfer Stock Between Branches (Active when account has 2 or more branches)
+  const availableBranches = useMemo(() => {
+    if (branches && branches.length > 0) return branches;
+    return getOperationalBranches(config, user);
+  }, [branches, config, user]);
+
+  const hasMultipleBranches = availableBranches.length >= 2;
+
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferSourceId, setTransferSourceId] = useState<string>('');
+  const [transferTargetId, setTransferTargetId] = useState<string>('');
+  const [transferProductId, setTransferProductId] = useState<string>('');
+  const [transferProductSearch, setTransferProductSearch] = useState<string>('');
+  const [transferQuantity, setTransferQuantity] = useState<number>(1);
+  const [transferNotes, setTransferNotes] = useState<string>('');
+  const [isTransferring, setIsTransferring] = useState<boolean>(false);
+  const [transferSuccessMessage, setTransferSuccessMessage] = useState<string | null>(null);
+  const [transferErrorMessage, setTransferErrorMessage] = useState<string | null>(null);
+
+  // Initialize and synchronize default source & target branches
+  useEffect(() => {
+    if (availableBranches.length >= 2) {
+      const activeObj = availableBranches.find(b => 
+        (activeBranchName && (b.name === activeBranchName || b.code === activeBranchName || b.id === activeBranchName)) || b.isMain
+      ) || availableBranches[0];
+
+      if (!transferSourceId || !availableBranches.some(b => b.id === transferSourceId)) {
+        setTransferSourceId(activeObj.id);
+      }
+
+      const other = availableBranches.find(b => b.id !== activeObj.id) || availableBranches[1];
+      if (!transferTargetId || !availableBranches.some(b => b.id === transferTargetId) || transferTargetId === activeObj.id) {
+        setTransferTargetId(other.id);
+      }
+    }
+  }, [availableBranches, activeBranchName]);
+
+  const productPool = useMemo(() => {
+    return allProducts && allProducts.length > 0 ? allProducts : products;
+  }, [allProducts, products]);
+
+  const sourceBranchObj = useMemo(() => {
+    return availableBranches.find(b => b.id === transferSourceId || b.name === transferSourceId);
+  }, [availableBranches, transferSourceId]);
+
+  const targetBranchObj = useMemo(() => {
+    return availableBranches.find(b => b.id === transferTargetId || b.name === transferTargetId);
+  }, [availableBranches, transferTargetId]);
+
+  // Products belonging to the selected source branch with positive stock
+  const sourceBranchProducts = useMemo(() => {
+    if (!sourceBranchObj) return [];
+    return productPool.filter(p => isItemInBranch(p.branch, sourceBranchObj.name, availableBranches) && (p.stock || 0) > 0);
+  }, [productPool, sourceBranchObj, availableBranches]);
+
+  // Filtered source products for modal search
+  const filteredSourceProducts = useMemo(() => {
+    if (!transferProductSearch.trim()) return sourceBranchProducts;
+    const q = transferProductSearch.toLowerCase().trim();
+    return sourceBranchProducts.filter(p =>
+      (p.name && p.name.toLowerCase().includes(q)) ||
+      (p.code && p.code.toLowerCase().includes(q)) ||
+      (p.barcode && p.barcode.toLowerCase().includes(q)) ||
+      (p.category && p.category.toLowerCase().includes(q))
+    );
+  }, [sourceBranchProducts, transferProductSearch]);
+
+  // Sync transferProductId when sourceBranchProducts changes
+  useEffect(() => {
+    if (sourceBranchProducts.length > 0) {
+      if (!sourceBranchProducts.some(p => p.id === transferProductId)) {
+        setTransferProductId(sourceBranchProducts[0].id);
+      }
+    } else {
+      setTransferProductId('');
+    }
+  }, [sourceBranchProducts, transferProductId]);
+
+  const selectedTransferProduct = useMemo(() => {
+    return sourceBranchProducts.find(p => p.id === transferProductId) || null;
+  }, [sourceBranchProducts, transferProductId]);
+
+  const availableTransferStock = selectedTransferProduct ? Math.max(0, selectedTransferProduct.stock || 0) : 0;
+
+  // Existing product in target branch (if already present)
+  const targetExistingProduct = useMemo(() => {
+    if (!targetBranchObj || !selectedTransferProduct) return null;
+    return productPool.find(p =>
+      isItemInBranch(p.branch, targetBranchObj.name, availableBranches) &&
+      (p.code.trim().toLowerCase() === selectedTransferProduct.code.trim().toLowerCase() ||
+        p.name.trim().toLowerCase() === selectedTransferProduct.name.trim().toLowerCase())
+    );
+  }, [productPool, targetBranchObj, selectedTransferProduct, availableBranches]);
+
+  const targetCurrentStock = targetExistingProduct ? Math.max(0, targetExistingProduct.stock || 0) : 0;
+
+  const handleExecuteTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTransferErrorMessage(null);
+    setTransferSuccessMessage(null);
+
+    if (!sourceBranchObj || !targetBranchObj) {
+      setTransferErrorMessage('Selecciona las sucursales de origen y destino.');
+      return;
+    }
+    if (sourceBranchObj.id === targetBranchObj.id) {
+      setTransferErrorMessage('La sucursal de origen y destino no pueden ser la misma.');
+      return;
+    }
+    if (!selectedTransferProduct) {
+      setTransferErrorMessage('Selecciona un producto con existencias para transferir.');
+      return;
+    }
+    const qty = Math.floor(Number(transferQuantity));
+    if (isNaN(qty) || qty <= 0) {
+      setTransferErrorMessage('La cantidad a transferir debe ser mayor a 0.');
+      return;
+    }
+    if (qty > availableTransferStock) {
+      setTransferErrorMessage(`La cantidad supera el stock disponible (${availableTransferStock}) en ${sourceBranchObj.name}.`);
+      return;
+    }
+
+    setIsTransferring(true);
+    try {
+      if (onTransferStock) {
+        await onTransferStock(sourceBranchObj.id, targetBranchObj.id, selectedTransferProduct.id, qty);
+      } else {
+        // Fallback transfer via onSaveProduct
+        const nextSourceStock = Math.max(0, availableTransferStock - qty);
+        const updatedSourceProduct: Product = {
+          ...selectedTransferProduct,
+          branch: selectedTransferProduct.branch || sourceBranchObj.name,
+          stock: nextSourceStock
+        };
+
+        if (selectedTransferProduct.expirationDates && selectedTransferProduct.expirationDates.length > 0) {
+          let rem = qty;
+          const updatedLotes = selectedTransferProduct.expirationDates
+            .map(r => {
+              if (rem <= 0) return r;
+              const s = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+              const deduct = Math.min(s, rem);
+              rem -= deduct;
+              return { ...r, stock: s - deduct };
+            })
+            .filter(r => (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) > 0);
+          updatedSourceProduct.expirationDates = updatedLotes;
+        } else {
+          delete updatedSourceProduct.expirationDates;
+        }
+
+        await onSaveProduct(updatedSourceProduct);
+
+        if (targetExistingProduct) {
+          const nextTargetStock = (targetExistingProduct.stock || 0) + qty;
+          const targetLotes = targetExistingProduct.expirationDates ? [...targetExistingProduct.expirationDates] : [];
+          if (targetLotes.length > 0) {
+            targetLotes[0] = {
+              ...targetLotes[0],
+              stock: (Number(targetLotes[0].stock) || 0) + qty
+            };
+          }
+          const updatedTargetProduct: Product = {
+            ...targetExistingProduct,
+            branch: targetBranchObj.name,
+            stock: nextTargetStock
+          };
+          if (targetLotes.length > 0) {
+            updatedTargetProduct.expirationDates = targetLotes;
+          } else if (targetExistingProduct.expirationDates) {
+            updatedTargetProduct.expirationDates = targetExistingProduct.expirationDates;
+          } else {
+            delete updatedTargetProduct.expirationDates;
+          }
+          await onSaveProduct(updatedTargetProduct);
+        } else {
+          const newTargetProduct: Product = {
+            ...selectedTransferProduct,
+            id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            branch: targetBranchObj.name,
+            stock: qty
+          };
+          if (selectedTransferProduct.expirationDate) {
+            newTargetProduct.expirationDates = [
+              { date: selectedTransferProduct.expirationDate, stock: qty, batch: selectedTransferProduct.initialBatch || '00101' }
+            ];
+          } else if (selectedTransferProduct.expirationDates && selectedTransferProduct.expirationDates.length > 0) {
+            newTargetProduct.expirationDates = [
+              { date: selectedTransferProduct.expirationDates[0].date, stock: qty, batch: selectedTransferProduct.expirationDates[0].batch || '00101' }
+            ];
+          } else {
+            delete newTargetProduct.expirationDates;
+          }
+          await onSaveProduct(newTargetProduct);
+        }
+      }
+
+      setTransferSuccessMessage(`¡Transferencia de ${qty} ${selectedTransferProduct.unit || 'unidad(es)'} de "${selectedTransferProduct.name}" realizada con éxito hacia ${targetBranchObj.name}!`);
+      onRefreshData();
+
+      setTimeout(() => {
+        setIsTransferModalOpen(false);
+        setTransferSuccessMessage(null);
+        setTransferQuantity(1);
+        setTransferNotes('');
+        setTransferProductSearch('');
+      }, 1500);
+    } catch (err: any) {
+      let msg = err.message || 'Error al realizar el traslado entre sucursales.';
+      if (msg.includes('Unsupported field value: undefined') || msg.includes('setDoc()')) {
+        msg = 'Se optimizó la sincronización con la base de datos. Por favor vuelve a pulsar "Confirmar y Transferir Stock".';
+      }
+      setTransferErrorMessage(msg);
+    } finally {
+      setIsTransferring(false);
+    }
+  };
 
   // State for Sub-Navigation Tabs
   const [activeTab, setActiveTab] = useState<'stock' | 'combos' | 'servicios' | 'promociones' | 'barcodes'>('stock');
@@ -1530,20 +1756,36 @@ export default function Inventory({
     <div id="inventory-view" className="space-y-6">
       
       {/* 1. Header with custom layout */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-slate-100 pb-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-[#E2E8F0] pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
-            <Package className="w-7 h-7 text-teal-600" /> Inventario
+          <h1 className="text-xl sm:text-2xl font-bold text-[#1F2937] tracking-tight flex items-center gap-2">
+            <Package className="w-6 h-6 text-[#2563EB]" /> Inventario
           </h1>
-          <p className="text-sm text-slate-500 mt-1">Monitorea al stock de tus productos</p>
+          <p className="text-xs text-[#64748B] mt-0.5">Monitorea y administra las existencias de tus productos en tiempo real</p>
         </div>
 
-        {/* Action Buttons styled like the reference image */}
+        {/* Action Buttons styled like professional SaaS */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Add Product Button */}
+          {/* Transfer Stock Button (Visible when account has 2 or more branches) */}
+          {hasMultipleBranches && (
+            <button
+              type="button"
+              onClick={() => {
+                setTransferErrorMessage(null);
+                setTransferSuccessMessage(null);
+                setIsTransferModalOpen(true);
+              }}
+              className="bg-white hover:bg-slate-50 border border-[#E2E8F0] text-[#1F2937] px-3.5 py-2 rounded-lg font-medium flex items-center gap-1.5 text-xs shadow-2xs active:scale-[0.98] transition-all cursor-pointer"
+              title="Transferir existencias entre sucursales"
+            >
+              <ArrowRightLeft className="w-4 h-4 text-[#2563EB]" /> Transferir Stock
+            </button>
+          )}
+
+          {/* Add Product Button (Primary Action) */}
           <button
             onClick={openAddModal}
-            className="bg-[#005e63] hover:bg-[#004d52] text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-1.5 text-xs shadow-xs active:scale-98 transition-all cursor-pointer"
+            className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-1.5 text-xs shadow-xs active:scale-[0.98] transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Agregar Producto
           </button>
@@ -1551,14 +1793,14 @@ export default function Inventory({
           {/* Download Template Button */}
           <button
             onClick={downloadTemplate}
-            className="border border-emerald-200 text-emerald-600 hover:bg-emerald-50 bg-emerald-50/20 px-4 py-2 rounded-lg font-semibold flex items-center gap-1.5 text-xs transition-all cursor-pointer"
+            className="border border-[#E2E8F0] text-[#1F2937] hover:bg-slate-50 bg-white px-3.5 py-2 rounded-lg font-medium flex items-center gap-1.5 text-xs shadow-2xs transition-all cursor-pointer"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-500" /> Descargar Plantilla
+            <FileSpreadsheet className="w-4 h-4 text-[#16A34A]" /> Descargar Plantilla
           </button>
 
           {/* Upload Excel Button */}
-          <label className="border border-cyan-200 text-cyan-700 hover:bg-cyan-50 bg-cyan-50/20 px-4 py-2 rounded-lg font-semibold flex items-center gap-1.5 text-xs transition-all cursor-pointer">
-            <FileUp className="w-4 h-4 text-cyan-500" /> Cargar Excel
+          <label className="border border-[#E2E8F0] text-[#1F2937] hover:bg-slate-50 bg-white px-3.5 py-2 rounded-lg font-medium flex items-center gap-1.5 text-xs shadow-2xs transition-all cursor-pointer">
+            <FileUp className="w-4 h-4 text-[#2563EB]" /> Cargar Excel
             <input 
               type="file" 
               accept=".csv" 
@@ -1570,21 +1812,21 @@ export default function Inventory({
           {/* Kardex Valorado Button */}
           <button
             onClick={() => setIsKardexOpen(true)}
-            className="text-slate-600 hover:text-teal-700 hover:bg-slate-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 text-xs transition-all cursor-pointer border border-slate-200 bg-white"
+            className="text-[#1F2937] hover:bg-slate-50 px-3.5 py-2 rounded-lg font-medium flex items-center gap-1.5 text-xs transition-all cursor-pointer border border-[#E2E8F0] bg-white shadow-2xs"
           >
-            <FileText className="w-4 h-4 text-teal-600" /> Kardex Valorado General
+            <FileText className="w-4 h-4 text-slate-500" /> Kardex Valorado General
           </button>
         </div>
       </div>
 
       {/* 2. Sub-Navigation Tabs styled with modern aesthetics */}
-      <div className="flex overflow-x-auto pb-1 gap-1 border-b border-slate-100 scrollbar-none">
+      <div className="flex overflow-x-auto pb-1 gap-1.5 border-b border-[#E2E8F0] scrollbar-none">
         <button
           onClick={() => setActiveTab('stock')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             activeTab === 'stock' 
-              ? 'bg-[#005e63] text-white shadow-xs' 
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+              ? 'bg-[#2563EB] text-white shadow-xs' 
+              : 'bg-white text-[#64748B] hover:text-[#1F2937] hover:bg-slate-50 border border-[#E2E8F0]'
           }`}
         >
           <Package className="w-4 h-4" /> Stock
@@ -1592,10 +1834,10 @@ export default function Inventory({
 
         <button
           onClick={() => setActiveTab('combos')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             activeTab === 'combos' 
-              ? 'bg-[#005e63] text-white shadow-xs' 
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+              ? 'bg-[#2563EB] text-white shadow-xs' 
+              : 'bg-white text-[#64748B] hover:text-[#1F2937] hover:bg-slate-50 border border-[#E2E8F0]'
           }`}
         >
           <Boxes className="w-4 h-4" /> Combos
@@ -1603,10 +1845,10 @@ export default function Inventory({
 
         <button
           onClick={() => setActiveTab('servicios')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             activeTab === 'servicios' 
-              ? 'bg-[#005e63] text-white shadow-xs' 
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+              ? 'bg-[#2563EB] text-white shadow-xs' 
+              : 'bg-white text-[#64748B] hover:text-[#1F2937] hover:bg-slate-50 border border-[#E2E8F0]'
           }`}
         >
           <Wrench className="w-4 h-4" /> Servicios
@@ -1614,10 +1856,10 @@ export default function Inventory({
 
         <button
           onClick={() => setActiveTab('promociones')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             activeTab === 'promociones' 
-              ? 'bg-[#005e63] text-white shadow-xs' 
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+              ? 'bg-[#2563EB] text-white shadow-xs' 
+              : 'bg-white text-[#64748B] hover:text-[#1F2937] hover:bg-slate-50 border border-[#E2E8F0]'
           }`}
         >
           <Tag className="w-4 h-4" /> Promociones
@@ -1625,10 +1867,10 @@ export default function Inventory({
 
         <button
           onClick={() => setActiveTab('barcodes')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
             activeTab === 'barcodes' 
-              ? 'bg-[#005e63] text-white shadow-xs' 
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+              ? 'bg-[#2563EB] text-white shadow-xs' 
+              : 'bg-white text-[#64748B] hover:text-[#1F2937] hover:bg-slate-50 border border-[#E2E8F0]'
           }`}
         >
           <Barcode className="w-4 h-4" /> Código de Barras
@@ -1645,91 +1887,91 @@ export default function Inventory({
             {/* Card 1: Stock Total */}
             <div 
               onClick={() => setStockFilter('all')}
-              className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+              className={`p-4 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
                 stockFilter === 'all' 
-                  ? 'bg-blue-50/80 border-blue-300 shadow-xs' 
-                  : 'bg-white border-slate-200 hover:border-slate-300'
+                  ? 'bg-blue-50/60 border-[#2563EB] shadow-xs' 
+                  : 'bg-white border-[#E2E8F0] hover:border-slate-300'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-blue-100/60 text-blue-600">
+                <div className="p-2.5 rounded-lg bg-blue-50 text-[#2563EB]">
                   <Package className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="block text-xs font-bold text-slate-800">Stock total</span>
-                  <span className="block text-[11px] text-slate-400">Productos en inventario</span>
+                  <span className="block text-xs font-semibold text-[#1F2937]">Stock Total</span>
+                  <span className="block text-[11px] text-[#64748B]">En inventario</span>
                 </div>
               </div>
-              <span className="text-xl font-bold text-slate-900 font-mono">{stats.totalItems}</span>
+              <span className="text-xl font-bold text-[#1F2937] font-mono">{stats.totalItems}</span>
             </div>
 
             {/* Card 2: Low Stock */}
             <div 
               onClick={() => setStockFilter('critical')}
-              className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+              className={`p-4 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
                 stockFilter === 'critical' 
-                  ? 'bg-amber-50/80 border-amber-300 shadow-xs' 
-                  : 'bg-white border-slate-200 hover:border-slate-300'
+                  ? 'bg-amber-50/60 border-amber-400 shadow-xs' 
+                  : 'bg-white border-[#E2E8F0] hover:border-slate-300'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-amber-100/60 text-amber-600">
+                <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600">
                   <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="block text-xs font-bold text-slate-800">Alertas bajas</span>
-                  <span className="block text-[11px] text-slate-400">Bajo mínimo</span>
+                  <span className="block text-xs font-semibold text-[#1F2937]">Alertas Bajas</span>
+                  <span className="block text-[11px] text-[#64748B]">Bajo mínimo</span>
                 </div>
               </div>
-              <span className="text-xl font-bold text-slate-900 font-mono">{stats.lowStock}</span>
+              <span className="text-xl font-bold text-[#1F2937] font-mono">{stats.lowStock}</span>
             </div>
 
             {/* Card 3: Out of Stock */}
             <div 
               onClick={() => setStockFilter('outOfStock')}
-              className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+              className={`p-4 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
                 stockFilter === 'outOfStock' 
-                  ? 'bg-red-50/80 border-red-300 shadow-xs' 
-                  : 'bg-white border-slate-200 hover:border-slate-300'
+                  ? 'bg-rose-50/60 border-rose-400 shadow-xs' 
+                  : 'bg-white border-[#E2E8F0] hover:border-slate-300'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-red-100/60 text-red-600">
-                  <AlertTriangle className="w-5 h-5 text-red-500" />
+                <div className="p-2.5 rounded-lg bg-rose-50 text-[#DC2626]">
+                  <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="block text-xs font-bold text-slate-800">Stock agotado</span>
-                  <span className="block text-[11px] text-slate-400">Sin existencias</span>
+                  <span className="block text-xs font-semibold text-[#1F2937]">Stock Agotado</span>
+                  <span className="block text-[11px] text-[#64748B]">Sin existencias</span>
                 </div>
               </div>
-              <span className="text-xl font-bold text-slate-900 font-mono">{stats.outOfStock}</span>
+              <span className="text-xl font-bold text-[#1F2937] font-mono">{stats.outOfStock}</span>
             </div>
 
             {/* Card 4: Expirations */}
             <div 
               onClick={() => setStockFilter('expiring')}
-              className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+              className={`p-4 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
                 stockFilter === 'expiring' 
-                  ? 'bg-orange-50/80 border-orange-300 shadow-xs' 
-                  : 'bg-white border-slate-200 hover:border-slate-300'
+                  ? 'bg-purple-50/60 border-purple-400 shadow-xs' 
+                  : 'bg-white border-[#E2E8F0] hover:border-slate-300'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-orange-100/60 text-orange-600">
+                <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600">
                   <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="block text-xs font-bold text-slate-800">Vencimientos</span>
-                  <span className="block text-[11px] text-slate-400">Alertas por lote</span>
+                  <span className="block text-xs font-semibold text-[#1F2937]">Vencimientos</span>
+                  <span className="block text-[11px] text-[#64748B]">Alertas por lote</span>
                 </div>
               </div>
-              <span className="text-xl font-bold text-slate-900 font-mono">{stats.expiringAlerts}</span>
+              <span className="text-xl font-bold text-[#1F2937] font-mono">{stats.expiringAlerts}</span>
             </div>
 
           </div>
 
-          {/* 4. Filters Panel matching the reference image layout */}
-          <div className="bg-white rounded-xl border border-slate-100 shadow-xs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-center">
+          {/* 4. Filters Panel matching professional SaaS layout */}
+          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-2xs p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-center">
             
             {/* Input 1: Search text */}
             <div className="relative">
@@ -1741,7 +1983,7 @@ export default function Inventory({
                 placeholder="Buscar por producto..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-[#005e63] bg-white text-slate-800"
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937]"
               />
             </div>
 
@@ -1755,7 +1997,7 @@ export default function Inventory({
                 placeholder="Código..."
                 value={codeFilter}
                 onChange={(e) => setCodeFilter(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-[#005e63] bg-white text-slate-800 font-mono"
+                className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937] font-mono"
               />
             </div>
 
@@ -1769,7 +2011,7 @@ export default function Inventory({
                 placeholder="Ubicación..."
                 value={locationFilter}
                 onChange={(e) => setLocationFilter(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-[#005e63] bg-white text-slate-800"
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937]"
               />
             </div>
 
@@ -1778,7 +2020,7 @@ export default function Inventory({
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#005e63] bg-white text-slate-700 font-medium"
+                className="w-full text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937] font-medium"
               >
                 <option value="Todas">Tipo de productos (Todas)</option>
                 {categories.filter(c => c !== 'Todas').map(c => (
@@ -1790,24 +2032,24 @@ export default function Inventory({
             {/* Input 5: Clear Filter Button */}
             <button
               onClick={handleClearFilters}
-              className="w-full bg-[#5cb8df] hover:bg-[#4ea6cd] text-white py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer uppercase tracking-wider"
+              className="w-full bg-slate-100 hover:bg-slate-200 border border-[#E2E8F0] text-[#1F2937] py-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-1 shadow-2xs transition-all cursor-pointer"
             >
-              ◆ Limpiar Filtros
+              Limpiar Filtros
             </button>
           </div>
 
           {/* 5. Main Product List Table */}
-          <div className="bg-white rounded-xl border border-slate-100 shadow-xs overflow-hidden">
+          <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs overflow-hidden">
             {filteredProducts.length === 0 ? (
-              <div className="py-16 text-center flex flex-col items-center justify-center text-slate-400 space-y-3">
-                <PackageOpen className="w-12 h-12 text-slate-300" />
+              <div className="py-16 text-center flex flex-col items-center justify-center text-[#64748B] space-y-3">
+                <PackageOpen className="w-10 h-10 text-slate-300" />
                 <div>
-                  <p className="text-sm font-semibold">No se encontraron productos</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Prueba cambiando los criterios de búsqueda o agrega un nuevo producto.</p>
+                  <p className="text-sm font-semibold text-[#1F2937]">No se encontraron productos</p>
+                  <p className="text-xs text-[#64748B] mt-0.5">Prueba cambiando los criterios de búsqueda o agrega un nuevo producto.</p>
                 </div>
                 <button
                   onClick={openAddModal}
-                  className="text-xs bg-teal-50 text-[#005e63] font-semibold px-3 py-1.5 rounded-lg hover:bg-teal-100/50 transition-all mt-2"
+                  className="text-xs bg-[#2563EB] text-white font-semibold px-3.5 py-1.5 rounded-lg hover:bg-[#1D4ED8] transition-all mt-2 cursor-pointer"
                 >
                   Registrar nuevo producto
                 </button>
@@ -1816,17 +2058,17 @@ export default function Inventory({
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                      <th className="py-3 px-5">Producto</th>
+                    <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                      <th className="py-3 px-4">Producto</th>
                       <th className="py-3 px-4">Código</th>
                       <th className="py-3 px-4">Detalle</th>
                       <th className="py-3 px-4 text-center">Stock Total</th>
                       <th className="py-3 px-4">Ubicación</th>
                       <th className="py-3 px-4 text-center">Estado</th>
-                      <th className="py-3 px-5 text-right">Acciones</th>
+                      <th className="py-3 px-4 text-right">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-[#E2E8F0]">
                     {filteredProducts.map((p) => {
                       const effStock = getProductStock(p);
                       const isCritical = effStock <= p.minStock && effStock > 0;
@@ -1834,24 +2076,24 @@ export default function Inventory({
 
                       // Get status text and badge styling
                       let statusText = 'Normal';
-                      let statusBadge = 'bg-[#10b981] text-white'; // Green
+                      let statusBadge = 'bg-emerald-50 text-[#16A34A] border-emerald-200'; // Green
                       if (isOutOfStock) {
                         statusText = 'Agotado';
-                        statusBadge = 'bg-[#f43f5e] text-white'; // Red
+                        statusBadge = 'bg-rose-50 text-[#DC2626] border-rose-200'; // Red
                       } else if (isCritical) {
                         statusText = 'Bajo';
-                        statusBadge = 'bg-[#f59e0b] text-white'; // Yellow/Amber
+                        statusBadge = 'bg-amber-50 text-amber-800 border-amber-200'; // Yellow/Amber
                       }
 
                       // Generate background or initials placeholder for mock image
                       const nameInitials = p.name.slice(0, 2).toUpperCase();
 
                       return (
-                        <tr key={p.id} className="text-slate-600 hover:bg-slate-50/50 transition-colors">
-                          <td className="py-3 px-5">
+                        <tr key={p.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                          <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
                               {/* Product Avatar */}
-                              <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center overflow-hidden font-bold text-teal-700 text-xs shrink-0 shadow-xs">
+                              <div className="w-8 h-8 rounded-md bg-[#F8FAFC] border border-[#E2E8F0] flex items-center justify-center overflow-hidden font-bold text-[#1F2937] text-xs shrink-0 shadow-2xs">
                                 {p.imageUrl ? (
                                   <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
@@ -1859,37 +2101,37 @@ export default function Inventory({
                                 )}
                               </div>
                               <div>
-                                <div className="font-bold text-slate-800 text-xs">{p.name}</div>
-                                <div className="text-[10px] text-slate-400 mt-0.5">{p.category}</div>
+                                <div className="font-semibold text-[#1F2937] text-xs">{p.name}</div>
+                                <div className="text-[10px] text-[#64748B] mt-0.5">{p.category}</div>
                               </div>
                             </div>
                           </td>
-                          <td className="py-3 px-4 font-mono text-[11px] text-slate-500 font-medium">{p.code}</td>
+                          <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937] font-medium">{p.code}</td>
                           <td className="py-3 px-4">
                             <button
                               onClick={() => setDetailProduct(p)}
-                              className="text-xs font-bold text-[#005e63] hover:underline flex items-center gap-0.5 cursor-pointer"
+                              className="text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-0.5 cursor-pointer"
                             >
                               Ver Detalle
                             </button>
                           </td>
                           <td className="py-3 px-4 text-center">
-                            <span className="bg-[#1fc3df] text-white font-bold font-mono text-[10px] px-2.5 py-0.5 rounded-full inline-block">
+                            <span className="bg-slate-100 text-[#1F2937] font-semibold font-mono text-xs px-2.5 py-0.5 rounded border border-[#E2E8F0] inline-block tabular-nums">
                               {effStock}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-slate-600 font-medium">{p.location || 'Almacén Principal'}</td>
+                          <td className="py-3 px-4 text-[#1F2937] font-medium">{p.location || 'Almacén Principal'}</td>
                           <td className="py-3 px-4 text-center">
-                            <span className={`px-2.5 py-0.5 rounded-md font-bold text-[9px] uppercase inline-block shadow-xs ${statusBadge}`}>
+                            <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] uppercase inline-block border ${statusBadge}`}>
                               {statusText}
                             </span>
                           </td>
-                          <td className="py-3 px-5">
+                          <td className="py-3 px-4">
                             <div className="flex items-center justify-end gap-1.5">
                               {/* Aumentar Stock Manual */}
                               <button
                                 onClick={() => handleOpenManualStockModal(p)}
-                                className="p-1 text-slate-500 hover:text-white hover:bg-[#26c6da] rounded-md border border-slate-200 hover:border-[#26c6da] transition-colors cursor-pointer"
+                                className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
                                 title="Aumentar Stock Manual"
                               >
                                 <Plus className="w-3.5 h-3.5" />
@@ -1898,7 +2140,7 @@ export default function Inventory({
                               {/* Kardex del Producto */}
                               <button
                                 onClick={() => handleOpenProductKardex(p)}
-                                className="p-1 text-[#005e63] hover:text-white hover:bg-[#005e63] rounded-md border border-slate-200 hover:border-[#005e63] transition-colors cursor-pointer"
+                                className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
                                 title="Ver Kardex del Producto"
                               >
                                 <Folder className="w-3.5 h-3.5" />
@@ -1907,7 +2149,7 @@ export default function Inventory({
                               {/* Edit */}
                               <button
                                 onClick={() => openEditModal(p)}
-                                className="p-1 text-slate-500 hover:text-blue-600 rounded-md border border-slate-200 hover:border-blue-200 transition-colors cursor-pointer"
+                                className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
                                 title="Editar"
                               >
                                 <Edit className="w-3.5 h-3.5" />
@@ -4205,6 +4447,341 @@ export default function Inventory({
                   <span>Confirmar aumento</span>
                 </button>
               </div>
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: TRANSFERIR STOCK ENTRE SUCURSALES */}
+      {isTransferModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-slate-200 flex flex-col overflow-hidden my-auto animate-in zoom-in-95 duration-150">
+            
+            {/* Modal Header */}
+            <div className="bg-slate-50/80 px-6 py-4.5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 border border-sky-150 flex items-center justify-center shrink-0 shadow-2xs">
+                  <ArrowRightLeft className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-sm sm:text-base">
+                    Transferir Stock entre Sucursales
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Mueve existencias de productos de una sede a otra en tiempo real
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isTransferring) {
+                    setIsTransferModalOpen(false);
+                    setTransferErrorMessage(null);
+                    setTransferSuccessMessage(null);
+                  }
+                }}
+                className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body & Form */}
+            <form onSubmit={handleExecuteTransfer} className="p-5 sm:p-6 space-y-4 text-xs">
+              
+              {/* Alert: Error */}
+              {transferErrorMessage && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-2xl flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <span className="font-semibold">{transferErrorMessage}</span>
+                </div>
+              )}
+
+              {/* Alert: Success */}
+              {transferSuccessMessage && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-semibold">{transferSuccessMessage}</span>
+                </div>
+              )}
+
+              {/* 1. Branch Selectors Row with visual direction */}
+              <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+                  <span>Ruta de Transferencia</span>
+                  <span className="text-sky-600 font-semibold lowercase">origen &rarr; destino</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative">
+                  {/* Source Branch */}
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-700 text-[11px]">
+                      Sucursal Origen (De donde sale) *
+                    </label>
+                    <select
+                      value={transferSourceId}
+                      onChange={(e) => {
+                        const newSrc = e.target.value;
+                        setTransferSourceId(newSrc);
+                        if (newSrc === transferTargetId) {
+                          const other = availableBranches.find(b => b.id !== newSrc);
+                          if (other) setTransferTargetId(other.id);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-250 rounded-xl font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-xs shadow-2xs"
+                    >
+                      {availableBranches.map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} {b.code ? `(${b.code})` : ''} {b.isMain ? '★ Principal' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Target Branch */}
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-700 text-[11px]">
+                      Sucursal Destino (A donde llega) *
+                    </label>
+                    <select
+                      value={transferTargetId}
+                      onChange={(e) => setTransferTargetId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-250 rounded-xl font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-xs shadow-2xs"
+                    >
+                      {availableBranches.map(b => (
+                        <option key={b.id} value={b.id} disabled={b.id === transferSourceId}>
+                          {b.name} {b.code ? `(${b.code})` : ''} {b.id === transferSourceId ? '(Origen actual)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Product Selection */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-700 text-[11px]">
+                    Producto a Transferir *
+                  </label>
+                  <span className="text-[10px] text-slate-500">
+                    {sourceBranchProducts.length} producto(s) con stock disponible en {sourceBranchObj?.name || 'origen'}
+                  </span>
+                </div>
+
+                {/* Quick filter input for long product lists */}
+                {sourceBranchProducts.length > 5 && (
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Filtrar por nombre o código..."
+                      value={transferProductSearch}
+                      onChange={(e) => setTransferProductSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-hidden focus:bg-white focus:ring-1 focus:ring-sky-500"
+                    />
+                  </div>
+                )}
+
+                <select
+                  value={transferProductId}
+                  onChange={(e) => {
+                    setTransferProductId(e.target.value);
+                    setTransferQuantity(1);
+                  }}
+                  disabled={sourceBranchProducts.length === 0}
+                  className="w-full px-3 py-2.5 bg-white border border-slate-250 rounded-xl font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-xs shadow-2xs"
+                >
+                  {sourceBranchProducts.length === 0 ? (
+                    <option value="">No hay productos con existencias en {sourceBranchObj?.name || 'esta sucursal'}</option>
+                  ) : filteredSourceProducts.length === 0 ? (
+                    <option value="">No coincide ningún producto con la búsqueda</option>
+                  ) : (
+                    filteredSourceProducts.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.code ? `[${p.code}] ` : ''}{p.name} — Stock disponible: {p.stock || 0} {p.unit || 'Pza'}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* Selected Product Info Badge & Stock Comparison */}
+              {selectedTransferProduct && (
+                <div className="bg-sky-50/50 border border-sky-150 rounded-2xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4 text-sky-600" />
+                      <span className="font-bold text-slate-800">{selectedTransferProduct.name}</span>
+                      {selectedTransferProduct.code && (
+                        <span className="font-mono text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded font-bold">
+                          {selectedTransferProduct.code}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono font-bold text-slate-700">
+                      {currency} {(selectedTransferProduct.price || 0).toFixed(2)}
+                    </span>
+                  </div>
+
+                  {/* Stock projection matrix */}
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-sky-100 text-[11px]">
+                    <div className="bg-white/80 p-2 rounded-xl border border-sky-100">
+                      <span className="text-slate-500 block text-[10px]">Origen: {sourceBranchObj?.name}</span>
+                      <div className="flex items-baseline justify-between mt-0.5">
+                        <span className="font-mono font-bold text-slate-700">{availableTransferStock}</span>
+                        <span className="text-slate-400 font-mono text-[10px]">&rarr;</span>
+                        <span className="font-mono font-bold text-amber-600">
+                          {Math.max(0, availableTransferStock - (Number(transferQuantity) || 0))} {selectedTransferProduct.unit || 'Pza'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/80 p-2 rounded-xl border border-sky-100">
+                      <span className="text-slate-500 block text-[10px]">Destino: {targetBranchObj?.name}</span>
+                      <div className="flex items-baseline justify-between mt-0.5">
+                        <span className="font-mono font-bold text-slate-700">{targetCurrentStock}</span>
+                        <span className="text-slate-400 font-mono text-[10px]">&rarr;</span>
+                        <span className="font-mono font-bold text-emerald-600">
+                          {targetCurrentStock + (Number(transferQuantity) || 0)} {selectedTransferProduct.unit || 'Pza'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. Quantity to Transfer & Helper Chips */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-700 text-[11px]">
+                    Cantidad a Transferir *
+                  </label>
+                  {selectedTransferProduct && (
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      Máximo disponible: <strong className="text-sky-700">{availableTransferStock}</strong>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max={availableTransferStock || 1}
+                    value={transferQuantity}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setTransferQuantity(val);
+                    }}
+                    disabled={sourceBranchProducts.length === 0}
+                    className="w-32 px-3.5 py-2 bg-slate-50 border border-slate-250 rounded-xl font-mono font-extrabold text-sm text-slate-800 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-sky-500"
+                  />
+
+                  {/* Helper Chips */}
+                  {availableTransferStock > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setTransferQuantity(1)}
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                      >
+                        1
+                      </button>
+                      {availableTransferStock >= 5 && (
+                        <button
+                          type="button"
+                          onClick={() => setTransferQuantity(5)}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                        >
+                          5
+                        </button>
+                      )}
+                      {availableTransferStock >= 10 && (
+                        <button
+                          type="button"
+                          onClick={() => setTransferQuantity(10)}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                        >
+                          10
+                        </button>
+                      )}
+                      {availableTransferStock >= 2 && (
+                        <button
+                          type="button"
+                          onClick={() => setTransferQuantity(Math.floor(availableTransferStock / 2))}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                        >
+                          Mitad ({Math.floor(availableTransferStock / 2)})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setTransferQuantity(availableTransferStock)}
+                        className="px-2 py-1 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-bold text-[10px] cursor-pointer"
+                      >
+                        Todo ({availableTransferStock})
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. Notes / Reason */}
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-700 text-[11px]">
+                  Motivo / Observaciones (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. Reabastecimiento de inventario, solicitud de cliente, etc."
+                  value={transferNotes}
+                  onChange={(e) => setTransferNotes(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-250 rounded-xl font-medium text-slate-800 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-sky-500 text-xs"
+                />
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsTransferModalOpen(false);
+                    setTransferErrorMessage(null);
+                    setTransferSuccessMessage(null);
+                  }}
+                  disabled={isTransferring}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-xs transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isTransferring || 
+                    sourceBranchProducts.length === 0 || 
+                    !selectedTransferProduct || 
+                    transferQuantity <= 0 || 
+                    transferQuantity > availableTransferStock
+                  }
+                  className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-xl cursor-pointer text-xs flex items-center gap-2 shadow-sm transition-all active:scale-98"
+                >
+                  {isTransferring ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Transfiriendo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRightLeft className="w-4 h-4" />
+                      <span>Confirmar y Transferir Stock</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
             </form>
 
           </div>

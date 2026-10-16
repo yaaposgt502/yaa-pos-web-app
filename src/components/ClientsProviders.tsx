@@ -222,40 +222,40 @@ export default function ClientsProviders({
     <div id="clients-providers-view" className="space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[#E2E8F0] pb-4">
         {mode ? (
-          <div className="space-y-1">
-            <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+          <div className="space-y-0.5">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#1F2937] tracking-tight flex items-center gap-2">
               {activeTab === 'clients' ? (
                 <>
-                  <Users className="w-6 h-6 text-[#0086F0]" />
+                  <Users className="w-6 h-6 text-[#2563EB]" />
                   Clientes
                 </>
               ) : (
                 <>
-                  <Truck className="w-6 h-6 text-[#0086F0]" />
+                  <Truck className="w-6 h-6 text-[#2563EB]" />
                   Proveedores
                 </>
               )}
             </h1>
-            <p className="text-slate-500 text-xs sm:text-sm">
-              {activeTab === 'clients' ? 'Administra tus clientes' : 'Administra tus proveedores'}
+            <p className="text-[#64748B] text-xs">
+              {activeTab === 'clients' ? 'Directorio y control de cuentas corrientes de clientes' : 'Administración y catálogo de proveedores homologados'}
             </p>
           </div>
         ) : (
-          <div className="flex bg-slate-100 rounded-xl p-1 shrink-0 w-full sm:w-auto">
+          <div className="flex bg-slate-100 rounded-lg p-1 shrink-0 w-full sm:w-auto">
             <button
               onClick={() => { setActiveTabState('clients'); setSearchQuery(''); }}
-              className={`flex-1 sm:flex-none text-xs font-semibold px-4 py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'clients' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              className={`flex-1 sm:flex-none text-xs font-semibold px-4 py-2 rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                activeTab === 'clients' ? 'bg-white text-[#1F2937] shadow-2xs' : 'text-[#64748B] hover:text-[#1F2937]'
               }`}
             >
               <Users className="w-4 h-4" /> Directorio de Clientes
             </button>
             <button
               onClick={() => { setActiveTabState('providers'); setSearchQuery(''); }}
-              className={`flex-1 sm:flex-none text-xs font-semibold px-4 py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'providers' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              className={`flex-1 sm:flex-none text-xs font-semibold px-4 py-2 rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                activeTab === 'providers' ? 'bg-white text-[#1F2937] shadow-2xs' : 'text-[#64748B] hover:text-[#1F2937]'
               }`}
             >
               <Truck className="w-4 h-4" /> Proveedores Homologados
@@ -265,58 +265,58 @@ export default function ClientsProviders({
 
         <button
           onClick={activeTab === 'clients' ? openClientAdd : openProviderAdd}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 text-sm shadow-xs active:scale-98 transition-all cursor-pointer w-full sm:w-auto"
+          className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 text-xs shadow-xs active:scale-[0.98] transition-all cursor-pointer w-full sm:w-auto"
         >
           <Plus className="w-4 h-4" /> {activeTab === 'clients' ? 'Nuevo Cliente' : 'Nuevo Proveedor'}
         </button>
       </div>
 
       {/* Filter and Search */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-4 relative">
-        <span className="absolute inset-y-0 left-4 flex items-center pl-3 text-slate-400">
-          <Search className="w-5 h-5" />
+      <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-2xs p-3.5 relative">
+        <span className="absolute inset-y-0 left-3.5 flex items-center pl-3 text-slate-400">
+          <Search className="w-4 h-4" />
         </span>
         <input
           type="text"
           placeholder={activeTab === 'clients' ? "Buscar clientes por nombre, teléfono o correo..." : "Buscar proveedores por nombre, contacto o teléfono..."}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 text-sm"
+          className="w-full pl-9 pr-3.5 py-2 rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] text-xs font-medium text-[#1F2937] bg-white"
         />
       </div>
 
       {/* CLIENTS TAB TABLE */}
       {activeTab === 'clients' && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs overflow-hidden">
           {filteredClients.length === 0 ? (
-            <div className="py-20 text-center text-slate-400 text-xs">No se encontraron clientes registrados.</div>
+            <div className="py-16 text-center text-[#64748B] text-xs">No se encontraron clientes registrados.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse animate-in fade-in duration-150">
+              <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-medium uppercase">
-                    <th className="py-3 px-5">Nombre / Razón Social</th>
+                  <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                    <th className="py-3 px-4">Nombre / Razón Social</th>
                     <th className="py-3 px-4">Teléfono</th>
                     <th className="py-3 px-4">Correo Electrónico</th>
                     <th className="py-3 px-4">Dirección Física</th>
                     <th className="py-3 px-4 text-right">Límite Crédito</th>
                     <th className="py-3 px-4 text-right">Saldo Deudor</th>
-                    <th className="py-3 px-5 text-right">Acciones</th>
+                    <th className="py-3 px-4 text-right">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-[#E2E8F0]">
                   {filteredClients.map((c) => (
-                    <tr key={c.id} className="text-slate-700 hover:bg-slate-50/50 transition-colors">
-                      <td className="py-3.5 px-5 font-semibold text-slate-800">{c.name}</td>
-                      <td className="py-3.5 px-4 font-mono text-xs">{c.phone}</td>
-                      <td className="py-3.5 px-4 text-xs text-slate-500">{c.email}</td>
-                      <td className="py-3.5 px-4 text-xs text-slate-600 max-w-xs truncate">{c.address || 'Sin dirección registrada'}</td>
-                      <td className="py-3.5 px-4 text-right font-mono text-xs">{currency}{c.limitCredit.toFixed(2)}</td>
-                      <td className="py-3.5 px-4 text-right">
-                        <span className={`px-2.5 py-0.5 rounded-full font-bold font-mono text-xs ${
+                    <tr key={c.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-4 font-semibold text-[#1F2937]">{c.name}</td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937]">{c.phone}</td>
+                      <td className="py-3 px-4 text-xs text-[#64748B]">{c.email}</td>
+                      <td className="py-3 px-4 text-xs text-[#64748B] max-w-xs truncate">{c.address || 'Sin dirección registrada'}</td>
+                      <td className="py-3 px-4 text-right font-mono text-xs text-[#1F2937] tabular-nums">{currency}{c.limitCredit.toFixed(2)}</td>
+                      <td className="py-3 px-4 text-right">
+                        <span className={`px-2 py-0.5 rounded-md font-semibold font-mono text-[11px] tabular-nums border ${
                           c.balanceCredit > 0 
-                            ? 'bg-amber-50 text-amber-600 border border-amber-100' 
-                            : 'bg-emerald-50 text-emerald-700'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200' 
+                            : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
                         }`}>
                           {currency}{c.balanceCredit.toFixed(2)}
                         </span>
@@ -350,62 +350,64 @@ export default function ClientsProviders({
 
       {/* PROVIDERS TAB TABLE */}
       {activeTab === 'providers' && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs overflow-hidden">
           {filteredProviders.length === 0 ? (
-            <div className="py-20 text-center text-slate-400 text-xs">No se encontraron proveedores registrados.</div>
+            <div className="py-16 text-center text-[#64748B] text-xs">No se encontraron proveedores registrados.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse animate-in fade-in duration-150">
+              <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-bold uppercase">
-                    <th className="py-4 px-5">NIT</th>
-                    <th className="py-4 px-4">Razón Social</th>
-                    <th className="py-4 px-4">Contacto</th>
-                    <th className="py-4 px-4">Teléfono</th>
-                    <th className="py-4 px-4">Total Compras</th>
-                    <th className="py-4 px-4">Crédito Pendiente</th>
-                    <th className="py-4 px-5 text-right">Acciones</th>
+                  <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                    <th className="py-3 px-4">NIT / ID Fiscal</th>
+                    <th className="py-3 px-4">Razón Social</th>
+                    <th className="py-3 px-4">Contacto</th>
+                    <th className="py-3 px-4">Teléfono</th>
+                    <th className="py-3 px-4 text-right">Total Compras</th>
+                    <th className="py-3 px-4 text-center">Crédito Pendiente</th>
+                    <th className="py-3 px-4 text-right">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-[#E2E8F0]">
                   {filteredProviders.map((p) => (
-                    <tr key={p.id} className="text-slate-700 hover:bg-slate-50/50 transition-colors">
-                      <td className="py-4 px-5 font-mono text-xs text-slate-600 font-semibold">{p.nit || '—'}</td>
-                      <td className="py-4 px-4 font-semibold text-slate-800">{p.name}</td>
-                      <td className="py-4 px-4 text-xs font-medium text-slate-600">{p.contact}</td>
-                      <td className="py-4 px-4 font-mono text-xs text-slate-600">{p.phone}</td>
-                      <td className="py-4 px-4 font-mono text-xs font-semibold text-slate-700">
-                        {currency}{(p.totalPurchases ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <tr key={p.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937] font-semibold">{p.nit || '—'}</td>
+                      <td className="py-3 px-4 font-semibold text-[#1F2937]">{p.name}</td>
+                      <td className="py-3 px-4 text-xs font-medium text-[#64748B]">{p.contact}</td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937]">{p.phone}</td>
+                      <td className="py-3 px-4 font-mono text-xs font-semibold text-[#1F2937] text-right tabular-nums">
+                        {currency}{(p.totalPurchases ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="py-4 px-4">
-                        <span className={`px-3 py-1 rounded-md text-white font-extrabold text-[11px] font-mono inline-block min-w-[70px] text-center ${
-                          (p.creditPending ?? 0) > 0 ? 'bg-[#DC2626]' : 'bg-[#008A2E]'
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2.5 py-0.5 rounded-md font-semibold text-[11px] font-mono inline-block min-w-[70px] text-center border tabular-nums ${
+                          (p.creditPending ?? 0) > 0 
+                            ? 'bg-rose-50 text-[#DC2626] border-rose-200' 
+                            : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
                         }`}>
-                          {currency}{(p.creditPending ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {currency}{(p.creditPending ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </td>
-                      <td className="py-4 px-5 text-right">
+                      <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => openProviderView(p)}
-                            className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
                             title="Ver detalles"
                           >
-                            <Eye className="w-4 h-4" />
+                            <Eye className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => openProviderEdit(p)}
-                            className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
                             title="Editar"
                           >
-                            <Edit className="w-4 h-4" />
+                            <Edit className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleProviderDelete(p.id)}
-                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-[#64748B] hover:text-[#DC2626] hover:bg-rose-50 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
                             title="Eliminar"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -420,13 +422,13 @@ export default function ClientsProviders({
 
       {/* CLIENT DIALOG MODAL */}
       {isClientModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800 text-base">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-lg max-w-md w-full p-5 shadow-xl border border-[#E2E8F0] space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+              <h3 className="font-bold text-[#1F2937] text-sm">
                 {editingClient ? 'Editar Información de Cliente' : 'Registrar Nuevo Cliente'}
               </h3>
-              <button onClick={() => setIsClientModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg">×</button>
+              <button onClick={() => setIsClientModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg cursor-pointer">×</button>
             </div>
 
             <form onSubmit={handleClientSubmit} className="space-y-4 text-left">
@@ -480,16 +482,16 @@ export default function ClientsProviders({
                 </div>
               </div>
 
-              <div className="flex gap-3 border-t border-slate-100 pt-4 mt-6">
+              <div className="flex gap-3 border-t border-[#E2E8F0] pt-4 mt-5">
                 <button
                   type="button" onClick={() => setIsClientModalOpen(false)}
-                  className="flex-1 py-2 border border-slate-200 rounded-xl text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors"
+                  className="flex-1 py-2 border border-[#E2E8F0] rounded-lg text-[#64748B] text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold shadow-xs hover:bg-blue-700 transition-colors"
+                  className="flex-1 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-lg text-xs font-semibold shadow-xs active:scale-[0.98] transition-colors cursor-pointer"
                 >
                   Guardar Cliente
                 </button>
@@ -501,13 +503,13 @@ export default function ClientsProviders({
 
       {/* PROVIDER DIALOG MODAL */}
       {isProviderModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800 text-base">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-lg max-w-md w-full p-5 shadow-xl border border-[#E2E8F0] space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+              <h3 className="font-bold text-[#1F2937] text-sm">
                 {editingProvider ? 'Editar Distribuidora' : 'Registrar Proveedor'}
               </h3>
-              <button onClick={() => setIsProviderModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg">×</button>
+              <button onClick={() => setIsProviderModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg cursor-pointer">×</button>
             </div>
 
             <form onSubmit={handleProviderSubmit} className="space-y-4 text-left">

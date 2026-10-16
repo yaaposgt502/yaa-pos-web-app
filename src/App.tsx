@@ -18,6 +18,8 @@ import Settings from './components/Settings';
 import Branches from './components/Branches';
 import AdminPanel from './components/AdminPanel';
 import ErrorBoundary from './components/ErrorBoundary';
+import PlanModal from './components/PlanModal';
+import { getPlanDefinition, checkBranchLimit, checkUserLimit } from './utils/planLimits';
 
 // Icons
 import { 
@@ -220,6 +222,8 @@ export default function App() {
   const [userLicense, setUserLicense] = useState<any>(null);
   const [showSuspensionModal, setShowSuspensionModal] = useState(true);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [isPlanUpgradeModalOpen, setIsPlanUpgradeModalOpen] = useState(false);
+  const [operatorsCount, setOperatorsCount] = useState(1);
 
   // Internet connectivity state for PWA offline detection
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -518,7 +522,26 @@ export default function App() {
     });
 
     const unsubConfig = api.subscribeConfig((cfg, meta) => {
-      if (cfg) setConfig(cfg);
+      if (cfg) {
+        if (cfg.branches && cfg.branches.length > 0) {
+          const isOnlyLegacySeeds = cfg.branches.every(b =>
+            (b.id === 'branch-1' && b.code === 'SUC-01') ||
+            (b.id === 'branch-2' && b.code === 'SUC-02') ||
+            (b.id === 'branch-3' && b.code === 'SUC-03') ||
+            b.name === 'Sucursal Central (Sede Principal)' ||
+            b.name === 'Sucursal Mixco - San Cristóbal' ||
+            b.name === 'Sucursal Carretera a El Salvador'
+          );
+          if (isOnlyLegacySeeds) {
+            const cleanedCfg: AppConfig = { ...cfg, branches: [], activeBranchId: '' };
+            setConfig(cleanedCfg);
+            api.saveConfig(cleanedCfg).catch(console.error);
+            setPendingWrites(prev => ({ ...prev, config: !!meta?.hasPendingWrites }));
+            return;
+          }
+        }
+        setConfig(cfg);
+      }
       setPendingWrites(prev => ({ ...prev, config: !!meta?.hasPendingWrites }));
     });
 
@@ -566,38 +589,65 @@ export default function App() {
   const operationalBranches = useMemo(() => getOperationalBranches(config, user), [config, user]);
   const activeBranch = useMemo(() => getActiveBranch(config, user), [config, user]);
 
-  // Independent collections per active branch
+  // Track operators count for user limit validation
+  useEffect(() => {
+    if (user?.id) {
+      api.getOperators().then(ops => {
+        setOperatorsCount(Math.max(1, ops.length));
+      }).catch(() => {});
+    }
+  }, [user?.id, activeTab]);
+
+  const plan = useMemo(() => getPlanDefinition(userLicense?.planType), [userLicense?.planType]);
+  const branchLimitInfo = useMemo(() => checkBranchLimit(operationalBranches.length, userLicense?.planType), [operationalBranches.length, userLicense?.planType]);
+  const userLimitInfo = useMemo(() => checkUserLimit(operatorsCount, userLicense?.planType), [operatorsCount, userLicense?.planType]);
+
+  // La pestaña "Sucursales" solo aparece cuando la cuenta tiene un plan que permite crear más de 1 sucursal
+  const canManageBranches = useMemo(() => {
+    const max = typeof userLicense?.maxBranches === 'number'
+      ? userLicense.maxBranches
+      : (plan?.maxBranches ?? 1);
+    return max > 1 || Boolean(plan?.multiBranchAllowed);
+  }, [userLicense?.maxBranches, plan]);
+
+  useEffect(() => {
+    if (!canManageBranches && activeTab === 'sucursales') {
+      setActiveTab('dashboard');
+    }
+  }, [canManageBranches, activeTab]);
+
+  // Independent collections per active branch (if no branches exist yet, show all items)
   const branchProducts = useMemo(
-    () => products.filter(p => isItemInBranch(p.branch, activeBranch.name, systemBranches)),
-    [products, activeBranch.name, systemBranches]
+    () => products.filter(p => isItemInBranch(p.branch, activeBranch?.name, systemBranches)),
+    [products, activeBranch?.name, systemBranches]
   );
   const branchClients = useMemo(
-    () => clients.filter(c => isItemInBranch(c.branch, activeBranch.name, systemBranches)),
-    [clients, activeBranch.name, systemBranches]
+    () => clients.filter(c => isItemInBranch(c.branch, activeBranch?.name, systemBranches)),
+    [clients, activeBranch?.name, systemBranches]
   );
   const branchProviders = useMemo(
-    () => providers.filter(p => isItemInBranch(p.branch, activeBranch.name, systemBranches)),
-    [providers, activeBranch.name, systemBranches]
+    () => providers.filter(p => isItemInBranch(p.branch, activeBranch?.name, systemBranches)),
+    [providers, activeBranch?.name, systemBranches]
   );
   const branchSales = useMemo(
-    () => sales.filter(s => isItemInBranch(s.branch, activeBranch.name, systemBranches)),
-    [sales, activeBranch.name, systemBranches]
+    () => sales.filter(s => isItemInBranch(s.branch, activeBranch?.name, systemBranches)),
+    [sales, activeBranch?.name, systemBranches]
   );
   const branchPurchases = useMemo(
-    () => purchases.filter(p => isItemInBranch(p.branch, activeBranch.name, systemBranches)),
-    [purchases, activeBranch.name, systemBranches]
+    () => purchases.filter(p => isItemInBranch(p.branch, activeBranch?.name, systemBranches)),
+    [purchases, activeBranch?.name, systemBranches]
   );
   const branchExpenses = useMemo(
-    () => expenses.filter(e => isItemInBranch(e.branch, activeBranch.name, systemBranches)),
-    [expenses, activeBranch.name, systemBranches]
+    () => expenses.filter(e => isItemInBranch(e.branch, activeBranch?.name, systemBranches)),
+    [expenses, activeBranch?.name, systemBranches]
   );
   const branchShifts = useMemo(
-    () => shifts.filter(sh => isItemInBranch(sh.branch, activeBranch.name, systemBranches)),
-    [shifts, activeBranch.name, systemBranches]
+    () => shifts.filter(sh => isItemInBranch(sh.branch, activeBranch?.name, systemBranches)),
+    [shifts, activeBranch?.name, systemBranches]
   );
   const branchFiles = useMemo(
-    () => files.filter(f => isItemInBranch(f.branch, activeBranch.name, systemBranches)),
-    [files, activeBranch.name, systemBranches]
+    () => files.filter(f => isItemInBranch(f.branch, activeBranch?.name, systemBranches)),
+    [files, activeBranch?.name, systemBranches]
   );
   const activeBranchOpenShift = useMemo(
     () => branchShifts.find(sh => sh.state === 'open'),
@@ -681,7 +731,7 @@ export default function App() {
     const nextBranchId = resolved ? resolved.id : branchIdOrName;
     const updated: AppConfig = {
       ...config,
-      branches: config.branches && config.branches.length > 0 ? config.branches : systemBranches,
+      branches: config.branches || [],
       activeBranchId: nextBranchId
     };
     setConfig(updated);
@@ -718,7 +768,23 @@ export default function App() {
       setExpenses(exps);
       setShifts(sfts);
       setFiles(fls);
-      setConfig(cfg || defaultAppConfig);
+
+      let resolvedCfg = cfg || defaultAppConfig;
+      if (resolvedCfg.branches && resolvedCfg.branches.length > 0) {
+        const isOnlyLegacySeeds = resolvedCfg.branches.every(b =>
+          (b.id === 'branch-1' && b.code === 'SUC-01') ||
+          (b.id === 'branch-2' && b.code === 'SUC-02') ||
+          (b.id === 'branch-3' && b.code === 'SUC-03') ||
+          b.name === 'Sucursal Central (Sede Principal)' ||
+          b.name === 'Sucursal Mixco - San Cristóbal' ||
+          b.name === 'Sucursal Carretera a El Salvador'
+        );
+        if (isOnlyLegacySeeds) {
+          resolvedCfg = { ...resolvedCfg, branches: [], activeBranchId: '' };
+          api.saveConfig(resolvedCfg).catch(console.error);
+        }
+      }
+      setConfig(resolvedCfg);
     } catch (err) {
       console.error('Error on manual loadAllData refresh (active subscriptions still running):', err);
     } finally {
@@ -765,6 +831,9 @@ export default function App() {
 
       setToken(res.token);
       setUser(res.user);
+      // Passwords are protected in Firebase Auth, never stored in plain text
+      sessionStorage.removeItem('yaa_pos_session_password');
+      localStorage.removeItem('yaa_pos_owner_password');
       setAuthPassword('');
       setAuthEmail('');
       setAuthName('');
@@ -779,6 +848,9 @@ export default function App() {
     try {
       await api.logoutUser();
     } finally {
+      sessionStorage.removeItem('yaa_pos_session_password');
+      localStorage.removeItem('yaa_pos_owner_password');
+      localStorage.removeItem('yaa_pos_operator_email');
       setToken(null);
       setUser(null);
       setProducts([]);
@@ -797,62 +869,65 @@ export default function App() {
 
   // --- DELEGATED API CALLS (Isolated & Synchronized per Branch) ---
   const onSaveProduct = async (p: Product) => {
+    const branchName = p.branch || activeBranch?.name || '';
     const productWithBranch: Product = {
       ...p,
-      branch: p.branch || activeBranch.name
+      ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveProduct(productWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteProduct = async (id: string) => {
     const res = await api.deleteProduct(id);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveClient = async (c: Client) => {
+    const branchName = c.branch || activeBranch?.name || '';
     const clientWithBranch: Client = {
       ...c,
-      branch: c.branch || activeBranch.name
+      ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveClient(clientWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteClient = async (id: string) => {
     const res = await api.deleteClient(id);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveProvider = async (p: Provider) => {
+    const branchName = p.branch || activeBranch?.name || '';
     const providerWithBranch: Provider = {
       ...p,
-      branch: p.branch || activeBranch.name
+      ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveProvider(providerWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteProvider = async (id: string) => {
     const res = await api.deleteProvider(id);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveSale = async (s: Sale) => {
-    const saleBranch = s.branch || activeBranch.name;
-    const saleWithBranch: Sale = { ...s, branch: saleBranch };
+    const saleBranch = s.branch || activeBranch?.name || '';
+    const saleWithBranch: Sale = { ...s, ...(saleBranch ? { branch: saleBranch } : {}) };
 
     // 1. Descontar stock únicamente de los productos pertenecientes a esta sucursal
     for (const item of s.items) {
@@ -1055,8 +1130,10 @@ export default function App() {
     productId: string,
     quantity: number
   ) => {
-    const sourceBranchObj = systemBranches.find(b => b.id === sourceBranchId);
-    const targetBranchObj = systemBranches.find(b => b.id === targetBranchId);
+    const sourceBranchObj = systemBranches.find(b => b.id === sourceBranchId || b.name === sourceBranchId)
+      || operationalBranches.find(b => b.id === sourceBranchId || b.name === sourceBranchId);
+    const targetBranchObj = systemBranches.find(b => b.id === targetBranchId || b.name === targetBranchId)
+      || operationalBranches.find(b => b.id === targetBranchId || b.name === targetBranchId);
     if (!sourceBranchObj || !targetBranchObj) {
       throw new Error('Sucursal de origen o destino no encontrada.');
     }
@@ -1073,10 +1150,15 @@ export default function App() {
 
     // 1. Descontar de la sucursal origen
     const nextSourceStock = Math.max(0, currentStock - quantity);
-    let updatedSourceLotes = sourceProduct.expirationDates ? [...sourceProduct.expirationDates] : undefined;
-    if (updatedSourceLotes && updatedSourceLotes.length > 0) {
+    const updatedSourceProduct: Product = {
+      ...sourceProduct,
+      branch: sourceProduct.branch || sourceBranchObj.name,
+      stock: nextSourceStock
+    };
+
+    if (sourceProduct.expirationDates && sourceProduct.expirationDates.length > 0) {
       let rem = quantity;
-      updatedSourceLotes = updatedSourceLotes
+      const updatedSourceLotes = sourceProduct.expirationDates
         .map(r => {
           if (rem <= 0) return r;
           const s = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
@@ -1085,14 +1167,12 @@ export default function App() {
           return { ...r, stock: s - deduct };
         })
         .filter(r => (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) > 0);
+      updatedSourceProduct.expirationDates = updatedSourceLotes;
+    } else {
+      delete updatedSourceProduct.expirationDates;
     }
 
-    await api.saveProduct({
-      ...sourceProduct,
-      branch: sourceProduct.branch || sourceBranchObj.name,
-      stock: nextSourceStock,
-      expirationDates: updatedSourceLotes
-    });
+    await api.saveProduct(updatedSourceProduct);
 
     // 2. Sumar o crear producto independiente en la sucursal destino
     const existingTargetProduct = products.find(
@@ -1113,32 +1193,47 @@ export default function App() {
           stock: (Number(targetLotes[0].stock) || 0) + quantity
         };
       }
-      await api.saveProduct({
+      const updatedTargetProduct: Product = {
         ...existingTargetProduct,
         branch: targetBranchObj.name,
-        stock: nextTargetStock,
-        expirationDates: targetLotes.length > 0 ? targetLotes : existingTargetProduct.expirationDates
-      });
+        stock: nextTargetStock
+      };
+      if (targetLotes.length > 0) {
+        updatedTargetProduct.expirationDates = targetLotes;
+      } else if (existingTargetProduct.expirationDates) {
+        updatedTargetProduct.expirationDates = existingTargetProduct.expirationDates;
+      } else {
+        delete updatedTargetProduct.expirationDates;
+      }
+      await api.saveProduct(updatedTargetProduct);
     } else {
       const newTargetProduct: Product = {
         ...sourceProduct,
         id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         branch: targetBranchObj.name,
-        stock: quantity,
-        expirationDates: sourceProduct.expirationDate
-          ? [{ date: sourceProduct.expirationDate, stock: quantity, batch: sourceProduct.initialBatch || '00101' }]
-          : undefined
+        stock: quantity
       };
+      if (sourceProduct.expirationDate) {
+        newTargetProduct.expirationDates = [
+          { date: sourceProduct.expirationDate, stock: quantity, batch: sourceProduct.initialBatch || '00101' }
+        ];
+      } else if (sourceProduct.expirationDates && sourceProduct.expirationDates.length > 0) {
+        newTargetProduct.expirationDates = [
+          { date: sourceProduct.expirationDates[0].date, stock: quantity, batch: sourceProduct.expirationDates[0].batch || '00101' }
+        ];
+      } else {
+        delete newTargetProduct.expirationDates;
+      }
       await api.saveProduct(newTargetProduct);
     }
 
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
   };
 
   const onSaveExpense = async (e: Expense) => {
-    const expenseBranch = e.branch || activeBranch.name;
-    const expenseWithBranch: Expense = { ...e, branch: expenseBranch };
+    const expenseBranch = e.branch || activeBranch?.name || '';
+    const expenseWithBranch: Expense = { ...e, ...(expenseBranch ? { branch: expenseBranch } : {}) };
 
     // Descontar caja / registrar gasto en el turno activo DE ESTA SUCURSAL
     const activeShift = shifts.find(sh => 
@@ -1153,7 +1248,7 @@ export default function App() {
     }
 
     const saved = await api.saveExpense(expenseWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: expenseBranch, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: expenseBranch, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
@@ -1162,7 +1257,7 @@ export default function App() {
     const expense = expenses.find(e => e.id === id);
     if (expense) {
       const activeShift = shifts.find(sh => 
-        sh.state === 'open' && isItemInBranch(sh.branch, expense.branch || activeBranch.name, systemBranches)
+        sh.state === 'open' && isItemInBranch(sh.branch, expense.branch || activeBranch?.name, systemBranches)
       );
       if (activeShift) {
         await api.saveShift({
@@ -1172,18 +1267,19 @@ export default function App() {
       }
     }
     const res = await api.deleteExpense(id);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
 
   const onSaveShift = async (s: Shift) => {
+    const shiftBranch = s.branch || activeBranch?.name || '';
     const shiftWithBranch: Shift = {
       ...s,
-      branch: s.branch || activeBranch.name
+      ...(shiftBranch ? { branch: shiftBranch } : {})
     };
     const saved = await api.saveShift(shiftWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: shiftWithBranch.branch, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: shiftWithBranch.branch, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
@@ -1193,8 +1289,8 @@ export default function App() {
     setConfig(saved);
     notifyBranchSync({
       type: 'branch_switch',
-      branchId: saved.activeBranchId || activeBranch.id,
-      branchName: activeBranch.name,
+      branchId: saved.activeBranchId || activeBranch?.id,
+      branchName: activeBranch?.name,
       timestamp: Date.now()
     });
     await loadAllData();
@@ -1203,14 +1299,14 @@ export default function App() {
 
   const onUploadFile = async (f: File) => {
     const saved = await api.uploadFile(f);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
 
   const onDeleteFile = async (id: string) => {
     const res = await api.deleteFile(id);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: activeBranch.name, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
     await loadAllData();
     return res;
   };
@@ -1303,6 +1399,27 @@ export default function App() {
               </div>
             </div>
 
+            {authMode === 'login' && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const email = authEmail.trim() || prompt('Ingrese su correo electrónico para recibir el enlace de restablecimiento:');
+                    if (!email) return;
+                    try {
+                      await api.sendPasswordReset(email);
+                      alert(`✓ Se ha enviado el enlace seguro de restablecimiento de contraseña a ${email}. Revise su bandeja de entrada.`);
+                    } catch (err: any) {
+                      alert('Error al enviar restablecimiento: ' + (err.message || err));
+                    }
+                  }}
+                  className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+            )}
+
             {authError && (
               <div className="bg-red-50 text-red-600 border border-red-200 rounded-xl p-3 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1373,6 +1490,9 @@ export default function App() {
   ];
 
   const visibleSidebarTabs = sidebarTabs.filter((tab) => {
+    if (tab.id === 'sucursales' && !canManageBranches) {
+      return false;
+    }
     if (user?.isOperator && (user.disabledTabs?.includes(tab.id) || (tab.id === 'historial-ventas' && user.disabledTabs?.includes('libro-ventas')))) {
       // Configuración is the place for operator/cajero info, but maybe they shouldn't view settings if config is disabled
       return false;
@@ -1420,7 +1540,7 @@ export default function App() {
             config={config}
             onNavigate={setActiveTab}
             user={user}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1436,7 +1556,7 @@ export default function App() {
             onSaveSale={onSaveSale} 
             onRefreshData={loadAllData} 
             onNavigate={setActiveTab}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1445,6 +1565,7 @@ export default function App() {
         return (
           <Inventory 
             products={branchProducts} 
+            allProducts={products}
             config={config} 
             onSaveProduct={onSaveProduct} 
             onDeleteProduct={onDeleteProduct} 
@@ -1452,9 +1573,10 @@ export default function App() {
             sales={branchSales}
             purchases={branchPurchases}
             user={user}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
+            onTransferStock={onTransferStock}
           />
         );
       case 'historial-ventas':
@@ -1466,7 +1588,7 @@ export default function App() {
             config={config}
             products={branchProducts}
             user={user}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1480,7 +1602,7 @@ export default function App() {
             currency={config.currency} 
             config={config}
             user={user}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             onSwitchBranch={handleSwitchActiveBranch}
             onSavePurchase={onSavePurchase} 
             onSaveProduct={onSaveProduct}
@@ -1494,7 +1616,7 @@ export default function App() {
             config={config} 
             onSaveProduct={onSaveProduct} 
             onRefreshData={loadAllData}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1522,7 +1644,7 @@ export default function App() {
             onDeleteProvider={onDeleteProvider} 
             onRefreshData={loadAllData} 
             mode="clients"
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1539,7 +1661,7 @@ export default function App() {
             onDeleteProvider={onDeleteProvider} 
             onRefreshData={loadAllData} 
             mode="providers"
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1554,7 +1676,7 @@ export default function App() {
             onRefreshData={loadAllData}
             config={config}
             user={user}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             onSwitchBranch={handleSwitchActiveBranch}
           />
         );
@@ -1570,7 +1692,7 @@ export default function App() {
             onNavigate={setActiveTab}
             user={user}
             config={config}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1585,7 +1707,7 @@ export default function App() {
             products={branchProducts}
             onNavigate={setActiveTab}
             user={user}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1597,19 +1719,29 @@ export default function App() {
             products={products}
             branchProducts={branchProducts}
             user={user}
+            userLicense={userLicense}
+            onOpenPlanUpgrade={() => setIsPlanUpgradeModalOpen(true)}
             onSaveConfig={onSaveConfig}
             onNavigate={setActiveTab}
             sales={sales}
             shifts={shifts}
             expenses={expenses}
             purchases={purchases}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             onSwitchBranch={handleSwitchActiveBranch}
             onTransferStock={onTransferStock}
           />
         );
       case 'configuracion':
-        return <Settings config={config} user={user} onSaveConfig={onSaveConfig} />;
+        return (
+          <Settings 
+            config={config} 
+            user={user} 
+            userLicense={userLicense}
+            onOpenPlanUpgrade={() => setIsPlanUpgradeModalOpen(true)}
+            onSaveConfig={onSaveConfig} 
+          />
+        );
       default:
         return (
           <Dashboard
@@ -1620,7 +1752,7 @@ export default function App() {
             config={config}
             onNavigate={setActiveTab}
             user={user}
-            activeBranchName={activeBranch.name}
+            activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
           />
@@ -1641,7 +1773,7 @@ export default function App() {
       )}
       
       {/* MOBILE HEADER NAVBAR */}
-      <div className="md:hidden bg-[#0A1221] text-slate-100 px-4 py-3 relative flex items-center justify-between border-b border-slate-800 shrink-0 min-h-[52px]">
+      <div className="md:hidden bg-[#172B4D] text-white px-4 py-3 relative flex items-center justify-between border-b border-white/10 shrink-0 min-h-[52px]">
         {/* Left Action: ArrowLeft (when inside any module) or empty spacer (when on dashboard) */}
         <div className="flex items-center z-10">
           {activeTab !== 'dashboard' ? (
@@ -1649,7 +1781,7 @@ export default function App() {
               id="btn-mobile-back-dashboard"
               type="button"
               onClick={() => setActiveTab('dashboard')}
-              className="p-1.5 -ml-1 hover:bg-slate-800 active:scale-95 rounded-xl text-slate-200 hover:text-white transition-all cursor-pointer flex items-center gap-1 bg-slate-800/60 border border-slate-700/60 shadow-xs"
+              className="p-1.5 -ml-1 hover:bg-white/10 active:scale-95 rounded-lg text-slate-200 hover:text-white transition-all cursor-pointer flex items-center gap-1 bg-white/5 border border-white/10 shadow-xs"
               title="Regresar a Dashboard"
             >
               <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
@@ -1661,11 +1793,12 @@ export default function App() {
 
         {/* Centered Store Name & Active Section */}
         <div className="absolute left-1/2 -translate-x-1/2 text-center max-w-[65%] truncate pointer-events-none">
-          <span className="text-sm font-black text-white tracking-wide font-display block truncate">
+          <span className="text-sm font-bold text-white tracking-wide block truncate">
             {config.storeName || 'Yaa POS'}
           </span>
-          <span className="text-[9.5px] text-blue-400 font-bold tracking-wider uppercase block -mt-0.5 truncate">
-            {sidebarTabs.find(t => t.id === activeTab)?.label || 'Punto de Venta'} • {activeBranch.code}
+          <span className="text-[10px] text-blue-300 font-medium tracking-wider uppercase block -mt-0.5 truncate">
+            {sidebarTabs.find(t => t.id === activeTab)?.label || 'Punto de Venta'}
+            {activeBranch?.code ? ` • ${activeBranch.code}` : ''}
           </span>
         </div>
 
@@ -1673,77 +1806,57 @@ export default function App() {
         <div className="flex items-center gap-2 shrink-0 z-10">
           {isOnline ? (
             hasPendingSync ? (
-              <div className="flex items-center gap-1 bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full text-[9px] font-bold" title="Sincronizando cambios locales con el servidor...">
+              <div className="flex items-center gap-1 bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-md text-[10px] font-medium" title="Sincronizando cambios locales con el servidor...">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                <span>Sincronizando...</span>
+                <span>Sincronizando</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1 bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full text-[9px] font-bold" title="Conectado y sincronizado">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <div className="flex items-center gap-1 bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md text-[10px] font-medium" title="Conectado y sincronizado">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 <span>En línea</span>
               </div>
             )
           ) : (
-            hasPendingSync ? (
-              <div className="flex items-center gap-1 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full text-[9px] font-bold" title="Sin conexión. Ventas/cambios guardados en caché. Se enviarán al volver Internet.">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                <span>Offline (Pte. Sincronizar)</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full text-[9px] font-bold" title="Sin conexión">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                <span>Sin conexión</span>
-              </div>
-            )
+            <div className="flex items-center gap-1 bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md text-[10px] font-medium" title="Sin conexión">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>Offline</span>
+            </div>
           )}
           {isDataLoading && (
-            <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
+            <Loader2 className="w-4 h-4 text-blue-300 animate-spin shrink-0" />
           )}
         </div>
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
-        {/* 1. DESKTOP SIDEBAR (Hidden on mobile) */}
-        <aside className="hidden md:flex md:w-64 bg-[#0A1221] text-slate-300 flex-col justify-between shrink-0 border-r border-slate-800">
+        {/* 1. DESKTOP SIDEBAR (#172B4D) */}
+        <aside className="hidden md:flex md:w-64 bg-[#172B4D] text-slate-200 flex-col justify-between shrink-0 border-r border-[#243B61]">
           
-          {/* Top Header Logo */}
-          <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
-                <span className="text-xl font-black text-white tracking-wider font-display block">Yaa POS</span>
-                {isOnline ? (
-                  hasPendingSync ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" title="Sincronizando..." />
-                  ) : (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="En línea" />
-                  )
-                ) : (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" title="Sin conexión" />
-                )}
+          {/* Top Header Brand */}
+          <div className="px-5 py-4 border-b border-[#243B61] flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-md bg-[#2563EB] text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                Y
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-blue-400 font-bold tracking-widest uppercase">Punto de Venta</span>
-                {!isOnline && (
-                  <span className="text-[8px] text-amber-500 font-bold uppercase tracking-wider">
-                    {hasPendingSync ? 'Pte. Sinc' : 'Offline'}
-                  </span>
-                )}
+              <div className="min-w-0">
+                <span className="text-sm font-bold text-white tracking-tight block leading-tight">Yaa POS</span>
+                <span className="text-[10px] text-slate-400 font-medium">Sistema POS</span>
               </div>
             </div>
             {isDataLoading && (
-              <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
+              <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
             )}
           </div>
 
           {/* Navigation Links list */}
-          <nav className="px-3 py-2 space-y-1 overflow-y-auto flex-1 max-h-[calc(100vh-180px)]">
+          <nav className="px-3 py-3 space-y-1 overflow-y-auto flex-1 max-h-[calc(100vh-170px)]">
             {user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' && (
               <button
                 type="button"
                 onClick={() => setViewMode('admin')}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-md transition-all cursor-pointer uppercase tracking-wider mb-3 animate-pulse shrink-0"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer uppercase tracking-wider mb-2 shrink-0"
               >
-                <Shield className="w-4 h-4 text-emerald-100" />
+                <Shield className="w-3.5 h-3.5 text-emerald-100" />
                 <span>Consola Admin</span>
               </button>
             )}
@@ -1755,20 +1868,22 @@ export default function App() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                     isActive 
-                      ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20' 
-                      : 'hover:bg-slate-800 hover:text-white text-slate-400'
+                      ? 'bg-[#2563EB] text-white font-semibold shadow-xs' 
+                      : 'text-slate-300 hover:text-white hover:bg-white/10'
                   }`}
                 >
-                  <span className="flex items-center gap-3 min-w-0 truncate">
-                    {tab.icon}
+                  <span className="flex items-center gap-2.5 min-w-0 truncate">
+                    <span className={isActive ? 'text-white' : 'text-slate-400'}>
+                      {tab.icon}
+                    </span>
                     <span className="truncate">{tab.label}</span>
                   </span>
-                  {tab.id === 'sucursales' && (
+                  {tab.id === 'sucursales' && activeBranch?.code && (
                     <span
-                      className={`text-[9px] font-mono font-extrabold px-1.5 py-0.5 rounded shrink-0 ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-blue-400'
+                      className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-black/25 text-blue-300'
                       }`}
                     >
                       {activeBranch.code}
@@ -1776,11 +1891,14 @@ export default function App() {
                   )}
                   {tab.id === 'apertura-cierre' && (
                     <span
-                      className={`w-2 h-2 rounded-full shrink-0 ${
-                        activeBranchOpenShift ? 'bg-emerald-400' : 'bg-amber-400'
+                      className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${
+                        activeBranchOpenShift 
+                          ? (isActive ? 'bg-emerald-500/30 text-emerald-100' : 'bg-emerald-500/20 text-emerald-300')
+                          : (isActive ? 'bg-amber-500/30 text-amber-100' : 'bg-amber-500/20 text-amber-300')
                       }`}
-                      title={activeBranchOpenShift ? 'Caja abierta en esta sede' : 'Caja cerrada en esta sede'}
-                    />
+                    >
+                      {activeBranchOpenShift ? 'Abierta' : 'Cerrada'}
+                    </span>
                   )}
                 </button>
               );
@@ -1788,14 +1906,14 @@ export default function App() {
           </nav>
 
           {/* Bottom profile and logout */}
-          <div className="border-t border-slate-800 px-3 py-4 space-y-3 shrink-0 bg-[#070D18]">
-            <div className="flex items-center gap-2.5 px-3">
-              <div className="p-1.5 bg-slate-800 text-blue-400 rounded-full shrink-0">
-                <UserIcon className="w-3.5 h-3.5" />
+          <div className="border-t border-[#243B61] px-3.5 py-3.5 space-y-2.5 shrink-0 bg-[#112038]">
+            <div className="flex items-center gap-2.5 px-1">
+              <div className="w-7 h-7 bg-white/10 text-blue-300 rounded-md flex items-center justify-center shrink-0 text-xs font-bold font-mono">
+                {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-white truncate">{user.name}</p>
-                <p className="text-[9px] text-slate-500 font-mono truncate">{user.email}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-white truncate">{user.name}</p>
+                <p className="text-[10px] text-slate-400 font-mono truncate">{user.email}</p>
               </div>
             </div>
 
@@ -1803,26 +1921,99 @@ export default function App() {
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full py-2 bg-red-950 hover:bg-red-900 text-red-200 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-red-900/40 cursor-pointer transition-colors"
+              className="w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 border border-red-500/20 cursor-pointer transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" /> Cerrar Sesión
             </button>
           </div>
         </aside>
 
-        {/* 2. MAIN ACTIVE VIEWPORT (Right Column) */}
-        <main className={`flex-1 p-4 sm:p-6 md:p-8 ${activeTab === 'dashboard' ? 'pb-24' : 'pb-6'} md:pb-8 overflow-y-auto max-h-screen bg-white`}>
-          <ErrorBoundary key={`${activeTab}-${activeBranch.id}`}>
-            {renderActiveComponent()}
-          </ErrorBoundary>
-        </main>
+        {/* 2. MAIN ACTIVE VIEWPORT & DISCREET DESKTOP TOPBAR */}
+        <div className="flex-1 flex flex-col min-w-0 bg-[#F5F7FA] overflow-hidden">
+          {/* DISCREET TOPBAR (DESKTOP) */}
+          <header className="hidden md:flex h-14 bg-white border-b border-[#E2E8F0] px-6 items-center justify-between shrink-0 z-10 shadow-2xs">
+            <div className="flex items-center gap-3 min-w-0">
+              <h2 className="text-sm font-bold text-[#1F2937] tracking-tight flex items-center gap-2 truncate">
+                {sidebarTabs.find(t => t.id === activeTab)?.icon}
+                <span>{sidebarTabs.find(t => t.id === activeTab)?.label || 'Panel Principal'}</span>
+              </h2>
+
+              {activeBranch?.name && (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-[#E2E8F0] px-2.5 py-1 rounded-md text-xs font-medium text-[#1F2937]">
+                  <Building2 className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
+                  <span className="truncate">{activeBranch.name}</span>
+                  {activeBranch.code && (
+                    <span className="text-[10px] font-mono text-slate-500 font-bold ml-0.5">({activeBranch.code})</span>
+                  )}
+                </div>
+              )}
+
+              {/* Shift status indicator */}
+              <div className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${
+                activeBranchOpenShift 
+                  ? 'bg-emerald-50 text-[#16A34A] border-emerald-200' 
+                  : 'bg-slate-50 text-[#64748B] border-[#E2E8F0]'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${activeBranchOpenShift ? 'bg-[#16A34A]' : 'bg-slate-400'}`} />
+                <span>{activeBranchOpenShift ? 'Caja Abierta' : 'Caja Cerrada'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Branch Switcher (when multiple branches available) */}
+              {operationalBranches && operationalBranches.length > 1 && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-[#64748B] font-medium hidden xl:inline">Sede:</span>
+                  <select
+                    value={activeBranch?.id || ''}
+                    onChange={(e) => handleSwitchActiveBranch(e.target.value)}
+                    className="h-8 bg-white border border-[#E2E8F0] rounded-md px-2.5 text-xs font-medium text-[#1F2937] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] cursor-pointer"
+                  >
+                    {operationalBranches.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Network / Sync status indicator */}
+              <div className="flex items-center gap-1.5 text-xs text-[#64748B] pl-2 border-l border-[#E2E8F0]">
+                {isOnline ? (
+                  hasPendingSync ? (
+                    <div className="flex items-center gap-1 text-[#2563EB]">
+                      <span className="w-2 h-2 rounded-full bg-[#2563EB] animate-pulse" />
+                      <span className="font-medium text-[11px]">Sincronizando</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 text-[#16A34A]">
+                      <span className="w-2 h-2 rounded-full bg-[#16A34A]" />
+                      <span className="font-medium text-[11px]">En línea</span>
+                    </div>
+                  )
+                ) : (
+                  <div className="flex items-center gap-1 text-amber-600">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="font-medium text-[11px]">Sin conexión</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </header>
+
+          {/* MAIN SCROLLABLE CONTENT VIEWPORT */}
+          <main className={`flex-1 p-4 sm:p-6 lg:p-7 ${activeTab === 'dashboard' ? 'pb-24 md:pb-7' : 'pb-6 md:pb-7'} overflow-y-auto max-h-screen bg-[#F5F7FA]`}>
+            <ErrorBoundary key={`${activeTab}-${activeBranch?.id || 'all'}`}>
+              {renderActiveComponent()}
+            </ErrorBoundary>
+          </main>
+        </div>
       </div>
 
       {/* 3. MOBILE & IPHONE BOTTOM NAVIGATION BAR (ONLY SHOWN ON DASHBOARD) */}
       {activeTab === 'dashboard' && (
         <nav 
           id="mobile-bottom-navbar" 
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0c1836] text-white border-t border-slate-800/90 shadow-[0_-4px_20px_rgba(0,0,0,0.4)] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-around select-none transition-all duration-300"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#172B4D] text-white border-t border-white/10 shadow-lg px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-around select-none transition-all duration-300"
         >
           {/* 1. Dashboard */}
           <button
@@ -1831,10 +2022,10 @@ export default function App() {
             onClick={() => setActiveTab('dashboard')}
             className="flex-1 flex flex-col items-center justify-center py-1 px-1 text-white transition-all active:scale-95 cursor-pointer"
           >
-            <div className="p-1 rounded-xl transition-all bg-[#1E88E5]/30 text-[#38bdf8]">
+            <div className="p-1 rounded-md transition-all bg-[#2563EB] text-white">
               <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
             </div>
-            <span className="text-[10px] sm:text-[11px] mt-0.5 font-black text-white block truncate tracking-tight">
+            <span className="text-[10px] sm:text-[11px] mt-0.5 font-bold text-white block truncate tracking-tight">
               Dashboard
             </span>
           </button>
@@ -2164,22 +2355,24 @@ export default function App() {
                 </span>
               </button>
 
-              {/* 8. Sucursales */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('sucursales');
-                  setIsMobileMenuOpen(false);
-                }}
-                className="flex flex-col items-center group cursor-pointer active:scale-95 transition-transform"
-              >
-                <div className="w-13 h-13 rounded-full bg-[#112356] text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
-                  <Building2 className="w-6 h-6 stroke-[2.2]" />
-                </div>
-                <span className="text-[11px] font-semibold text-slate-700 mt-2 tracking-tight group-hover:text-blue-600 transition-colors line-clamp-1">
-                  Sucursales
-                </span>
-              </button>
+              {/* 8. Sucursales (Solo visible si el plan permite más de 1 sucursal) */}
+              {canManageBranches && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('sucursales');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="flex flex-col items-center group cursor-pointer active:scale-95 transition-transform"
+                >
+                  <div className="w-13 h-13 rounded-full bg-[#112356] text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+                    <Building2 className="w-6 h-6 stroke-[2.2]" />
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-700 mt-2 tracking-tight group-hover:text-blue-600 transition-colors line-clamp-1">
+                    Sucursales
+                  </span>
+                </button>
+              )}
 
               {/* 9. Configuración */}
               <button
@@ -2237,6 +2430,22 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Plan Upgrade & Switch Modal */}
+      {user && (
+        <PlanModal
+          isOpen={isPlanUpgradeModalOpen}
+          onClose={() => setIsPlanUpgradeModalOpen(false)}
+          userId={user.id}
+          userLicense={userLicense}
+          currentBranchesCount={operationalBranches.length}
+          currentUsersCount={operatorsCount}
+          currentProductsCount={products.length}
+          onPlanUpdated={(newLic) => {
+            setUserLicense(newLic);
+          }}
+        />
       )}
 
     </div>

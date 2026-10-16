@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import * as db from './src/server/db';
 import { GoogleGenAI } from '@google/genai';
+import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './src/utils/planLimits';
 
 // Initialize Gemini client if API key is present
 let ai: GoogleGenAI | null = null;
@@ -83,20 +84,45 @@ async function startServer() {
     }
 
     try {
-      const user = await db.getUserByEmail(email);
-      if (!user) {
-        return res.status(401).json({ error: 'Credenciales inválidas' });
-      }
-
       const hash = crypto.createHash('sha256').update(password).digest('hex');
-      if (user.passwordHash !== hash) {
-        return res.status(401).json({ error: 'Credenciales inválidas' });
+      let safeUser: any = null;
+      let targetUserId = '';
+
+      const user = await db.getUserByEmail(email);
+      if (user) {
+        if (user.passwordHash !== hash) {
+          return res.status(401).json({ error: 'Credenciales inválidas' });
+        }
+        targetUserId = user.id;
+        const { passwordHash: _, ...rest } = user;
+        safeUser = rest;
+      } else {
+        // Check if user is an operator
+        const allUsers = await db.getUsers();
+        let foundOp: any = null;
+        let ownerId = '';
+        for (const u of allUsers) {
+          const ops = await db.getOperators(u.id);
+          const match = ops.find((o: any) => (o.email || '').toLowerCase() === email.toLowerCase());
+          if (match) {
+            foundOp = match;
+            ownerId = u.id;
+            break;
+          }
+        }
+        if (!foundOp || (foundOp.passwordHash && foundOp.passwordHash !== hash)) {
+          return res.status(401).json({ error: 'Credenciales inválidas' });
+        }
+        if (foundOp.status !== 'active') {
+          return res.status(403).json({ error: 'Su cuenta de operador ha sido desactivada por el administrador.' });
+        }
+        targetUserId = ownerId;
+        const { passwordHash: _, ...rest } = foundOp;
+        safeUser = { ...rest, id: ownerId, isOperator: true, operatorId: foundOp.id };
       }
 
       const token = crypto.randomBytes(32).toString('hex');
-      sessions.set(token, user.id);
-
-      const { passwordHash: _, ...safeUser } = user;
+      sessions.set(token, targetUserId);
       res.json({ token, user: safeUser });
     } catch (err: any) {
       res.status(500).json({ error: 'Error al iniciar sesión' });
@@ -140,6 +166,15 @@ async function startServer() {
 
   app.post('/api/products', requireAuth, async (req: any, res) => {
     const product = req.body;
+    const currentProducts = await db.getProducts(req.userId);
+    const isNew = !product.id || !currentProducts.some(p => p.id === product.id);
+    if (isNew) {
+      const userLic = await db.getLicense(req.userId);
+      const prodCheck = checkProductLimit(currentProducts.length, userLic.planType);
+      if (!prodCheck.allowed) {
+        return res.status(403).json({ error: prodCheck.message });
+      }
+    }
     if (!product.id) {
       product.id = crypto.randomUUID();
     }
@@ -264,8 +299,91 @@ async function startServer() {
   });
 
   app.post('/api/config', requireAuth, async (req: any, res) => {
+    const currentConfig = await db.getConfig(req.userId);
+    const prevBranches = currentConfig.branches || [];
+    const newBranches = req.body.branches;
+    if (Array.isArray(newBranches) && newBranches.length > prevBranches.length) {
+      const userLic = await db.getLicense(req.userId);
+      const branchCheck = checkBranchLimit(prevBranches.length, userLic.planType);
+      if (!branchCheck.allowed) {
+        return res.status(403).json({ error: branchCheck.message });
+      }
+    }
     const saved = await db.saveConfig(req.userId, req.body);
     res.json(saved);
+  });
+
+  // Operators CRUD with User Limit Enforced
+  app.get('/api/operators', requireAuth, async (req: any, res) => {
+    const items = await db.getOperators(req.userId);
+    res.json(items);
+  });
+
+  app.post('/api/operators', requireAuth, async (req: any, res) => {
+    const op = req.body;
+    const currentOps = await db.getOperators(req.userId);
+    const isNew = !op.id || !currentOps.some(o => o.id === op.id || (o.email && o.email.toLowerCase() === (op.email || '').toLowerCase()));
+    if (isNew) {
+      const userLic = await db.getLicense(req.userId);
+      const totalUsers = currentOps.length + 1; // 1 owner + operators
+      const userCheck = checkUserLimit(totalUsers, userLic.planType);
+      if (!userCheck.allowed) {
+        return res.status(403).json({ error: userCheck.message });
+      }
+    }
+    if (!op.id) op.id = crypto.randomUUID();
+    if (op.password) {
+      op.passwordHash = crypto.createHash('sha256').update(op.password).digest('hex');
+      delete op.password;
+    }
+    op.passwordProtected = true;
+    const saved = await db.saveOperator(req.userId, op);
+    res.json(saved);
+  });
+
+  app.delete('/api/operators/:id', requireAuth, async (req: any, res) => {
+    const success = await db.deleteOperator(req.userId, req.params.id);
+    res.json({ success });
+  });
+
+  // License & Plan Status Endpoint
+  app.get('/api/license', requireAuth, async (req: any, res) => {
+    const license = await db.getLicense(req.userId);
+    const plan = getPlanDefinition(license.planType);
+    const currentConfig = await db.getConfig(req.userId);
+    const branches = currentConfig.branches || [];
+    const operators = await db.getOperators(req.userId);
+    const products = await db.getProducts(req.userId);
+    res.json({
+      license,
+      plan,
+      usage: {
+        branches: branches.length,
+        users: operators.length + 1,
+        products: products.length
+      },
+      limits: {
+        maxBranches: plan.maxBranches,
+        maxUsers: plan.maxUsers,
+        maxProducts: plan.maxProducts
+      }
+    });
+  });
+
+  // Change Plan Endpoint
+  app.post('/api/license/change-plan', requireAuth, async (req: any, res) => {
+    const { planType } = req.body;
+    if (!planType) return res.status(400).json({ error: 'planType es requerido' });
+    const license = await db.getLicense(req.userId);
+    const newPlan = getPlanDefinition(planType);
+    const updatedLicense = {
+      ...license,
+      planType: newPlan.name,
+      maxUsers: newPlan.maxUsers,
+      maxBranches: newPlan.maxBranches
+    };
+    await db.saveLicense(req.userId, updatedLicense);
+    res.json({ success: true, license: updatedLicense, plan: newPlan });
   });
 
   // --- SECURE FILE MANAGEMENT ENDPOINTS ---

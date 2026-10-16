@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Expense, AppConfig, User } from '../types';
-import { isItemInBranch } from '../utils/branchHelper';
+import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
 import { 
   Plus, 
   Search, 
@@ -46,28 +46,14 @@ export default function Expenses({
 
   // Available branches list
   const availableBranches = useMemo(() => {
-    const list = config?.branches && config.branches.length > 0 
-      ? config.branches 
-      : [
-          { id: 'branch-1', name: 'Sucursal Central (Principal)', code: 'SUC-01', address: 'Zona Central', city: 'Guatemala', isMain: true, isActive: true },
-          { id: 'branch-2', name: 'ferreteria 2', code: 'SUC-02', address: 'Km 14.5 Carretera', city: 'Mixco', isMain: false, isActive: true },
-          { id: 'branch-3', name: 'FERRETERIA 3', code: 'SUC-03', address: 'Centro Comercial', city: 'Villa Nueva', isMain: false, isActive: true }
-        ];
+    return getOperationalBranches(config, user);
+  }, [config, user]);
 
-    if (user?.isOperator) {
-      const allowed = (user.branches && user.branches.length > 0)
-        ? user.branches
-        : (user.branch && user.branch !== 'Todas') ? user.branch.split(',').map(s => s.trim()) : [];
-      if (allowed.length > 0) {
-        return list.filter(b => allowed.some(a => a.toLowerCase().trim() === b.name.toLowerCase().trim()));
-      }
-    }
-    return list;
-  }, [config?.branches, user]);
+  const hasMultipleBranches = availableBranches.length > 1;
 
   const defaultBranchName = useMemo(() => {
     if (activeBranchName && activeBranchName !== 'Todas') return activeBranchName;
-    return availableBranches[0]?.name || 'Sucursal Central (Principal)';
+    return availableBranches[0]?.name || 'Sede Central';
   }, [activeBranchName, availableBranches]);
 
   useEffect(() => {
@@ -164,7 +150,9 @@ export default function Expenses({
       
       // Branch filter (independent movements per branch)
       let matchesBranch = true;
-      if (user?.isOperator && availableBranches.length > 0) {
+      if (!hasMultipleBranches) {
+        matchesBranch = true;
+      } else if (user?.isOperator && availableBranches.length > 0) {
         matchesBranch = availableBranches.some(ab => 
           ab.name.toLowerCase().trim() === (e.branch || defaultBranchName).toLowerCase().trim()
         );
@@ -174,7 +162,7 @@ export default function Expenses({
 
       return matchesSearch && matchesCategory && matchesBranch;
     });
-  }, [expenses, searchQuery, selectedCategory, selectedBranch, user, availableBranches, defaultBranchName]);
+  }, [expenses, searchQuery, selectedCategory, selectedBranch, user, availableBranches, defaultBranchName, hasMultipleBranches]);
 
   const expensesTotalSum = useMemo(() => {
     return filteredExpenses.reduce((acc, e) => acc + e.amount, 0);
@@ -184,57 +172,57 @@ export default function Expenses({
     <div id="expenses-view" className="space-y-6">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[#E2E8F0] pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight font-sans">Gestión de Gastos Operacionales</h1>
-          <p className="text-sm text-slate-500">Registre desembolsos, pagos de servicios o suministros no relacionados con inventario directo.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-[#1F2937] tracking-tight font-sans">Gestión de Gastos Operacionales</h1>
+          <p className="text-xs text-[#64748B] mt-0.5">Registre desembolsos, pagos de servicios o suministros operativos de forma centralizada.</p>
         </div>
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 text-sm shadow-xs active:scale-98 transition-all cursor-pointer w-full sm:w-auto"
+          className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2 text-xs shadow-xs active:scale-[0.98] transition-all cursor-pointer w-full sm:w-auto"
         >
           <Plus className="w-4 h-4" /> Registrar Gasto
         </button>
       </div>
 
       {/* Stats and filters card block */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
         {/* Sum Card (ColSpan 4) */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 flex items-center justify-between md:col-span-4 h-full">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs p-4 sm:p-5 flex items-center justify-between md:col-span-4 h-full">
           <div className="space-y-1">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Gastos Filtrados</span>
-            <h2 className="text-2xl font-black text-slate-800 font-mono">
+            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Total Gastos Filtrados</span>
+            <h2 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
               {currency}{expensesTotalSum.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h2>
-            <span className="text-[10px] text-slate-500 font-mono">Contabilizado de {filteredExpenses.length} registros</span>
+            <span className="text-[11px] text-[#64748B] font-mono">Contabilizado de {filteredExpenses.length} registros</span>
           </div>
-          <div className="p-3 bg-red-50 text-red-500 rounded-xl">
-            <TrendingDown className="w-6 h-6" />
+          <div className="p-2.5 bg-rose-50 text-[#DC2626] rounded-lg">
+            <TrendingDown className="w-5 h-5" />
           </div>
         </div>
 
         {/* Filters Card (ColSpan 8) */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 md:col-span-8 flex flex-col sm:flex-row gap-4 items-center h-full">
+        <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs p-4 sm:p-5 md:col-span-8 flex flex-col sm:flex-row gap-3 items-center h-full">
           <div className="relative w-full sm:flex-1">
             <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-              <Search className="w-5 h-5" />
+              <Search className="w-4 h-4" />
             </span>
             <input
               type="text"
               placeholder="Buscar gasto por descripción..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 text-sm"
+              className="w-full pl-9 pr-3.5 py-2 rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] text-xs font-medium text-[#1F2937] bg-white"
             />
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <span className="text-xs font-semibold text-slate-400 uppercase shrink-0">Categoría:</span>
+            <span className="text-xs font-medium text-[#64748B] shrink-0">Categoría:</span>
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full sm:w-auto text-sm border border-slate-200 rounded-xl px-3 py-1.5 focus:outline-hidden bg-white"
+              className="w-full sm:w-auto text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937] font-medium"
             >
               {categories.map(c => (
                 <option key={c} value={c}>{c}</option>
@@ -242,82 +230,86 @@ export default function Expenses({
             </select>
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <span className="text-xs font-semibold text-slate-400 uppercase shrink-0 flex items-center gap-1">
-              <Building2 className="w-3.5 h-3.5 text-blue-500" />
-              <span>Sucursal:</span>
-            </span>
-            <select
-              value={selectedBranch}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSelectedBranch(val);
-                if (val !== 'Todas' && onSwitchBranch) {
-                  onSwitchBranch(val);
-                }
-              }}
-              className="w-full sm:w-auto text-sm border border-slate-200 rounded-xl px-3 py-1.5 focus:outline-hidden bg-white font-medium text-slate-700"
-            >
-              {!user?.isOperator && <option value="Todas">Todas las sucursales</option>}
-              {availableBranches.map(b => (
-                <option key={b.id || b.name} value={b.name}>{b.name}</option>
-              ))}
-            </select>
-          </div>
+          {hasMultipleBranches && (
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs font-medium text-[#64748B] shrink-0 flex items-center gap-1">
+                <Building2 className="w-3.5 h-3.5 text-[#2563EB]" />
+                <span>Sucursal:</span>
+              </span>
+              <select
+                value={selectedBranch}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedBranch(val);
+                  if (val !== 'Todas' && onSwitchBranch) {
+                    onSwitchBranch(val);
+                  }
+                }}
+                className="w-full sm:w-auto text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white font-medium text-[#1F2937]"
+              >
+                {!user?.isOperator && <option value="Todas">Todas las sucursales</option>}
+                {availableBranches.map(b => (
+                  <option key={b.id || b.name} value={b.name}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Expenses List */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-xs overflow-hidden">
         {filteredExpenses.length === 0 ? (
-          <div className="py-20 text-center text-slate-400 text-xs">No se encontraron gastos registrados para los filtros seleccionados.</div>
+          <div className="py-16 text-center text-[#64748B] text-xs">No se encontraron gastos registrados para los filtros seleccionados.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse animate-in fade-in duration-150">
+            <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-medium uppercase">
-                  <th className="py-3 px-5">Fecha</th>
+                <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                  <th className="py-3 px-4">Fecha</th>
                   <th className="py-3 px-4">Descripción</th>
-                  <th className="py-3 px-4">Sucursal</th>
+                  {hasMultipleBranches && <th className="py-3 px-4">Sucursal</th>}
                   <th className="py-3 px-4">Categoría</th>
-                  <th className="py-3 px-5 text-right">Monto</th>
-                  <th className="py-3 px-5 text-right">Acciones</th>
+                  <th className="py-3 px-4 text-right">Monto</th>
+                  <th className="py-3 px-4 text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-[#E2E8F0]">
                 {filteredExpenses.slice().reverse().map((e) => (
-                  <tr key={e.id} className="text-slate-700 hover:bg-slate-50/50 transition-colors">
-                    <td className="py-3.5 px-5 font-mono text-xs">
+                  <tr key={e.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                    <td className="py-3 px-4 font-mono text-xs text-[#1F2937]">
                       {new Date(e.date).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit' })}
                     </td>
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-slate-800">{e.description}</div>
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-[#1F2937]">{e.description}</div>
                       {(e.paymentMethod || e.voucherNumber || e.observations) && (
-                        <div className="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-x-3 gap-y-1 items-center">
-                          {e.paymentMethod && <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">💵 {e.paymentMethod}</span>}
-                          {e.voucherNumber && <span className="text-slate-500 font-mono">📄 Ref: {e.voucherNumber}</span>}
-                          {e.observations && <span className="text-slate-400 italic">💬 {e.observations}</span>}
+                        <div className="text-[10px] text-[#64748B] mt-0.5 flex flex-wrap gap-x-2.5 gap-y-1 items-center">
+                          {e.paymentMethod && <span className="bg-slate-100 text-[#1F2937] px-1.5 py-0.5 rounded text-[10px]">💵 {e.paymentMethod}</span>}
+                          {e.voucherNumber && <span className="text-[#64748B] font-mono">Ref: {e.voucherNumber}</span>}
+                          {e.observations && <span className="text-[#64748B] italic">💬 {e.observations}</span>}
                         </div>
                       )}
                     </td>
-                    <td className="py-3.5 px-4 text-xs font-medium">
-                      <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200/60 px-2.5 py-0.5 rounded-lg text-[11px] font-semibold">
-                        <Building2 className="w-3 h-3 text-blue-500" />
-                        {e.branch || defaultBranchName}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-xs font-medium">
-                      <span className="bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full">
+                    {hasMultipleBranches && (
+                      <td className="py-3 px-4 text-xs font-medium">
+                        <span className="inline-flex items-center gap-1 bg-slate-50 text-[#1F2937] border border-[#E2E8F0] px-2 py-0.5 rounded text-[11px] font-medium">
+                          <Building2 className="w-3 h-3 text-[#2563EB]" />
+                          {e.branch || defaultBranchName}
+                        </span>
+                      </td>
+                    )}
+                    <td className="py-3 px-4 text-xs font-medium">
+                      <span className="bg-slate-100 text-[#1F2937] px-2 py-0.5 rounded border border-[#E2E8F0] text-xs">
                         {e.category}
                       </span>
                     </td>
-                    <td className="py-3.5 px-5 text-right font-mono font-bold text-red-600">
+                    <td className="py-3 px-4 text-right font-mono font-bold text-[#DC2626] tabular-nums">
                       -{currency}{e.amount.toFixed(2)}
                     </td>
-                    <td className="py-3.5 px-5 text-right">
+                    <td className="py-3 px-4 text-right">
                       <button
                         onClick={() => handleDelete(e.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer inline-block"
+                        className="p-1.5 text-slate-400 hover:text-[#DC2626] rounded-md hover:bg-rose-50 transition-colors cursor-pointer inline-block"
                         title="Eliminar Gasto"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -334,25 +326,25 @@ export default function Expenses({
       {/* RECORD EXPENSE MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-150 flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-lg max-w-md w-full overflow-hidden shadow-xl border border-[#E2E8F0] flex flex-col animate-in zoom-in-95 duration-200">
             
-            {/* Header / Banner de color matching Cash Register */}
-            <div className="bg-[#1E88E5] text-white px-6 py-5 relative flex justify-between items-center shadow-md">
-              <div className="space-y-1">
-                <h3 className="font-extrabold text-base flex items-center gap-2">
-                  <span className="p-1 bg-white/10 rounded-lg">
-                    <TrendingDown className="w-5 h-5 text-indigo-100" />
+            {/* Header / Banner de color #172B4D */}
+            <div className="bg-[#172B4D] text-white px-5 py-4 relative flex justify-between items-center shadow-xs">
+              <div className="space-y-0.5">
+                <h3 className="font-bold text-sm flex items-center gap-2">
+                  <span className="p-1 bg-white/10 rounded-md">
+                    <TrendingDown className="w-4 h-4 text-blue-300" />
                   </span>
-                  Gestión de Gastos del Turno
+                  Gestión de Gastos Operacionales
                 </h3>
-                <p className="text-xs text-indigo-100 font-medium">Registra todos los egresos de efectivo del turno actual</p>
+                <p className="text-xs text-slate-300 font-normal">Registra desembolsos y egresos de caja</p>
               </div>
               <button 
                 onClick={() => setIsModalOpen(false)} 
-                className="p-1.5 hover:bg-white/15 rounded-full text-indigo-100 hover:text-white transition-all cursor-pointer"
+                className="p-1 hover:bg-white/15 rounded-md text-slate-300 hover:text-white transition-all cursor-pointer"
                 title="Cerrar"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -376,33 +368,35 @@ export default function Expenses({
                 <p className="text-[10px] text-slate-400 italic font-medium pl-1">Se registra automáticamente al momento actual</p>
               </div>
 
-              {/* Sucursal asignada */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                  <Building2 className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Sucursal del Gasto *</span>
-                </label>
-                <select
-                  required
-                  value={formBranch}
-                  onChange={(e) => setFormBranch(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white text-slate-700 font-medium shadow-xs"
-                >
-                  {availableBranches.map(b => (
-                    <option key={b.id || b.name} value={b.name}>{b.name}</option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-slate-400 italic font-medium pl-1">El gasto quedará registrado de forma independiente en esta sucursal</p>
-              </div>
+              {/* Sucursal asignada (Solo visible si hay más de 1 sucursal) */}
+              {hasMultipleBranches && (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Sucursal del Gasto *</span>
+                  </label>
+                  <select
+                    required
+                    value={formBranch}
+                    onChange={(e) => setFormBranch(e.target.value)}
+                    className="w-full text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:ring-1 focus:ring-[#2563EB] focus:outline-hidden bg-white text-[#1F2937] font-medium shadow-2xs"
+                  >
+                    {availableBranches.map(b => (
+                      <option key={b.id || b.name} value={b.name}>{b.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[#64748B] italic font-medium pl-1">El gasto quedará registrado de forma independiente en esta sucursal</p>
+                </div>
+              )}
 
               {/* Categoría del Gasto */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Categoría del Gasto *</label>
+                <label className="block text-xs font-semibold text-[#1F2937]">Categoría del Gasto *</label>
                 <select
                   required
                   value={formCategory}
                   onChange={(e) => setFormCategory(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white text-slate-700 font-medium shadow-xs"
+                  className="w-full text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:ring-1 focus:ring-[#2563EB] focus:outline-hidden bg-white text-[#1F2937] font-medium shadow-2xs"
                 >
                   <option value="" disabled>Seleccione una categoría...</option>
                   {formCategories.map(cat => (
@@ -413,21 +407,21 @@ export default function Expenses({
 
               {/* Descripción del Gasto */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Descripción del Gasto *</label>
+                <label className="block text-xs font-semibold text-[#1F2937]">Descripción del Gasto *</label>
                 <textarea
                   required
-                  placeholder="Ej: Pago de factura de luz del mes de noviembre"
+                  placeholder="Ej: Pago de factura de luz del mes"
                   value={formDesc}
                   onChange={(e) => setFormDesc(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white text-slate-700 min-h-[70px] shadow-xs"
+                  className="w-full text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:ring-1 focus:ring-[#2563EB] focus:outline-hidden bg-white text-[#1F2937] min-h-[60px] shadow-2xs"
                 />
               </div>
 
               {/* Importe */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Importe *</label>
-                <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs focus-within:ring-2 focus-within:ring-blue-500 transition-all">
-                  <div className="bg-[#ffc107] text-slate-900 font-black font-mono px-4 flex items-center justify-center text-xs">
+                <label className="block text-xs font-semibold text-[#1F2937]">Importe *</label>
+                <div className="flex rounded-lg border border-[#E2E8F0] overflow-hidden bg-white shadow-2xs focus-within:ring-1 focus-within:ring-[#2563EB] transition-all">
+                  <div className="bg-slate-100 text-[#1F2937] font-bold font-mono px-3.5 flex items-center justify-center text-xs border-r border-[#E2E8F0]">
                     {currency}
                   </div>
                   <input
@@ -438,55 +432,55 @@ export default function Expenses({
                     placeholder="0.00"
                     value={formAmount}
                     onChange={(e) => setFormAmount(e.target.value)}
-                    className="w-full px-4 py-2.5 focus:outline-hidden font-mono text-right font-black text-sm text-slate-700 bg-white"
+                    className="w-full px-3 py-2 focus:outline-hidden font-mono text-right font-bold text-xs text-[#1F2937] bg-white"
                   />
                 </div>
               </div>
 
               {/* Método de Pago */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Método de Pago *</label>
+                <label className="block text-xs font-semibold text-[#1F2937]">Método de Pago *</label>
                 <select
                   required
                   value={formPaymentMethod}
                   onChange={(e) => setFormPaymentMethod(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white text-slate-700 font-medium shadow-xs"
+                  className="w-full text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:ring-1 focus:ring-[#2563EB] focus:outline-hidden bg-white text-[#1F2937] font-medium shadow-2xs"
                 >
                   <option value="Efectivo">Efectivo</option>
                   <option value="Tarjeta">Tarjeta</option>
                   <option value="Transferencia">Transferencia</option>
                 </select>
-                <p className="text-[10px] text-slate-400 italic font-medium pl-1">Solo los gastos en efectivo afectan el arqueo de caja</p>
+                <p className="text-[10px] text-[#64748B] italic font-medium pl-1">Solo los gastos en efectivo afectan el arqueo de caja</p>
               </div>
 
               {/* Comprobante/Referencia */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Comprobante/Referencia</label>
+                <label className="block text-xs font-semibold text-[#1F2937]">Comprobante/Referencia</label>
                 <input
                   type="text"
                   placeholder="Ej: Factura N° 001-12345"
                   value={formVoucherNumber}
                   onChange={(e) => setFormVoucherNumber(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white text-slate-700 font-medium shadow-xs"
+                  className="w-full text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:ring-1 focus:ring-[#2563EB] focus:outline-hidden bg-white text-[#1F2937] font-medium shadow-2xs"
                 />
               </div>
 
               {/* Observaciones */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Observaciones</label>
+                <label className="block text-xs font-semibold text-[#1F2937]">Observaciones</label>
                 <textarea
                   placeholder="Información adicional (opcional)"
                   value={formObservations}
                   onChange={(e) => setFormObservations(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white text-slate-700 min-h-[60px] shadow-xs"
+                  className="w-full text-xs border border-[#E2E8F0] rounded-lg px-3 py-2 focus:ring-1 focus:ring-[#2563EB] focus:outline-hidden bg-white text-[#1F2937] min-h-[50px] shadow-2xs"
                 />
               </div>
 
               {/* Action Buttons */}
-              <div className="space-y-2 pt-4 border-t border-slate-200/60">
+              <div className="space-y-2 pt-3 border-t border-[#E2E8F0]">
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-[#ffb300] hover:bg-[#ff9f00] text-slate-900 font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all cursor-pointer uppercase tracking-wider"
+                  className="w-full py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold rounded-lg text-xs flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all cursor-pointer"
                 >
                   <ArrowDownToLine className="w-4 h-4" />
                   Registrar Gasto
@@ -494,7 +488,7 @@ export default function Expenses({
                 <button
                   type="button"
                   onClick={handleClearForm}
-                  className="w-full py-2.5 hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
+                  className="w-full py-2 bg-slate-100 hover:bg-slate-200 border border-[#E2E8F0] text-[#1F2937] rounded-lg text-xs font-medium transition-all text-center cursor-pointer"
                 >
                   Limpiar Formulario
                 </button>

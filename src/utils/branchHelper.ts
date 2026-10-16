@@ -1,58 +1,9 @@
 import { Branch, User, AppConfig } from '../types';
 
-export const defaultBranchesSeed: Branch[] = [
-  {
-    id: 'branch-1',
-    name: 'Sucursal Central (Sede Principal)',
-    code: 'SUC-01',
-    address: '6ta Avenida 12-40, Zona 1, Centro Histórico',
-    city: 'Ciudad de Guatemala',
-    department: 'Guatemala',
-    phone: '2234-5678',
-    email: 'central@yaapos.com',
-    manager: 'Luis Fernando Mijangos',
-    openingHours: 'Lun - Sáb: 07:30 - 20:30',
-    isMain: true,
-    isActive: true,
-    notes: 'Sede central con almacén principal y atención al público.',
-    createdAt: '2026-01-15T08:00:00.000Z'
-  },
-  {
-    id: 'branch-2',
-    name: 'Sucursal Zona 10 - Pradera',
-    code: 'SUC-02',
-    address: 'Boulevard Los Próceres 18-20, Zona 10',
-    city: 'Ciudad de Guatemala',
-    department: 'Guatemala',
-    phone: '2367-8901',
-    email: 'zona10@yaapos.com',
-    manager: 'Karla Estrada',
-    openingHours: 'Lun - Dom: 08:00 - 21:00',
-    isMain: false,
-    isActive: true,
-    notes: 'Punto de venta zona comercial, alto flujo de clientes.',
-    createdAt: '2026-03-10T09:30:00.000Z'
-  },
-  {
-    id: 'branch-3',
-    name: 'Sucursal Mixco - San Cristóbal',
-    code: 'SUC-03',
-    address: '3ra Calle 8-15, Sector B-1, Boulevard San Cristóbal',
-    city: 'Mixco',
-    department: 'Guatemala',
-    phone: '2478-1122',
-    email: 'mixco@yaapos.com',
-    manager: 'Roberto Gómez',
-    openingHours: 'Lun - Sáb: 08:00 - 19:30',
-    isMain: false,
-    isActive: true,
-    notes: 'Sucursal residencial con servicio a domicilio.',
-    createdAt: '2026-05-20T10:00:00.000Z'
-  }
-];
+export const defaultBranchesSeed: Branch[] = [];
 
 export function getSystemBranches(config?: AppConfig): Branch[] {
-  if (config?.branches && config.branches.length > 0) {
+  if (config?.branches) {
     return config.branches;
   }
   return defaultBranchesSeed;
@@ -113,7 +64,7 @@ export function resolveBranch(config?: AppConfig, branchIdOrName?: string, user?
   );
 }
 
-export function getActiveBranch(config?: AppConfig, user?: User | null): Branch {
+export function getActiveBranch(config?: AppConfig, user?: User | null): Branch | undefined {
   const operational = getOperationalBranches(config, user);
 
   if (config?.activeBranchId) {
@@ -126,7 +77,7 @@ export function getActiveBranch(config?: AppConfig, user?: User | null): Branch 
   }
 
   const main = operational.find(b => b.isMain);
-  return main || operational[0] || defaultBranchesSeed[0];
+  return main || operational[0] || undefined;
 }
 
 /**
@@ -138,16 +89,17 @@ export function isItemInBranch(
   targetBranchNameOrCode?: string, 
   allBranches?: Branch[]
 ): boolean {
-  if (!targetBranchNameOrCode || targetBranchNameOrCode === 'Todas') return true;
+  if (!targetBranchNameOrCode || targetBranchNameOrCode === 'Todas' || !allBranches || allBranches.length === 0) return true;
   
   const target = targetBranchNameOrCode.toLowerCase().trim();
 
   // If item has no branch set (legacy item before multi-branch setup)
   if (!itemBranch || !itemBranch.trim()) {
     const mainBranch = allBranches?.find(b => b.isMain) || allBranches?.[0];
-    const mainName = (mainBranch?.name || 'Sucursal Central').toLowerCase().trim();
-    const mainCode = (mainBranch?.code || 'SUC-01').toLowerCase().trim();
-    return target === mainName || target === mainCode || target.includes('central') || target.includes('principal');
+    if (!mainBranch) return true;
+    const mainName = (mainBranch.name || '').toLowerCase().trim();
+    const mainCode = (mainBranch.code || '').toLowerCase().trim();
+    return target === mainName || target === mainCode || (mainName && (target.includes(mainName) || mainName.includes(target)));
   }
 
   const itemLower = itemBranch.toLowerCase().trim();
