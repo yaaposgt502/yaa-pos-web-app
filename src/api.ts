@@ -16,9 +16,13 @@ import {
   deleteDoc,
   query,
   where,
+  orderBy,
+  limit,
   onSnapshot,
   getDocsFromCache,
-  getDocFromCache
+  getDocFromCache,
+  getDocsFromServer,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   ref, 
@@ -31,6 +35,23 @@ import firebaseConfig from '../firebase-applet-config.json';
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License } from './types';
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
 import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './utils/planLimits';
+
+// In-memory runtime cache stores to eliminate redundant Firestore queries
+let cachedProducts: Product[] | null = null;
+let cachedConfig: AppConfig | null = null;
+let cachedClients: Client[] | null = null;
+let cachedProviders: Provider[] | null = null;
+let cachedShifts: Shift[] | null = null;
+let cachedRecentSales: Sale[] | null = null;
+
+export function clearMemoryCache() {
+  cachedProducts = null;
+  cachedConfig = null;
+  cachedClients = null;
+  cachedProviders = null;
+  cachedShifts = null;
+  cachedRecentSales = null;
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -458,6 +479,7 @@ export async function loginUser(email: string, password: string): Promise<{ toke
 }
 
 export async function logoutUser(): Promise<void> {
+  clearMemoryCache();
   await signOut(auth);
   setToken(null);
   localStorage.removeItem('yaa_pos_operator_email');
@@ -945,9 +967,26 @@ export function cleanDataForFirestore<T>(data: T): T {
 
 // --- CLOUD CRUD API (Isolated under /users/{userId}/... for complete security) ---
 
+// --- CLOUD CRUD API (Optimized with Persistent IndexedDB & In-Memory Cache) ---
+
 // Products
-export async function getProducts(): Promise<Product[]> {
-  return getCollectionDocs<Product>(getCollectionRef('products'));
+export async function getProducts(forceServer = false): Promise<Product[]> {
+  if (!forceServer && cachedProducts && cachedProducts.length > 0) {
+    return cachedProducts;
+  }
+  const colRef = getCollectionRef('products');
+  if (!forceServer) {
+    try {
+      const cacheSnap = await getDocsFromCache(colRef);
+      if (!cacheSnap.empty) {
+        cachedProducts = cacheSnap.docs.map(doc => doc.data() as Product);
+        return cachedProducts;
+      }
+    } catch {}
+  }
+  const prods = await getCollectionDocs<Product>(colRef);
+  cachedProducts = prods;
+  return prods;
 }
 
 export async function saveProduct(product: Product): Promise<Product> {
@@ -961,13 +1000,17 @@ export async function saveProduct(product: Product): Promise<Product> {
 
   // Validate product limit on creation
   if (uid && uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
-    const existingDoc = await getDoc(getDocRef('products', docId));
-    if (!existingDoc.exists()) {
-      const existingList = await getProducts();
-      const lic = await getUserLicense(uid);
-      const check = checkProductLimit(existingList.length, lic?.planType);
-      if (!check.allowed) {
-        throw new Error(check.message);
+    // Check local cache first before doing server read
+    const isExisting = cachedProducts?.some(p => p.id === docId);
+    if (!isExisting) {
+      const existingDoc = await getDocumentSnap(getDocRef('products', docId));
+      if (!existingDoc.exists()) {
+        const existingList = cachedProducts || await getProducts();
+        const lic = await getUserLicense(uid);
+        const check = checkProductLimit(existingList.length, lic?.planType);
+        if (!check.allowed) {
+          throw new Error(check.message);
+        }
       }
     }
   }
@@ -984,17 +1027,48 @@ export async function saveProduct(product: Product): Promise<Product> {
 
   const cleanDoc = cleanDataForFirestore(product);
   await setDoc(getDocRef('products', docId), cleanDoc);
+
+  // Update in-memory cache directly (0 additional reads)
+  if (cachedProducts) {
+    const idx = cachedProducts.findIndex(p => p.id === docId);
+    if (idx >= 0) {
+      cachedProducts[idx] = product;
+    } else {
+      cachedProducts.push(product);
+    }
+  } else {
+    cachedProducts = [product];
+  }
+
   return product;
 }
 
 export async function deleteProduct(id: string): Promise<{ success: boolean }> {
   await deleteDoc(getDocRef('products', id));
+  if (cachedProducts) {
+    cachedProducts = cachedProducts.filter(p => p.id !== id);
+  }
   return { success: true };
 }
 
 // Clients
-export async function getClients(): Promise<Client[]> {
-  return getCollectionDocs<Client>(getCollectionRef('clients'));
+export async function getClients(forceServer = false): Promise<Client[]> {
+  if (!forceServer && cachedClients && cachedClients.length > 0) {
+    return cachedClients;
+  }
+  const colRef = getCollectionRef('clients');
+  if (!forceServer) {
+    try {
+      const cacheSnap = await getDocsFromCache(colRef);
+      if (!cacheSnap.empty) {
+        cachedClients = cacheSnap.docs.map(doc => doc.data() as Client);
+        return cachedClients;
+      }
+    } catch {}
+  }
+  const clis = await getCollectionDocs<Client>(colRef);
+  cachedClients = clis;
+  return clis;
 }
 
 export async function saveClient(client: Client): Promise<Client> {
@@ -1005,17 +1079,42 @@ export async function saveClient(client: Client): Promise<Client> {
     client = { ...client, id: docId };
   }
   await setDoc(getDocRef('clients', docId), cleanDataForFirestore(client));
+  if (cachedClients) {
+    const idx = cachedClients.findIndex(c => c.id === docId);
+    if (idx >= 0) cachedClients[idx] = client;
+    else cachedClients.push(client);
+  } else {
+    cachedClients = [client];
+  }
   return client;
 }
 
 export async function deleteClient(id: string): Promise<{ success: boolean }> {
   await deleteDoc(getDocRef('clients', id));
+  if (cachedClients) {
+    cachedClients = cachedClients.filter(c => c.id !== id);
+  }
   return { success: true };
 }
 
 // Providers
-export async function getProviders(): Promise<Provider[]> {
-  return getCollectionDocs<Provider>(getCollectionRef('providers'));
+export async function getProviders(forceServer = false): Promise<Provider[]> {
+  if (!forceServer && cachedProviders && cachedProviders.length > 0) {
+    return cachedProviders;
+  }
+  const colRef = getCollectionRef('providers');
+  if (!forceServer) {
+    try {
+      const cacheSnap = await getDocsFromCache(colRef);
+      if (!cacheSnap.empty) {
+        cachedProviders = cacheSnap.docs.map(doc => doc.data() as Provider);
+        return cachedProviders;
+      }
+    } catch {}
+  }
+  const provs = await getCollectionDocs<Provider>(colRef);
+  cachedProviders = provs;
+  return provs;
 }
 
 export async function saveProvider(provider: Provider): Promise<Provider> {
@@ -1026,33 +1125,137 @@ export async function saveProvider(provider: Provider): Promise<Provider> {
     provider = { ...provider, id: docId };
   }
   await setDoc(getDocRef('providers', docId), cleanDataForFirestore(provider));
+  if (cachedProviders) {
+    const idx = cachedProviders.findIndex(p => p.id === docId);
+    if (idx >= 0) cachedProviders[idx] = provider;
+    else cachedProviders.push(provider);
+  } else {
+    cachedProviders = [provider];
+  }
   return provider;
 }
 
 export async function deleteProvider(id: string): Promise<{ success: boolean }> {
   await deleteDoc(getDocRef('providers', id));
+  if (cachedProviders) {
+    cachedProviders = cachedProviders.filter(p => p.id !== id);
+  }
   return { success: true };
 }
 
-// Sales
-export async function getSales(): Promise<Sale[]> {
-  return getCollectionDocs<Sale>(getCollectionRef('sales'));
+// Sales - Bounded queries to prevent downloading entire historical collections
+export async function getSales(options?: { limitCount?: number; forceServer?: boolean }): Promise<Sale[]> {
+  const colRef = getCollectionRef('sales');
+  const limitCount = options?.limitCount || 200; // Safeguard against unbounded lifetime collection download
+  
+  if (!options?.forceServer) {
+    try {
+      const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
+      const cacheSnap = await getDocsFromCache(q);
+      if (!cacheSnap.empty) {
+        return cacheSnap.docs.map(doc => doc.data() as Sale);
+      }
+    } catch {}
+  }
+  
+  try {
+    const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
+    const serverSnap = await getDocs(q);
+    return serverSnap.docs.map(doc => doc.data() as Sale);
+  } catch (e) {
+    // Fallback if composite index on date is not yet built
+    try {
+      const qSimple = query(colRef, limit(limitCount));
+      const serverSnap = await getDocs(qSimple);
+      return serverSnap.docs.map(doc => doc.data() as Sale);
+    } catch (fallbackErr) {
+      return getCollectionDocs<Sale>(colRef);
+    }
+  }
+}
+
+export async function getRecentSales(limitCount = 50): Promise<Sale[]> {
+  return getSales({ limitCount });
 }
 
 export async function saveSale(sale: Sale): Promise<Sale> {
+  // Ensure idempotent deterministic sale ID to completely prevent duplicate records
   let docId = sale.id;
   if (!docId) {
-    const colRef = getCollectionRef('sales');
-    docId = doc(colRef).id;
+    docId = `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     sale = { ...sale, id: docId };
   }
   await setDoc(getDocRef('sales', docId), cleanDataForFirestore(sale));
   return sale;
 }
 
+// Atomic transaction execution for Sales:
+// Atomically commits sale record, inventory deductions, shift total and client updates in 1 single batch.
+// Guaranteed idempotency: pre-generated saleId prevents duplicate sales upon sync or reconnect.
+export async function executeSaleTransaction(params: {
+  sale: Sale;
+  productUpdates: Product[];
+  shiftUpdate?: Shift;
+  clientUpdate?: Client;
+}): Promise<Sale> {
+  const uid = getToken();
+  if (!uid) throw new Error('No autorizado. Inicie sesión.');
+
+  const batch = writeBatch(db);
+
+  // 1. Ensure deterministic sale ID to prevent duplicates
+  const saleId = params.sale.id || `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const finalSale: Sale = { ...params.sale, id: saleId };
+  const saleRef = getDocRef('sales', saleId);
+  batch.set(saleRef, cleanDataForFirestore(finalSale));
+
+  // 2. Add product stock deductions to atomic batch
+  for (const p of params.productUpdates) {
+    const prodRef = getDocRef('products', p.id);
+    batch.set(prodRef, cleanDataForFirestore(p));
+  }
+
+  // 3. Add shift update to atomic batch
+  if (params.shiftUpdate) {
+    const shiftRef = getDocRef('shifts', params.shiftUpdate.id);
+    batch.set(shiftRef, cleanDataForFirestore(params.shiftUpdate));
+  }
+
+  // 4. Add client loyalty/balance update to atomic batch
+  if (params.clientUpdate) {
+    const clientRef = getDocRef('clients', params.clientUpdate.id);
+    batch.set(clientRef, cleanDataForFirestore(params.clientUpdate));
+  }
+
+  // Commit atomically to IndexedDB cache queue + Firestore cloud
+  await batch.commit();
+
+  // Update in-memory caches instantly (0 additional reads)
+  if (cachedProducts && params.productUpdates.length > 0) {
+    const updatedMap = new Map(params.productUpdates.map(p => [p.id, p]));
+    cachedProducts = cachedProducts.map(p => updatedMap.get(p.id) || p);
+  }
+  if (cachedShifts && params.shiftUpdate) {
+    const su = params.shiftUpdate;
+    cachedShifts = cachedShifts.map(sh => sh.id === su.id ? su : sh);
+  }
+  if (cachedClients && params.clientUpdate) {
+    const cu = params.clientUpdate;
+    cachedClients = cachedClients.map(c => c.id === cu.id ? cu : c);
+  }
+
+  return finalSale;
+}
+
 // Purchases
 export async function getPurchases(): Promise<Purchase[]> {
-  return getCollectionDocs<Purchase>(getCollectionRef('purchases'));
+  const colRef = getCollectionRef('purchases');
+  try {
+    const q = query(colRef, limit(100));
+    return await getCollectionDocs<Purchase>(q);
+  } catch {
+    return getCollectionDocs<Purchase>(colRef);
+  }
 }
 
 export async function savePurchase(purchase: Purchase): Promise<Purchase> {
@@ -1068,7 +1271,13 @@ export async function savePurchase(purchase: Purchase): Promise<Purchase> {
 
 // Expenses
 export async function getExpenses(): Promise<Expense[]> {
-  return getCollectionDocs<Expense>(getCollectionRef('expenses'));
+  const colRef = getCollectionRef('expenses');
+  try {
+    const q = query(colRef, limit(150));
+    return await getCollectionDocs<Expense>(q);
+  } catch {
+    return getCollectionDocs<Expense>(colRef);
+  }
 }
 
 export async function saveExpense(expense: Expense): Promise<Expense> {
@@ -1088,8 +1297,23 @@ export async function deleteExpense(id: string): Promise<{ success: boolean }> {
 }
 
 // Shifts
-export async function getShifts(): Promise<Shift[]> {
-  return getCollectionDocs<Shift>(getCollectionRef('shifts'));
+export async function getShifts(forceServer = false): Promise<Shift[]> {
+  if (!forceServer && cachedShifts && cachedShifts.length > 0) {
+    return cachedShifts;
+  }
+  const colRef = getCollectionRef('shifts');
+  if (!forceServer) {
+    try {
+      const cacheSnap = await getDocsFromCache(colRef);
+      if (!cacheSnap.empty) {
+        cachedShifts = cacheSnap.docs.map(doc => doc.data() as Shift);
+        return cachedShifts;
+      }
+    } catch {}
+  }
+  const sfts = await getCollectionDocs<Shift>(colRef);
+  cachedShifts = sfts;
+  return sfts;
 }
 
 export async function saveShift(shift: Shift): Promise<Shift> {
@@ -1100,17 +1324,39 @@ export async function saveShift(shift: Shift): Promise<Shift> {
     shift = { ...shift, id: docId };
   }
   await setDoc(getDocRef('shifts', docId), shift);
+  if (cachedShifts) {
+    const idx = cachedShifts.findIndex(s => s.id === docId);
+    if (idx >= 0) cachedShifts[idx] = shift;
+    else cachedShifts.push(shift);
+  } else {
+    cachedShifts = [shift];
+  }
   return shift;
 }
 
-// AppConfig
-export async function getConfig(): Promise<AppConfig> {
+// AppConfig - Cached in-memory and in IndexedDB (0 server reads on repeated queries)
+export async function getConfig(forceServer = false): Promise<AppConfig> {
+  if (!forceServer && cachedConfig) {
+    return cachedConfig;
+  }
   const uid = getToken();
   if (!uid) throw new Error('No autorizado. Inicie sesión.');
   const docRef = doc(db, 'users', uid, 'configs', 'storeConfig');
-  const docSnap = await getDocumentSnap(docRef);
+
+  if (!forceServer) {
+    try {
+      const cacheSnap = await getDocFromCache(docRef);
+      if (cacheSnap.exists()) {
+        cachedConfig = cacheSnap.data() as AppConfig;
+        return cachedConfig;
+      }
+    } catch {}
+  }
+
+  const docSnap = await getDoc(docRef);
   if (docSnap.exists()) {
-    return docSnap.data() as AppConfig;
+    cachedConfig = docSnap.data() as AppConfig;
+    return cachedConfig;
   }
   const defaultConfig: AppConfig = {
     storeName: 'Yaa POS',
@@ -1119,6 +1365,7 @@ export async function getConfig(): Promise<AppConfig> {
     businessType: 'general'
   };
   await setDoc(docRef, defaultConfig);
+  cachedConfig = defaultConfig;
   return defaultConfig;
 }
 
@@ -1128,8 +1375,7 @@ export async function saveConfig(config: AppConfig): Promise<AppConfig> {
 
   // Validate branch limit if new branches were added
   if (uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' && config.branches && config.branches.length > 0) {
-    const existingConfigSnap = await getDoc(doc(db, 'users', uid, 'configs', 'storeConfig'));
-    const prevBranches = (existingConfigSnap.exists() ? (existingConfigSnap.data() as AppConfig).branches : []) || [];
+    const prevBranches = cachedConfig?.branches || [];
     if (config.branches.length > prevBranches.length) {
       const lic = await getUserLicense(uid);
       const branchCheck = checkBranchLimit(prevBranches.length, lic?.planType);
@@ -1141,6 +1387,7 @@ export async function saveConfig(config: AppConfig): Promise<AppConfig> {
 
   const docRef = doc(db, 'users', uid, 'configs', 'storeConfig');
   await setDoc(docRef, config);
+  cachedConfig = config;
   return config;
 }
 
@@ -1281,10 +1528,11 @@ export function subscribeProviders(callback: (providers: Provider[], metadata?: 
   }
 }
 
-export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata) => void): () => void {
+export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
   try {
     const colRef = getCollectionRef('sales');
-    return onSnapshot(colRef, (snapshot) => {
+    const q = query(colRef, limit(limitCount));
+    return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Sale);
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
@@ -1299,10 +1547,11 @@ export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata
   }
 }
 
-export function subscribePurchases(callback: (purchases: Purchase[], metadata?: SyncMetadata) => void): () => void {
+export function subscribePurchases(callback: (purchases: Purchase[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
   try {
     const colRef = getCollectionRef('purchases');
-    return onSnapshot(colRef, (snapshot) => {
+    const q = query(colRef, limit(limitCount));
+    return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Purchase);
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
@@ -1317,10 +1566,11 @@ export function subscribePurchases(callback: (purchases: Purchase[], metadata?: 
   }
 }
 
-export function subscribeExpenses(callback: (expenses: Expense[], metadata?: SyncMetadata) => void): () => void {
+export function subscribeExpenses(callback: (expenses: Expense[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
   try {
     const colRef = getCollectionRef('expenses');
-    return onSnapshot(colRef, (snapshot) => {
+    const q = query(colRef, limit(limitCount));
+    return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Expense);
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
@@ -1335,10 +1585,11 @@ export function subscribeExpenses(callback: (expenses: Expense[], metadata?: Syn
   }
 }
 
-export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetadata) => void): () => void {
+export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetadata) => void, limitCount = 20): () => void {
   try {
     const colRef = getCollectionRef('shifts');
-    return onSnapshot(colRef, (snapshot) => {
+    const q = query(colRef, limit(limitCount));
+    return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Shift);
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,

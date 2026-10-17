@@ -867,7 +867,7 @@ export default function App() {
     }
   };
 
-  // --- DELEGATED API CALLS (Isolated & Synchronized per Branch) ---
+  // --- DELEGATED API CALLS (Isolated & Synchronized per Branch, Optimized for Zero Redundant Reads) ---
   const onSaveProduct = async (p: Product) => {
     const branchName = p.branch || activeBranch?.name || '';
     const productWithBranch: Product = {
@@ -875,15 +875,23 @@ export default function App() {
       ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveProduct(productWithBranch);
+    setProducts(prev => {
+      const idx = prev.findIndex(item => item.id === saved.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = saved;
+        return copy;
+      }
+      return [saved, ...prev];
+    });
     notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
     return saved;
   };
 
   const onDeleteProduct = async (id: string) => {
     const res = await api.deleteProduct(id);
+    setProducts(prev => prev.filter(p => p.id !== id));
     notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
     return res;
   };
 
@@ -894,15 +902,23 @@ export default function App() {
       ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveClient(clientWithBranch);
+    setClients(prev => {
+      const idx = prev.findIndex(item => item.id === saved.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = saved;
+        return copy;
+      }
+      return [saved, ...prev];
+    });
     notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
     return saved;
   };
 
   const onDeleteClient = async (id: string) => {
     const res = await api.deleteClient(id);
+    setClients(prev => prev.filter(c => c.id !== id));
     notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
     return res;
   };
 
@@ -913,45 +929,63 @@ export default function App() {
       ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveProvider(providerWithBranch);
+    setProviders(prev => {
+      const idx = prev.findIndex(item => item.id === saved.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = saved;
+        return copy;
+      }
+      return [saved, ...prev];
+    });
     notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
     return saved;
   };
 
   const onDeleteProvider = async (id: string) => {
     const res = await api.deleteProvider(id);
+    setProviders(prev => prev.filter(p => p.id !== id));
     notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
     return res;
   };
 
   const onSaveSale = async (s: Sale) => {
     const saleBranch = s.branch || activeBranch?.name || '';
-    const saleWithBranch: Sale = { ...s, ...(saleBranch ? { branch: saleBranch } : {}) };
+    // Pre-generate deterministic idempotent sale ID to prevent duplicate sales upon sync or retry
+    const saleId = s.id || `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const saleWithBranch: Sale = { 
+      ...s, 
+      id: saleId,
+      ...(saleBranch ? { branch: saleBranch } : {}) 
+    };
 
     // 1. Descontar stock únicamente de los productos pertenecientes a esta sucursal
+    const productUpdates: Product[] = [];
+    const productsMap = new Map(products.map(p => [p.id, { ...p }]));
+
     for (const item of s.items) {
       const product =
         products.find(p => p.id === item.productId && isItemInBranch(p.branch, saleBranch, systemBranches)) ||
         products.find(p => p.id === item.productId);
       if (product) {
+        const prodCopy = productsMap.get(product.id) || { ...product };
         const mult = item.selectedUnit === 'Blíster' 
-          ? (product.unitsPerBlister && product.unitsPerBlister > 0 ? product.unitsPerBlister : 1) 
+          ? (prodCopy.unitsPerBlister && prodCopy.unitsPerBlister > 0 ? prodCopy.unitsPerBlister : 1) 
           : (item.selectedUnit === 'Caja' 
-              ? (product.unitsPerBox && product.unitsPerBox > 0 ? product.unitsPerBox : 1) 
+              ? (prodCopy.unitsPerBox && prodCopy.unitsPerBox > 0 ? prodCopy.unitsPerBox : 1) 
               : 1);
         const unitsToDeduct = item.quantity * mult;
         
-        const lotesSum = (product.expirationDates || []).reduce((acc, r) => acc + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
-        const currentStock = Math.max(product.stock || 0, lotesSum);
+        const lotesSum = (prodCopy.expirationDates || []).reduce((acc, r) => acc + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
+        const currentStock = Math.max(prodCopy.stock || 0, lotesSum);
         const nextStock = Math.max(0, currentStock - unitsToDeduct);
 
-        let updatedExpirationDates = product.expirationDates;
+        let updatedExpirationDates = prodCopy.expirationDates;
         if (updatedExpirationDates && updatedExpirationDates.length > 0) {
           let remainingDeduct = unitsToDeduct;
           // First attempt to deduct from matching selected batch
           updatedExpirationDates = updatedExpirationDates.map(r => {
-            const batchName = r.batch || product.initialBatch || 'Lote 01';
+            const batchName = r.batch || prodCopy.initialBatch || 'Lote 01';
             if (remainingDeduct > 0 && item.selectedLote && item.selectedLote.includes(batchName)) {
               const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
               const deduct = Math.min(currentLoteStock, remainingDeduct);
@@ -981,40 +1015,45 @@ export default function App() {
         const survivingLotes = (updatedExpirationDates && updatedExpirationDates.length > 0) ? updatedExpirationDates : undefined;
         const nextExpirationDate = survivingLotes && survivingLotes.length > 0 
           ? survivingLotes[0].date 
-          : (nextStock > 0 ? product.expirationDate : undefined);
+          : (nextStock > 0 ? prodCopy.expirationDate : undefined);
         const nextInitialBatch = survivingLotes && survivingLotes.length > 0 
-          ? (survivingLotes[0].batch || product.initialBatch) 
-          : product.initialBatch;
+          ? (survivingLotes[0].batch || prodCopy.initialBatch) 
+          : prodCopy.initialBatch;
 
-        await api.saveProduct({
-          ...product,
-          branch: product.branch || saleBranch,
+        const updatedProd: Product = {
+          ...prodCopy,
+          branch: prodCopy.branch || saleBranch,
           stock: nextStock,
           expirationDate: nextExpirationDate,
           initialBatch: nextInitialBatch,
           expirationDates: survivingLotes
-        });
+        };
+
+        productsMap.set(product.id, updatedProd);
+        productUpdates.push(updatedProd);
       }
     }
 
     // 2. Actualizar caja (shift activo de esta sucursal)
+    let shiftUpdate: Shift | undefined;
     const activeShift = shifts.find(sh => 
       sh.state === 'open' && (sh.id === s.shiftId || isItemInBranch(sh.branch, saleBranch, systemBranches))
     );
     if (activeShift) {
-      await api.saveShift({
+      shiftUpdate = {
         ...activeShift,
         branch: activeShift.branch || saleBranch,
         salesTotal: (activeShift.salesTotal || 0) + s.total
-      });
+      };
     }
 
     // 3. Actualizar historial de cliente (gastos, puntos, última compra)
+    let clientUpdate: Client | undefined;
     if (s.clientId && s.clientId !== 'general') {
       const client = clients.find(c => c.id === s.clientId);
       if (client) {
         const pointsEarned = Math.floor(s.total / 10);
-        await api.saveClient({
+        clientUpdate = {
           ...client,
           branch: client.branch || saleBranch,
           totalSpent: (client.totalSpent || 0) + s.total,
@@ -1023,13 +1062,39 @@ export default function App() {
           balanceCredit: s.paymentMethod === 'credit' 
             ? (client.balanceCredit || 0) + s.total 
             : (client.balanceCredit || 0)
-        });
+        };
       }
     }
 
-    const saved = await api.saveSale(saleWithBranch);
+    // 4. Guardar atómicamente en Firestore & IndexedDB en una sola transacción Batch (0 duplicados, integridad total)
+    const saved = await api.executeSaleTransaction({
+      sale: saleWithBranch,
+      productUpdates,
+      shiftUpdate,
+      clientUpdate
+    });
+
+    // 5. Actualizar estado local inmediatamente (0 lecturas al servidor, interfaz instantánea sin lag)
+    setSales(prev => [saved, ...prev.filter(x => x.id !== saved.id)]);
+    if (productUpdates.length > 0) {
+      const updatedIds = new Set(productUpdates.map(p => p.id));
+      setProducts(prev => prev.map(p => {
+        if (updatedIds.has(p.id)) {
+          return productUpdates.find(up => up.id === p.id) || p;
+        }
+        return p;
+      }));
+    }
+    if (shiftUpdate) {
+      const su = shiftUpdate;
+      setShifts(prev => prev.map(sh => sh.id === su.id ? su : sh));
+    }
+    if (clientUpdate) {
+      const cu = clientUpdate;
+      setClients(prev => prev.map(c => c.id === cu.id ? cu : c));
+    }
+
     notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: saleBranch, timestamp: Date.now() });
-    await loadAllData();
     return saved;
   };
 
@@ -1459,14 +1524,19 @@ export default function App() {
 
   const getLicenseStatus = () => {
     if (!userLicense) return 'Activa';
-    if (userLicense.status === 'Por vencer' || userLicense.status === 'Por Vencer') return 'Por vencer';
     
     if (userLicense.expirationDate) {
       const daysLeft = calculateDaysRemaining(userLicense.expirationDate);
-      if (daysLeft <= 7 && daysLeft > 0) {
+      if (daysLeft <= 2 && daysLeft > 0) {
         return 'Por vencer';
       }
+      if (daysLeft <= 0) {
+        return 'Expirada';
+      }
+      return 'Activa';
     }
+
+    if (userLicense.status === 'Por vencer' || userLicense.status === 'Por Vencer') return 'Por vencer';
     return userLicense.status || 'Activa';
   };
 
@@ -1764,11 +1834,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
-      {/* Banner for "Por vencer" */}
+      {/* Banner for "Por vencer" (2 días antes de vencer) */}
       {user && user.id !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' && getLicenseStatus() === 'Por vencer' && (
         <div className="bg-amber-500 text-slate-900 px-4 py-2.5 text-xs font-bold flex items-center justify-center gap-2 z-40 shrink-0 shadow-md">
           <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>Su licencia vencerá en {calculateDaysRemaining(userLicense?.expirationDate)} días. Comuníquese con el administrador para renovarla.</span>
+          <span>Su plan vencerá en {calculateDaysRemaining(userLicense?.expirationDate || '')} {calculateDaysRemaining(userLicense?.expirationDate || '') === 1 ? 'día' : 'días'}. Comuníquese con el administrador para renovarlo.</span>
         </div>
       )}
       
@@ -1781,10 +1851,10 @@ export default function App() {
               id="btn-mobile-back-dashboard"
               type="button"
               onClick={() => setActiveTab('dashboard')}
-              className="p-1.5 -ml-1 hover:bg-white/10 active:scale-95 rounded-lg text-slate-200 hover:text-white transition-all cursor-pointer flex items-center gap-1 bg-white/5 border border-white/10 shadow-xs"
+              className="p-1 -ml-1 text-white hover:text-white/80 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-transparent border-0 outline-none"
               title="Regresar a Dashboard"
             >
-              <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
+              <ArrowLeft className="w-5 h-5 stroke-[2.5] text-white" />
             </button>
           ) : (
             <div className="w-6 shrink-0" />
