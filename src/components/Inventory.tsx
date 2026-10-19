@@ -2055,122 +2055,219 @@ export default function Inventory({
                 </button>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
-                      <th className="py-3 px-4">Producto</th>
-                      <th className="py-3 px-4">Código</th>
-                      <th className="py-3 px-4">Detalle</th>
-                      <th className="py-3 px-4 text-center">Stock Total</th>
-                      <th className="py-3 px-4">Ubicación</th>
-                      <th className="py-3 px-4 text-center">Estado</th>
-                      <th className="py-3 px-4 text-right">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E2E8F0]">
-                    {filteredProducts.map((p) => {
-                      const effStock = getProductStock(p);
-                      const isCritical = effStock <= p.minStock && effStock > 0;
-                      const isOutOfStock = effStock === 0;
+              <>
+                {/* Mobile Card List (< sm screens) */}
+                <div className="sm:hidden divide-y divide-[#E2E8F0]">
+                  {filteredProducts.map((p) => {
+                    const effStock = getProductStock(p);
+                    const isCritical = effStock <= p.minStock && effStock > 0;
+                    const isOutOfStock = effStock === 0;
 
-                      // Get status text and badge styling
-                      let statusText = 'Normal';
-                      let statusBadge = 'bg-emerald-50 text-[#16A34A] border-emerald-200'; // Green
-                      if (isOutOfStock) {
-                        statusText = 'Agotado';
-                        statusBadge = 'bg-rose-50 text-[#DC2626] border-rose-200'; // Red
-                      } else if (isCritical) {
-                        statusText = 'Bajo';
-                        statusBadge = 'bg-amber-50 text-amber-800 border-amber-200'; // Yellow/Amber
-                      }
+                    let statusText = 'Normal';
+                    let statusBadge = 'bg-emerald-50 text-[#16A34A] border-emerald-200';
+                    if (isOutOfStock) {
+                      statusText = 'Agotado';
+                      statusBadge = 'bg-rose-50 text-[#DC2626] border-rose-200';
+                    } else if (isCritical) {
+                      statusText = 'Bajo';
+                      statusBadge = 'bg-amber-50 text-amber-800 border-amber-200';
+                    }
 
-                      // Generate background or initials placeholder for mock image
-                      const nameInitials = p.name.slice(0, 2).toUpperCase();
+                    const nameInitials = p.name.slice(0, 2).toUpperCase();
 
-                      return (
-                        <tr key={p.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3">
-                              {/* Product Avatar */}
-                              <div className="w-8 h-8 rounded-md bg-[#F8FAFC] border border-[#E2E8F0] flex items-center justify-center overflow-hidden font-bold text-[#1F2937] text-xs shrink-0 shadow-2xs">
-                                {p.imageUrl ? (
-                                  <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                ) : (
-                                  nameInitials
-                                )}
-                              </div>
-                              <div>
-                                <div className="font-semibold text-[#1F2937] text-xs">{p.name}</div>
-                                <div className="text-[10px] text-[#64748B] mt-0.5">{p.category}</div>
-                              </div>
+                    return (
+                      <div key={`mob-${p.id}`} className="p-3.5 space-y-2.5 bg-white hover:bg-slate-50/60 transition-colors">
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-10 h-10 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex items-center justify-center overflow-hidden font-bold text-[#1F2937] text-xs shrink-0 shadow-2xs">
+                              {p.imageUrl ? (
+                                <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                nameInitials
+                              )}
                             </div>
-                          </td>
-                          <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937] font-medium">{p.code}</td>
-                          <td className="py-3 px-4">
+                            <div className="min-w-0">
+                              <h4 className="font-semibold text-xs text-[#1F2937] truncate">{p.name}</h4>
+                              <p className="text-[10px] text-[#64748B] truncate">{p.category} • <span className="font-mono text-[#1F2937]">{p.code}</span></p>
+                            </div>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] uppercase border shrink-0 ${statusBadge}`}>
+                            {statusText}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100/80">
+                          <div className="flex items-center gap-2 text-[#64748B]">
+                            <span>Stock: <strong className="font-mono text-xs text-[#1F2937] bg-slate-100 px-1.5 py-0.5 rounded border border-[#E2E8F0]">{effStock}</strong></span>
+                            <span>•</span>
+                            <span className="truncate max-w-[120px]">{p.location || 'Almacén'}</span>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
                             <button
+                              type="button"
                               onClick={() => setDetailProduct(p)}
-                              className="text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-0.5 cursor-pointer"
+                              className="px-2 py-1 text-[11px] font-semibold text-[#2563EB] hover:bg-blue-50 rounded transition-colors"
                             >
-                              Ver Detalle
+                              Detalle
                             </button>
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <span className="bg-slate-100 text-[#1F2937] font-semibold font-mono text-xs px-2.5 py-0.5 rounded border border-[#E2E8F0] inline-block tabular-nums">
-                              {effStock}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-[#1F2937] font-medium">{p.location || 'Almacén Principal'}</td>
-                          <td className="py-3 px-4 text-center">
-                            <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] uppercase inline-block border ${statusBadge}`}>
-                              {statusText}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* Aumentar Stock Manual */}
-                              <button
-                                onClick={() => handleOpenManualStockModal(p)}
-                                className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
-                                title="Aumentar Stock Manual"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                              </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenManualStockModal(p)}
+                              className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors"
+                              title="Aumentar Stock Manual"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenProductKardex(p)}
+                              className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors"
+                              title="Kardex"
+                            >
+                              <Folder className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(p)}
+                              className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors"
+                              title="Editar"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(p.id)}
+                              className="p-1.5 text-slate-500 hover:text-red-600 rounded-md border border-slate-200 hover:border-red-200 transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-                              {/* Kardex del Producto */}
-                              <button
-                                onClick={() => handleOpenProductKardex(p)}
-                                className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
-                                title="Ver Kardex del Producto"
-                              >
-                                <Folder className="w-3.5 h-3.5" />
-                              </button>
-                              
-                              {/* Edit */}
-                              <button
-                                onClick={() => openEditModal(p)}
-                                className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
-                                title="Editar"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                              </button>
+                {/* Desktop Table (sm and above, unchanged) */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                        <th className="py-3 px-4">Producto</th>
+                        <th className="py-3 px-4">Código</th>
+                        <th className="py-3 px-4">Detalle</th>
+                        <th className="py-3 px-4 text-center">Stock Total</th>
+                        <th className="py-3 px-4">Ubicación</th>
+                        <th className="py-3 px-4 text-center">Estado</th>
+                        <th className="py-3 px-4 text-right">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E2E8F0]">
+                      {filteredProducts.map((p) => {
+                        const effStock = getProductStock(p);
+                        const isCritical = effStock <= p.minStock && effStock > 0;
+                        const isOutOfStock = effStock === 0;
 
-                              {/* Delete */}
+                        // Get status text and badge styling
+                        let statusText = 'Normal';
+                        let statusBadge = 'bg-emerald-50 text-[#16A34A] border-emerald-200'; // Green
+                        if (isOutOfStock) {
+                          statusText = 'Agotado';
+                          statusBadge = 'bg-rose-50 text-[#DC2626] border-rose-200'; // Red
+                        } else if (isCritical) {
+                          statusText = 'Bajo';
+                          statusBadge = 'bg-amber-50 text-amber-800 border-amber-200'; // Yellow/Amber
+                        }
+
+                        // Generate background or initials placeholder for mock image
+                        const nameInitials = p.name.slice(0, 2).toUpperCase();
+
+                        return (
+                          <tr key={p.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-3">
+                                {/* Product Avatar */}
+                                <div className="w-8 h-8 rounded-md bg-[#F8FAFC] border border-[#E2E8F0] flex items-center justify-center overflow-hidden font-bold text-[#1F2937] text-xs shrink-0 shadow-2xs">
+                                  {p.imageUrl ? (
+                                    <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    nameInitials
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="font-semibold text-[#1F2937] text-xs">{p.name}</div>
+                                  <div className="text-[10px] text-[#64748B] mt-0.5">{p.category}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937] font-medium">{p.code}</td>
+                            <td className="py-3 px-4">
                               <button
-                                onClick={() => handleDelete(p.id)}
-                                className="p-1 text-slate-500 hover:text-red-600 rounded-md border border-slate-200 hover:border-red-200 transition-colors cursor-pointer"
-                                title="Eliminar"
+                                onClick={() => setDetailProduct(p)}
+                                className="text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-0.5 cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                Ver Detalle
                               </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="bg-slate-100 text-[#1F2937] font-semibold font-mono text-xs px-2.5 py-0.5 rounded border border-[#E2E8F0] inline-block tabular-nums">
+                                {effStock}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-[#1F2937] font-medium">{p.location || 'Almacén Principal'}</td>
+                            <td className="py-3 px-4 text-center">
+                              <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] uppercase inline-block border ${statusBadge}`}>
+                                {statusText}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {/* Aumentar Stock Manual */}
+                                <button
+                                  onClick={() => handleOpenManualStockModal(p)}
+                                  className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
+                                  title="Aumentar Stock Manual"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+
+                                {/* Kardex del Producto */}
+                                <button
+                                  onClick={() => handleOpenProductKardex(p)}
+                                  className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
+                                  title="Ver Kardex del Producto"
+                                >
+                                  <Folder className="w-3.5 h-3.5" />
+                                </button>
+                                
+                                {/* Edit */}
+                                <button
+                                  onClick={() => openEditModal(p)}
+                                  className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
+                                  title="Editar"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+
+                                {/* Delete */}
+                                <button
+                                  onClick={() => handleDelete(p.id)}
+                                  className="p-1 text-slate-500 hover:text-red-600 rounded-md border border-slate-200 hover:border-red-200 transition-colors cursor-pointer"
+                                  title="Eliminar"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -2447,12 +2544,17 @@ export default function Inventory({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-200">
             {/* Left Panel: Seleccionar Productos */}
             <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-              <div className="bg-slate-50 border-b border-slate-100 px-5 py-4 shrink-0 flex items-center gap-2">
-                <List className="w-5 h-5 text-slate-500" />
-                <h3 className="font-bold text-slate-800 text-sm sm:text-base">Seleccionar Productos</h3>
+              <div className="bg-slate-50 border-b border-slate-100 px-4 sm:px-5 py-3 sm:py-4 shrink-0 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <List className="w-5 h-5 text-slate-500" />
+                  <h3 className="font-bold text-slate-800 text-sm sm:text-base">Seleccionar Productos</h3>
+                </div>
+                <span className="text-[11px] text-slate-500 font-medium font-mono bg-white border border-slate-200 px-2 py-0.5 rounded-md">
+                  {filteredBarcodeProducts.length} {filteredBarcodeProducts.length === 1 ? 'prod.' : 'prods.'}
+                </span>
               </div>
 
-              <div className="p-4 space-y-4 flex-1 flex flex-col">
+              <div className="p-3 sm:p-4 space-y-3 sm:space-y-4 flex-1 flex flex-col">
                 {/* Search Bar */}
                 <div className="relative shrink-0">
                   <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
@@ -2468,51 +2570,51 @@ export default function Inventory({
                 </div>
 
                 {/* Products Table Container */}
-                <div className="border border-slate-100 rounded-lg overflow-hidden flex-1 overflow-y-auto max-h-[500px]">
+                <div className="border border-slate-100 rounded-lg overflow-x-auto overflow-y-auto flex-1 max-h-[500px] touch-pan-x overscroll-x-contain">
                   {filteredBarcodeProducts.length === 0 ? (
                     <div className="py-12 text-center text-slate-400">
                       <p className="text-xs">No se encontraron productos coincidentes.</p>
                     </div>
                   ) : (
-                    <table className="w-full text-left text-xs border-collapse">
+                    <table className="w-full min-w-[460px] sm:min-w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 text-[10px] font-bold uppercase tracking-wider sticky top-0 z-10">
-                          <th className="py-2.5 px-4">CÓDIGO</th>
-                          <th className="py-2.5 px-3">PRODUCTO</th>
-                          <th className="py-2.5 px-3 text-right">PRECIO</th>
-                          <th className="py-2.5 px-3 text-center">CANT.</th>
-                          <th className="py-2.5 px-4"></th>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 text-[10px] font-bold uppercase tracking-wider sticky top-0 z-10 whitespace-nowrap">
+                          <th className="py-2.5 px-3 sm:px-4">CÓDIGO</th>
+                          <th className="py-2.5 px-2 sm:px-3">PRODUCTO</th>
+                          <th className="py-2.5 px-2 sm:px-3 text-right">PRECIO</th>
+                          <th className="py-2.5 px-2 sm:px-3 text-center">CANT.</th>
+                          <th className="py-2.5 px-3 sm:px-4 text-center">AGREGAR</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {filteredBarcodeProducts.map((p) => (
-                          <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">
+                          <tr key={p.id} className="hover:bg-slate-50/50 transition-colors whitespace-nowrap">
+                            <td className="py-2.5 px-3 sm:px-4 font-mono text-slate-500 text-[11px]">
                               {p.code}
                             </td>
-                            <td className="py-3 px-3 font-semibold text-slate-800 text-[11px]">
+                            <td className="py-2.5 px-2 sm:px-3 font-semibold text-slate-800 text-[11px] max-w-[150px] sm:max-w-none truncate">
                               {p.name}
                             </td>
-                            <td className="py-3 px-3 text-right font-bold text-slate-900 font-mono text-[11px]">
+                            <td className="py-2.5 px-2 sm:px-3 text-right font-bold text-slate-900 font-mono text-[11px]">
                               {currency}{p.price.toFixed(2)}
                             </td>
-                            <td className="py-2 px-3 text-center">
+                            <td className="py-2 px-2 sm:px-3 text-center">
                               <input
                                 type="number"
                                 min="1"
                                 value={labelQuantities[p.id] || 1}
                                 onChange={(e) => handleQuantityChange(p.id, e.target.value)}
-                                className="w-12 text-center border border-slate-200 rounded px-1.5 py-1 text-xs font-bold font-mono bg-white text-slate-800 focus:ring-1 focus:ring-[#005e63]"
+                                className="w-11 sm:w-12 text-center border border-slate-200 rounded px-1 py-1 text-xs font-bold font-mono bg-white text-slate-800 focus:ring-1 focus:ring-[#005e63]"
                               />
                             </td>
-                            <td className="py-2 px-4 text-center">
+                            <td className="py-2 px-3 sm:px-4 text-center">
                               <button
                                 type="button"
                                 onClick={() => handleAddLabel(p)}
-                                className="p-1.5 bg-[#005e63] hover:bg-[#004d52] text-white rounded-lg cursor-pointer transition-colors shadow-sm flex items-center justify-center mx-auto"
+                                className="p-1.5 bg-[#005e63] hover:bg-[#004d52] active:scale-95 text-white rounded-lg cursor-pointer transition-all shadow-xs flex items-center justify-center mx-auto"
                                 title="Agregar etiquetas"
                               >
-                                <Plus className="w-3.5 h-3.5" />
+                                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                               </button>
                             </td>
                           </tr>
@@ -2718,10 +2820,10 @@ export default function Inventory({
 
       {/* Modal 1: Product Form Dialog (ADD & EDIT) */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150 overflow-y-auto">
-          <div className={`bg-white rounded-xl ${config.businessType === 'pharmacy' ? 'max-w-4xl' : 'max-w-lg'} w-full shadow-xl border border-slate-100 overflow-hidden flex flex-col my-8 max-h-[90vh]`}>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-start sm:items-center justify-center p-2 sm:p-4 z-50 animate-in fade-in duration-150 overflow-y-auto overscroll-contain">
+          <div className={`bg-white rounded-2xl ${config.businessType === 'pharmacy' ? 'max-w-4xl' : 'max-w-lg'} w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col my-auto max-h-[92vh] sm:max-h-[90vh] min-h-0`}>
             {/* Header */}
-            <div className="bg-[#0084FF] text-white p-4 flex items-center justify-between shrink-0 shadow-sm">
+            <div className="bg-[#0084FF] text-white p-4 sm:px-6 flex items-center justify-between shrink-0 shadow-sm z-10">
               <h3 className="font-bold text-white text-base flex items-center gap-2">
                 <Boxes className="w-5 h-5 text-blue-100" />
                 {editingProduct ? 'Editar Producto' : 'Registrar Nuevo Producto'}
@@ -2729,16 +2831,20 @@ export default function Inventory({
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-white hover:text-blue-100 font-bold text-xl cursor-pointer transition-colors"
+                className="text-white hover:text-blue-100 font-bold text-xl cursor-pointer transition-colors p-1"
               >
                 ×
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-left flex-1">
+            <form 
+              onSubmit={handleSubmit} 
+              className="p-4 sm:p-6 overflow-y-auto overscroll-contain space-y-4 text-left flex-1 min-h-0 touch-pan-y"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
               {config.businessType === 'pharmacy' ? (
                 /* PHARMACY SPECIALIZED LAYOUT (FROM IMAGE) */
-                <div className="space-y-4">
+                <div className="space-y-4 min-h-0">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Fecha de Registro */}
                     <div className="space-y-1">
@@ -3500,7 +3606,7 @@ export default function Inventory({
               )}
 
               {/* Action Buttons styled precisely like the image */}
-              <div className="flex gap-3 border-t border-slate-100 pt-4 mt-6 shrink-0 justify-end">
+              <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs py-3 border-t border-slate-100 mt-6 shrink-0 flex gap-3 justify-end z-10 -mx-4 sm:-mx-6 px-4 sm:px-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.04)]">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -4307,11 +4413,11 @@ export default function Inventory({
 
       {/* Modal: Aumentar Stock Manual (matches exact user design) */}
       {isManualStockModalOpen && manualStockProduct && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-100 flex flex-col animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 !m-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 md:p-6 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl sm:rounded-3xl max-w-xl md:max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-100 flex flex-col my-auto mx-auto animate-in zoom-in-95 duration-150">
             
             {/* Top Header */}
-            <div className="bg-[#0084FF] px-6 py-3.5 flex items-center justify-between text-white shadow-xs">
+            <div className="bg-[#0084FF] px-5 sm:px-6 py-3.5 flex items-center justify-between text-white shadow-xs shrink-0 z-10">
               <div className="flex items-center gap-2.5">
                 <PlusCircle className="w-5 h-5 stroke-[2.5] text-white" />
                 <h3 className="font-bold text-base text-white tracking-wide">Aumentar Stock Manual</h3>
@@ -4330,105 +4436,107 @@ export default function Inventory({
 
             {/* Modal Body Form */}
             <form onSubmit={handleConfirmManualStock} className="flex flex-col">
-              <div className="p-6 md:p-8 flex flex-col md:flex-row gap-6 md:gap-8 items-start">
-                
-                {/* Left Column: Product Image Box */}
-                <div className="w-full md:w-52 shrink-0 aspect-square rounded-2xl bg-slate-50 border border-slate-200/80 p-3 flex items-center justify-center overflow-hidden shadow-inner">
-                  {manualStockProduct.imageUrl ? (
-                    <img
-                      src={manualStockProduct.imageUrl}
-                      alt={manualStockProduct.name}
-                      className="w-full h-full object-contain"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="text-center text-slate-300 flex flex-col items-center gap-2">
-                      <Package className="w-16 h-16 stroke-[1.2] text-slate-300" />
-                      <span className="text-[11px] font-bold text-slate-400">Sin imagen</span>
+              <div className="p-4 sm:p-5 md:p-6">
+                <div className="flex flex-col md:flex-row gap-4 sm:gap-5 md:gap-6 items-start">
+                  
+                  {/* Left Column: Product Image Box */}
+                  <div className="w-24 h-24 sm:w-32 sm:h-32 md:w-36 md:h-36 lg:w-44 lg:h-44 shrink-0 rounded-2xl bg-slate-50 border border-slate-200/80 p-2 sm:p-2.5 flex items-center justify-center overflow-hidden shadow-inner mx-auto md:mx-0">
+                    {manualStockProduct.imageUrl ? (
+                      <img
+                        src={manualStockProduct.imageUrl}
+                        alt={manualStockProduct.name}
+                        className="w-full h-full object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="text-center text-slate-300 flex flex-col items-center gap-2">
+                        <Package className="w-12 h-12 md:w-14 md:h-14 stroke-[1.2] text-slate-300" />
+                        <span className="text-[10px] md:text-[11px] font-bold text-slate-400">Sin imagen</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Column: Product details & fields */}
+                  <div className="flex-1 w-full space-y-2.5 sm:space-y-3">
+                    <div>
+                      <h2 className="text-base sm:text-lg md:text-xl font-black text-slate-800 tracking-tight leading-tight">
+                        {manualStockProduct.name}
+                      </h2>
+                      <p className="text-xs text-slate-400 font-semibold mt-0.5 flex items-center gap-1.5 font-mono">
+                        <span>{manualStockProduct.code}</span>
+                        <span>•</span>
+                        <span className="text-slate-500 font-sans">{manualStockProduct.category || 'General'}</span>
+                      </p>
                     </div>
-                  )}
-                </div>
 
-                {/* Right Column: Product details & fields */}
-                <div className="flex-1 w-full space-y-3.5">
-                  <div>
-                    <h2 className="text-xl font-black text-slate-800 tracking-tight leading-tight">
-                      {manualStockProduct.name}
-                    </h2>
-                    <p className="text-xs text-slate-400 font-semibold mt-0.5 flex items-center gap-1.5 font-mono">
-                      <span>{manualStockProduct.code}</span>
-                      <span>•</span>
-                      <span className="text-slate-500 font-sans">{manualStockProduct.category || 'General'}</span>
-                    </p>
-                  </div>
+                    {/* Stock Actual Box */}
+                    <div className="bg-[#f0f8ff] border border-[#d8ecff] rounded-xl px-3.5 py-2 flex items-center gap-3">
+                      <span className="text-[10px] sm:text-[11px] font-black text-slate-500 uppercase tracking-wider">STOCK ACTUAL</span>
+                      <span className="text-xl sm:text-2xl font-black text-[#1e40af] font-mono leading-none">
+                        {getProductStock(manualStockProduct)}
+                      </span>
+                      <span className="text-xs font-medium text-slate-500">
+                        ({manualStockProduct.unit || 'Unidad'})
+                      </span>
+                    </div>
 
-                  {/* Stock Actual Box */}
-                  <div className="bg-[#f0f8ff] border border-[#d8ecff] rounded-xl px-4 py-2.5 flex items-center gap-3">
-                    <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">STOCK ACTUAL</span>
-                    <span className="text-2xl font-black text-[#1e40af] font-mono leading-none">
-                      {getProductStock(manualStockProduct)}
-                    </span>
-                    <span className="text-xs font-medium text-slate-500">
-                      ({manualStockProduct.unit || 'Unidad'})
-                    </span>
-                  </div>
+                    {/* Ubicación */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-700">Ubicación</label>
+                      <select
+                        value={manualStockLocation}
+                        onChange={(e) => setManualStockLocation(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-1.5 sm:py-2 text-xs text-slate-700 font-medium focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden cursor-pointer"
+                      >
+                        <option value={manualStockProduct.location || 'Almacén Principal'}>
+                          {manualStockProduct.location || 'Almacén Principal'} -- Stock: {getProductStock(manualStockProduct)}
+                        </option>
+                        <option value="Almacén Secundario">Almacén Secundario</option>
+                        <option value="Vitrina Principal">Vitrina Principal</option>
+                        <option value="Bodega">Bodega</option>
+                      </select>
+                    </div>
 
-                  {/* Ubicación */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-slate-700">Ubicación</label>
-                    <select
-                      value={manualStockLocation}
-                      onChange={(e) => setManualStockLocation(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-700 font-medium focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden cursor-pointer"
-                    >
-                      <option value={manualStockProduct.location || 'Almacén Principal'}>
-                        {manualStockProduct.location || 'Almacén Principal'} -- Stock: {getProductStock(manualStockProduct)}
-                      </option>
-                      <option value="Almacén Secundario">Almacén Secundario</option>
-                      <option value="Vitrina Principal">Vitrina Principal</option>
-                      <option value="Bodega">Bodega</option>
-                    </select>
-                  </div>
+                    {/* Cantidad a agregar */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-700">Cantidad a agregar</label>
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        autoFocus
+                        placeholder="0"
+                        value={manualStockQty}
+                        onChange={(e) => setManualStockQty(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-1.5 sm:py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden"
+                      />
+                    </div>
 
-                  {/* Cantidad a agregar */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-slate-700">Cantidad a agregar</label>
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      autoFocus
-                      placeholder="0"
-                      value={manualStockQty}
-                      onChange={(e) => setManualStockQty(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden"
-                    />
-                  </div>
+                    {/* Motivo (opcional) */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-700">Motivo (opcional)</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Ajuste por conteo físico"
+                        value={manualStockReason}
+                        onChange={(e) => setManualStockReason(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-1.5 sm:py-2 text-xs text-slate-800 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden"
+                      />
+                    </div>
 
-                  {/* Motivo (opcional) */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-slate-700">Motivo (opcional)</label>
-                    <input
-                      type="text"
-                      placeholder="Ej: Ajuste por conteo físico"
-                      value={manualStockReason}
-                      onChange={(e) => setManualStockReason(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition-all outline-hidden"
-                    />
-                  </div>
-
-                  {/* Nuevo stock estimado Box */}
-                  <div className="bg-[#f0fdf4] border border-[#bbf7d0] rounded-xl px-4 py-3 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-[#166534]">Nuevo stock estimado</span>
-                    <span className="text-xl font-black text-[#166534] font-mono leading-none">
-                      {getProductStock(manualStockProduct) + (parseInt(manualStockQty) || 0)}
-                    </span>
+                    {/* Nuevo stock estimado Box */}
+                    <div className="bg-[#f0fdf4] border border-[#bbf7d0] rounded-xl px-3.5 py-2 sm:py-2.5 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[#166534]">Nuevo stock estimado</span>
+                      <span className="text-lg sm:text-xl font-black text-[#166534] font-mono leading-none">
+                        {getProductStock(manualStockProduct) + (parseInt(manualStockQty) || 0)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Modal Footer */}
-              <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 flex items-center justify-end gap-4 rounded-b-3xl">
+              <div className="px-5 sm:px-6 py-3 sm:py-3.5 bg-slate-50/95 backdrop-blur-xs border-t border-slate-100 flex items-center justify-end gap-3 sm:gap-4 shrink-0 rounded-b-2xl sm:rounded-b-3xl z-10">
                 <button
                   type="button"
                   onClick={() => {
@@ -4441,7 +4549,7 @@ export default function Inventory({
                 </button>
                 <button
                   type="submit"
-                  className="bg-[#10b981] hover:bg-[#059669] active:scale-98 text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                  className="bg-[#10b981] hover:bg-[#059669] active:scale-98 text-white px-5 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Check className="w-4 h-4 stroke-[3]" />
                   <span>Confirmar aumento</span>

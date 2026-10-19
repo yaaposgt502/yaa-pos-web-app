@@ -20,7 +20,8 @@ import {
   RotateCcw,
   Eye,
   Pill,
-  Building2
+  Building2,
+  ArrowRightLeft
 } from 'lucide-react';
 
 interface PurchasingProps {
@@ -403,10 +404,10 @@ export default function Purchasing({
             </button>
           </div>
 
-          <form onSubmit={handleSubmitPurchase} className="p-6 space-y-6">
+          <form onSubmit={handleSubmitPurchase} className="p-3.5 sm:p-6 space-y-5 sm:space-y-6">
             
             {/* Top Row: Fecha, Proveedor, Tipo de Pago, Comprobante, Nro. Comprobante */}
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
               {/* Fecha */}
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-700">Fecha</label>
@@ -874,36 +875,48 @@ export default function Purchasing({
             </div>
 
             {/* Purchase Items List Table */}
-            <div className="border border-slate-100 rounded-xl overflow-hidden shadow-xs bg-white">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-[#EBF5FF] border-b border-slate-100 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
-                    <th className="py-2.5 px-4 font-bold">PRODUCTO</th>
-                    <th className="py-2.5 px-3 font-bold text-center">LOTE</th>
-                    <th className="py-2.5 px-3 font-bold text-center">VENCE</th>
-                    <th className="py-2.5 px-3 font-bold text-center">CANTIDAD</th>
-                    <th className="py-2.5 px-3 font-bold text-right">P. COSTO</th>
-                    <th className="py-2.5 px-3 font-bold text-right">P. VTA UNIDAD</th>
-                    {isPharmacy && (
-                      <>
-                        <th className="py-2.5 px-2 font-bold text-right">P. VTA BLISTER</th>
-                        <th className="py-2.5 px-2 font-bold text-right">P. VTA CAJA</th>
-                      </>
-                    )}
-                    <th className="py-2.5 px-3 font-bold text-right">SUBTOTAL</th>
-                    <th className="py-2.5 px-4 font-bold text-center w-12">ACCIONES</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {purchaseItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={isPharmacy ? 10 : 8} className="py-12 text-center text-slate-400 font-medium">
-                        No se han agregado productos para comprar todavía. Utilice el formulario superior.
-                      </td>
+            <div className="space-y-1.5">
+              {/* Mobile Slide Hint (visible only on mobile screens < sm) */}
+              <div className="sm:hidden flex items-center justify-between text-[11px] text-slate-500 font-medium px-1">
+                <span className="flex items-center gap-1.5 text-blue-600 font-semibold">
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  Desliza la tabla para ver todas las opciones
+                </span>
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono font-bold">
+                  {purchaseItems.length} {purchaseItems.length === 1 ? 'ítem' : 'ítems'}
+                </span>
+              </div>
+
+              <div className="border border-slate-100 rounded-xl overflow-x-auto shadow-xs bg-white touch-pan-x overscroll-x-contain">
+                <table className={`w-full ${isPharmacy ? 'min-w-[860px]' : 'min-w-[740px]'} lg:min-w-full text-left border-collapse text-xs`}>
+                  <thead>
+                    <tr className="bg-[#EBF5FF] border-b border-slate-100 text-slate-600 font-bold uppercase text-[10px] tracking-wider whitespace-nowrap">
+                      <th className="py-2.5 px-4 font-bold min-w-[150px]">PRODUCTO</th>
+                      <th className="py-2.5 px-3 font-bold text-center min-w-[70px]">LOTE</th>
+                      <th className="py-2.5 px-3 font-bold text-center min-w-[90px]">VENCE</th>
+                      <th className="py-2.5 px-3 font-bold text-center min-w-[75px]">CANTIDAD</th>
+                      <th className="py-2.5 px-3 font-bold text-right min-w-[90px]">P. COSTO</th>
+                      <th className="py-2.5 px-3 font-bold text-right min-w-[95px]">P. VTA UNIDAD</th>
+                      {isPharmacy && (
+                        <>
+                          <th className="py-2.5 px-2 font-bold text-right min-w-[95px]">P. VTA BLISTER</th>
+                          <th className="py-2.5 px-2 font-bold text-right min-w-[95px]">P. VTA CAJA</th>
+                        </>
+                      )}
+                      <th className="py-2.5 px-3 font-bold text-right min-w-[85px]">SUBTOTAL</th>
+                      <th className="py-2.5 px-4 font-bold text-center w-12 min-w-[60px]">ACCIONES</th>
                     </tr>
-                  ) : (
-                    purchaseItems.map((item, idx) => (
-                      <tr key={`${item.product.id}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {purchaseItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={isPharmacy ? 10 : 8} className="py-12 text-center text-slate-400 font-medium">
+                          No se han agregado productos para comprar todavía. Utilice el formulario superior.
+                        </td>
+                      </tr>
+                    ) : (
+                      purchaseItems.map((item, idx) => (
+                        <tr key={`${item.product.id}-${idx}`} className="hover:bg-slate-50/50 transition-colors whitespace-nowrap">
                         <td className="py-3 px-4 font-semibold text-slate-800 uppercase">
                           {item.product.name}
                         </td>
@@ -1002,9 +1015,10 @@ export default function Purchasing({
                 </tbody>
               </table>
             </div>
+          </div>
 
             {/* Calculations and Action Buttons Footer */}
-            <div className="border-t border-slate-100 pt-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 -mx-6 -mb-6 p-6 rounded-b-2xl">
+            <div className="border-t border-slate-100 pt-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 -mx-3.5 sm:-mx-6 -mb-3.5 sm:-mb-6 p-4 sm:p-6 rounded-b-2xl">
               {/* Bottom Left: IVA options */}
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">IVA EN TOTAL</span>
@@ -1188,97 +1202,158 @@ export default function Purchasing({
                 </button>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm border-collapse animate-in fade-in duration-150">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                      <th className="py-3 px-5 text-left font-bold">FECHA</th>
-                      <th className="py-3 px-4 text-center font-bold">N° COMPRA</th>
-                      <th className="py-3 px-4 text-left font-bold">PROVEEDOR</th>
-                      <th className="py-3 px-4 text-right font-bold">TOTAL</th>
-                      <th className="py-3 px-4 text-center font-bold">ESTADO</th>
-                      <th className="py-3 px-4 text-center font-bold">TIPO PAGO</th>
-                      <th className="py-3 px-5 text-center font-bold w-32">ACCIONES</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {filteredPurchases.slice().reverse().map((pur) => (
-                      <tr key={pur.id} className="hover:bg-slate-50/50 transition-colors">
-                        {/* Fecha */}
-                        <td className="py-3.5 px-5 font-mono text-xs text-slate-600">
-                          {new Date(pur.date).toLocaleDateString()}
-                        </td>
+              <>
+                {/* Mobile Purchases History Cards (< sm) */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {filteredPurchases.slice().reverse().map((pur) => (
+                    <div key={`mob-pur-${pur.id}`} className="p-3.5 space-y-2.5 bg-white hover:bg-slate-50/60 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold font-mono text-xs text-slate-800">
+                              {pur.purchaseNumber}
+                            </span>
+                            <span className={`inline-block px-2 py-0.2 rounded-full text-[9px] font-black uppercase ${
+                              pur.status === 'completed' 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                                : 'bg-amber-50 text-amber-700 border border-amber-100'
+                            }`}>
+                              {pur.status === 'completed' ? 'Pagado' : 'Pendiente'}
+                            </span>
+                          </div>
+                          <p className="font-semibold text-xs text-slate-800 uppercase mt-0.5">{getProviderName(pur.providerId)}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            {new Date(pur.date).toLocaleDateString()} {pur.voucherType ? `• ${getVoucherLabel(pur.voucherType)}` : ''}
+                          </p>
+                        </div>
 
-                        {/* N° Compra */}
-                        <td className="py-3.5 px-4 text-center font-bold font-mono text-slate-800 text-xs">
-                          {pur.purchaseNumber}
-                        </td>
-
-                        {/* Proveedor */}
-                        <td className="py-3.5 px-4">
-                          <p className="font-semibold text-slate-800 uppercase text-xs">{getProviderName(pur.providerId)}</p>
-                          {pur.voucherType && (
-                            <p className="text-[10px] text-slate-400 font-mono">
-                              {getVoucherLabel(pur.voucherType)} {pur.voucherNumber ? `N° ${pur.voucherNumber}` : '—'}
-                            </p>
-                          )}
-                        </td>
-
-                        {/* Total */}
-                        <td className="py-3.5 px-4 text-right font-bold font-mono text-slate-900 text-xs">
-                          {currency}{pur.total.toFixed(2)}
-                        </td>
-
-                        {/* Estado */}
-                        <td className="py-3.5 px-4 text-center">
-                          <span className={`inline-block px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                            pur.status === 'completed' 
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
-                              : 'bg-amber-50 text-amber-700 border border-amber-100'
-                          }`}>
-                            {pur.status === 'completed' ? 'Pagado' : 'Pendiente'}
+                        <div className="text-right shrink-0">
+                          <span className="font-bold font-mono text-slate-900 text-sm block">
+                            {currency}{pur.total.toFixed(2)}
                           </span>
-                        </td>
-
-                        {/* Tipo de Pago */}
-                        <td className="py-3.5 px-4 text-center">
-                          <span className="inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-50 text-sky-700 border border-sky-100">
+                          <span className="inline-block px-2 py-0.2 rounded-full text-[9px] font-bold uppercase bg-sky-50 text-sky-700 border border-sky-100 mt-0.5">
                             {getPaymentLabel(pur.paymentType).toLowerCase()}
                           </span>
-                        </td>
+                        </div>
+                      </div>
 
-                        {/* Acciones */}
-                        <td className="py-3.5 px-5 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            {/* View Detail Button */}
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPurchaseDetails(pur)}
-                              className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 transition-colors cursor-pointer"
-                              title="Ver detalle"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
+                      <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPurchaseDetails(pur)}
+                          className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-colors flex items-center gap-1"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Ver Detalle</span>
+                        </button>
+                        {pur.status === 'pending' && (
+                          <button
+                            type="button"
+                            onClick={() => handlePayPurchase(pur)}
+                            className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold text-xs flex items-center gap-1 transition-all active:scale-95 shadow-xs"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Pagar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
-                            {/* Pagar Button (if pending) */}
-                            {pur.status === 'pending' && (
+                {/* Desktop Table (sm and above, unchanged) */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left text-sm border-collapse animate-in fade-in duration-150">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                        <th className="py-3 px-5 text-left font-bold">FECHA</th>
+                        <th className="py-3 px-4 text-center font-bold">N° COMPRA</th>
+                        <th className="py-3 px-4 text-left font-bold">PROVEEDOR</th>
+                        <th className="py-3 px-4 text-right font-bold">TOTAL</th>
+                        <th className="py-3 px-4 text-center font-bold">ESTADO</th>
+                        <th className="py-3 px-4 text-center font-bold">TIPO PAGO</th>
+                        <th className="py-3 px-5 text-center font-bold w-32">ACCIONES</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {filteredPurchases.slice().reverse().map((pur) => (
+                        <tr key={pur.id} className="hover:bg-slate-50/50 transition-colors">
+                          {/* Fecha */}
+                          <td className="py-3.5 px-5 font-mono text-xs text-slate-600">
+                            {new Date(pur.date).toLocaleDateString()}
+                          </td>
+
+                          {/* N° Compra */}
+                          <td className="py-3.5 px-4 text-center font-bold font-mono text-slate-800 text-xs">
+                            {pur.purchaseNumber}
+                          </td>
+
+                          {/* Proveedor */}
+                          <td className="py-3.5 px-4">
+                            <p className="font-semibold text-slate-800 uppercase text-xs">{getProviderName(pur.providerId)}</p>
+                            {pur.voucherType && (
+                              <p className="text-[10px] text-slate-400 font-mono">
+                                {getVoucherLabel(pur.voucherType)} {pur.voucherNumber ? `N° ${pur.voucherNumber}` : '—'}
+                              </p>
+                            )}
+                          </td>
+
+                          {/* Total */}
+                          <td className="py-3.5 px-4 text-right font-bold font-mono text-slate-900 text-xs">
+                            {currency}{pur.total.toFixed(2)}
+                          </td>
+
+                          {/* Estado */}
+                          <td className="py-3.5 px-4 text-center">
+                            <span className={`inline-block px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              pur.status === 'completed' 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                                : 'bg-amber-50 text-amber-700 border border-amber-100'
+                            }`}>
+                              {pur.status === 'completed' ? 'Pagado' : 'Pendiente'}
+                            </span>
+                          </td>
+
+                          {/* Tipo de Pago */}
+                          <td className="py-3.5 px-4 text-center">
+                            <span className="inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-50 text-sky-700 border border-sky-100">
+                              {getPaymentLabel(pur.paymentType).toLowerCase()}
+                            </span>
+                          </td>
+
+                          {/* Acciones */}
+                          <td className="py-3.5 px-5 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* View Detail Button */}
                               <button
                                 type="button"
-                                onClick={() => handlePayPurchase(pur)}
-                                className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold text-[10.5px] flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-sm"
+                                onClick={() => setSelectedPurchaseDetails(pur)}
+                                className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 transition-colors cursor-pointer"
+                                title="Ver detalle"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                Pagar
+                                <Eye className="w-4 h-4" />
                               </button>
-                            )}
-                          </div>
-                        </td>
 
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                              {/* Pagar Button (if pending) */}
+                              {pur.status === 'pending' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePayPurchase(pur)}
+                                  className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold text-[10.5px] flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-sm"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Pagar
+                                </button>
+                              )}
+                            </div>
+                          </td>
+
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
 

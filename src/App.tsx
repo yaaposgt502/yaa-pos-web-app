@@ -199,6 +199,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isTabletSidebarCollapsed, setIsTabletSidebarCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState<'admin' | 'pos'>('admin');
 
   // Core collections
@@ -249,6 +250,12 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState('');
+
+  // Password Recovery Modal States
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotStatus, setForgotStatus] = useState<{ message: string; isError: boolean } | null>(null);
+  const [isSendingReset, setIsSendingReset] = useState(false);
 
   // Auto-validate session on startup
   useEffect(() => {
@@ -1396,7 +1403,7 @@ export default function App() {
   if (!user || !token) {
     return (
       <div className="min-h-screen bg-gradient-to-tr from-[#0F1C3F] via-[#15234E] to-[#1E306E] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl space-y-6 border border-slate-100/10">
+        <div className="bg-white rounded-2xl w-full max-w-md p-5 sm:p-8 shadow-2xl space-y-6 border border-slate-100/10">
           
           {/* Logo Heading */}
           <div className="text-center space-y-1.5">
@@ -1843,26 +1850,25 @@ export default function App() {
       )}
       
       {/* MOBILE HEADER NAVBAR */}
-      <div className="md:hidden bg-[#172B4D] text-white px-4 py-3 relative flex items-center justify-between border-b border-white/10 shrink-0 min-h-[52px]">
-        {/* Left Action: ArrowLeft (when inside any module) or empty spacer (when on dashboard) */}
-        <div className="flex items-center z-10">
-          {activeTab !== 'dashboard' ? (
+      <div className="md:hidden bg-[#172B4D] text-white px-3.5 py-2.5 relative flex items-center justify-between border-b border-white/10 shrink-0 min-h-[52px]">
+        {/* Left Action: ArrowLeft to return to Dashboard when inside any module */}
+        <div className="flex items-center z-10 min-w-[32px]">
+          {activeTab !== 'dashboard' && (
             <button
               id="btn-mobile-back-dashboard"
               type="button"
               onClick={() => setActiveTab('dashboard')}
               className="p-1 -ml-1 text-white hover:text-white/80 active:scale-95 transition-all cursor-pointer flex items-center justify-center bg-transparent border-0 outline-none"
-              title="Regresar a Dashboard"
+              title="Regresar al Dashboard"
+              aria-label="Regresar al Dashboard"
             >
               <ArrowLeft className="w-5 h-5 stroke-[2.5] text-white" />
             </button>
-          ) : (
-            <div className="w-6 shrink-0" />
           )}
         </div>
 
         {/* Centered Store Name & Active Section */}
-        <div className="absolute left-1/2 -translate-x-1/2 text-center max-w-[65%] truncate pointer-events-none">
+        <div className="absolute left-1/2 -translate-x-1/2 text-center max-w-[60%] truncate pointer-events-none">
           <span className="text-sm font-bold text-white tracking-wide block truncate">
             {config.storeName || 'Yaa POS'}
           </span>
@@ -1873,23 +1879,23 @@ export default function App() {
         </div>
 
         {/* Right Connectivity Status */}
-        <div className="flex items-center gap-2 shrink-0 z-10">
+        <div className="flex items-center gap-1.5 shrink-0 z-10 ml-auto">
           {isOnline ? (
             hasPendingSync ? (
               <div className="flex items-center gap-1 bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-md text-[10px] font-medium" title="Sincronizando cambios locales con el servidor...">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                <span>Sincronizando</span>
+                <span className="hidden sm:inline">Sincronizando</span>
               </div>
             ) : (
               <div className="flex items-center gap-1 bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md text-[10px] font-medium" title="Conectado y sincronizado">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span>En línea</span>
+                <span className="hidden sm:inline">En línea</span>
               </div>
             )
           ) : (
             <div className="flex items-center gap-1 bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md text-[10px] font-medium" title="Sin conexión">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span>Offline</span>
+              <span className="hidden sm:inline">Offline</span>
             </div>
           )}
           {isDataLoading && (
@@ -1899,16 +1905,18 @@ export default function App() {
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
-        {/* 1. DESKTOP SIDEBAR (#172B4D) */}
-        <aside className="hidden md:flex md:w-64 bg-[#172B4D] text-slate-200 flex-col justify-between shrink-0 border-r border-[#243B61]">
+        {/* 1. SIDEBAR (#172B4D) - ADAPTIVE ON TABLET (md to xl), FULL WIDTH ON DESKTOP (xl) */}
+        <aside className={`hidden md:flex ${
+          isTabletSidebarCollapsed ? 'md:w-18' : 'md:w-64'
+        } xl:w-64 bg-[#172B4D] text-slate-200 flex-col justify-between shrink-0 border-r border-[#243B61] transition-all duration-200`}>
           
           {/* Top Header Brand */}
-          <div className="px-5 py-4 border-b border-[#243B61] flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-md bg-[#2563EB] text-white flex items-center justify-center font-bold text-xs shadow-xs">
+          <div className="px-4 py-4 border-b border-[#243B61] flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-md bg-[#2563EB] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
                 Y
               </div>
-              <div className="min-w-0">
+              <div className={`min-w-0 ${isTabletSidebarCollapsed ? 'md:hidden xl:block' : 'block'}`}>
                 <span className="text-sm font-bold text-white tracking-tight block leading-tight">Yaa POS</span>
                 <span className="text-[10px] text-slate-400 font-medium">Sistema POS</span>
               </div>
@@ -1919,15 +1927,18 @@ export default function App() {
           </div>
 
           {/* Navigation Links list */}
-          <nav className="px-3 py-3 space-y-1 overflow-y-auto flex-1 max-h-[calc(100vh-170px)]">
+          <nav className="px-2.5 py-3 space-y-1 overflow-y-auto flex-1 max-h-[calc(100vh-170px)]">
             {user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1' && (
               <button
                 type="button"
                 onClick={() => setViewMode('admin')}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer uppercase tracking-wider mb-2 shrink-0"
+                className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer uppercase tracking-wider mb-2 shrink-0 ${
+                  isTabletSidebarCollapsed ? 'md:px-1 xl:px-3' : ''
+                }`}
+                title="Consola Admin"
               >
-                <Shield className="w-3.5 h-3.5 text-emerald-100" />
-                <span>Consola Admin</span>
+                <Shield className="w-3.5 h-3.5 text-emerald-100 shrink-0" />
+                <span className={isTabletSidebarCollapsed ? 'md:hidden xl:inline' : 'inline'}>Consola Admin</span>
               </button>
             )}
 
@@ -1943,18 +1954,21 @@ export default function App() {
                       ? 'bg-[#2563EB] text-white font-semibold shadow-xs' 
                       : 'text-slate-300 hover:text-white hover:bg-white/10'
                   }`}
+                  title={tab.label}
                 >
-                  <span className="flex items-center gap-2.5 min-w-0 truncate">
+                  <span className={`flex items-center gap-2.5 min-w-0 truncate ${
+                    isTabletSidebarCollapsed ? 'md:justify-center xl:justify-start w-full' : ''
+                  }`}>
                     <span className={isActive ? 'text-white' : 'text-slate-400'}>
                       {tab.icon}
                     </span>
-                    <span className="truncate">{tab.label}</span>
+                    <span className={`truncate ${isTabletSidebarCollapsed ? 'md:hidden xl:inline' : 'inline'}`}>{tab.label}</span>
                   </span>
                   {tab.id === 'sucursales' && activeBranch?.code && (
                     <span
                       className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-black/25 text-blue-300'
-                      }`}
+                        isTabletSidebarCollapsed ? 'md:hidden xl:inline-block' : 'inline-block'
+                      } ${isActive ? 'bg-white/20 text-white' : 'bg-black/25 text-blue-300'}`}
                     >
                       {activeBranch.code}
                     </span>
@@ -1962,6 +1976,8 @@ export default function App() {
                   {tab.id === 'apertura-cierre' && (
                     <span
                       className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${
+                        isTabletSidebarCollapsed ? 'md:hidden xl:inline-block' : 'inline-block'
+                      } ${
                         activeBranchOpenShift 
                           ? (isActive ? 'bg-emerald-500/30 text-emerald-100' : 'bg-emerald-500/20 text-emerald-300')
                           : (isActive ? 'bg-amber-500/30 text-amber-100' : 'bg-amber-500/20 text-amber-300')
@@ -1977,11 +1993,13 @@ export default function App() {
 
           {/* Bottom profile and logout */}
           <div className="border-t border-[#243B61] px-3.5 py-3.5 space-y-2.5 shrink-0 bg-[#112038]">
-            <div className="flex items-center gap-2.5 px-1">
+            <div className={`flex items-center gap-2.5 px-1 ${
+              isTabletSidebarCollapsed ? 'md:justify-center xl:justify-start' : ''
+            }`}>
               <div className="w-7 h-7 bg-white/10 text-blue-300 rounded-md flex items-center justify-center shrink-0 text-xs font-bold font-mono">
                 {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
               </div>
-              <div className="min-w-0 flex-1">
+              <div className={`min-w-0 flex-1 ${isTabletSidebarCollapsed ? 'md:hidden xl:block' : 'block'}`}>
                 <p className="text-xs font-semibold text-white truncate">{user.name}</p>
                 <p className="text-[10px] text-slate-400 font-mono truncate">{user.email}</p>
               </div>
@@ -1991,18 +2009,32 @@ export default function App() {
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 border border-red-500/20 cursor-pointer transition-colors"
+              className={`w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 border border-red-500/20 cursor-pointer transition-colors ${
+                isTabletSidebarCollapsed ? 'md:px-0 xl:px-2' : ''
+              }`}
+              title="Cerrar Sesión"
             >
-              <LogOut className="w-3.5 h-3.5" /> Cerrar Sesión
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
+              <span className={isTabletSidebarCollapsed ? 'md:hidden xl:inline' : 'inline'}>Cerrar Sesión</span>
             </button>
           </div>
         </aside>
 
         {/* 2. MAIN ACTIVE VIEWPORT & DISCREET DESKTOP TOPBAR */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#F5F7FA] overflow-hidden">
-          {/* DISCREET TOPBAR (DESKTOP) */}
-          <header className="hidden md:flex h-14 bg-white border-b border-[#E2E8F0] px-6 items-center justify-between shrink-0 z-10 shadow-2xs">
+          {/* DISCREET TOPBAR (DESKTOP & TABLET) */}
+          <header className="hidden md:flex h-14 bg-white border-b border-[#E2E8F0] px-4 lg:px-6 items-center justify-between shrink-0 z-10 shadow-2xs">
             <div className="flex items-center gap-3 min-w-0">
+              {/* Tablet Sidebar Toggle Button (Only on tablet md:flex xl:hidden) */}
+              <button
+                type="button"
+                onClick={() => setIsTabletSidebarCollapsed(!isTabletSidebarCollapsed)}
+                className="hidden md:flex xl:hidden p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                title={isTabletSidebarCollapsed ? "Expandir menú lateral" : "Contraer menú lateral"}
+              >
+                <Menu className="w-4 h-4" />
+              </button>
+
               <h2 className="text-sm font-bold text-[#1F2937] tracking-tight flex items-center gap-2 truncate">
                 {sidebarTabs.find(t => t.id === activeTab)?.icon}
                 <span>{sidebarTabs.find(t => t.id === activeTab)?.label || 'Panel Principal'}</span>
@@ -2071,7 +2103,9 @@ export default function App() {
           </header>
 
           {/* MAIN SCROLLABLE CONTENT VIEWPORT */}
-          <main className={`flex-1 p-4 sm:p-6 lg:p-7 ${activeTab === 'dashboard' ? 'pb-24 md:pb-7' : 'pb-6 md:pb-7'} overflow-y-auto max-h-screen bg-[#F5F7FA]`}>
+          <main className={`flex-1 p-3.5 sm:p-5 lg:p-7 ${
+            activeTab === 'dashboard' ? 'pb-24' : 'pb-4'
+          } md:pb-7 overflow-y-auto max-h-screen bg-[#F5F7FA]`}>
             <ErrorBoundary key={`${activeTab}-${activeBranch?.id || 'all'}`}>
               {renderActiveComponent()}
             </ErrorBoundary>
@@ -2079,88 +2113,126 @@ export default function App() {
         </div>
       </div>
 
-      {/* 3. MOBILE & IPHONE BOTTOM NAVIGATION BAR (ONLY SHOWN ON DASHBOARD) */}
-      {activeTab === 'dashboard' && (
-        <nav 
-          id="mobile-bottom-navbar" 
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#172B4D] text-white border-t border-white/10 shadow-lg px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-around select-none transition-all duration-300"
+      {/* 3. MOBILE & IPHONE BOTTOM NAVIGATION BAR (TOUCH-OPTIMIZED FOR PHONES) */}
+      <nav 
+        id="mobile-bottom-navbar" 
+        className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#172B4D] text-white border-t border-white/10 shadow-lg px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-around select-none transition-all duration-300 ${
+          activeTab === 'dashboard'
+            ? 'translate-y-0 opacity-100 pointer-events-auto'
+            : 'translate-y-full opacity-0 pointer-events-none hidden'
+        }`}
+      >
+        {/* 1. Dashboard */}
+        <button
+          id="btn-nav-dashboard"
+          type="button"
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 transition-all active:scale-95 cursor-pointer ${
+            activeTab === 'dashboard' ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+          }`}
         >
-          {/* 1. Dashboard */}
-          <button
-            id="btn-nav-dashboard"
-            type="button"
-            onClick={() => setActiveTab('dashboard')}
-            className="flex-1 flex flex-col items-center justify-center py-1 px-1 text-white transition-all active:scale-95 cursor-pointer"
-          >
-            <div className="p-1 rounded-md transition-all bg-[#2563EB] text-white">
-              <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
-            </div>
-            <span className="text-[10px] sm:text-[11px] mt-0.5 font-bold text-white block truncate tracking-tight">
-              Dashboard
-            </span>
-          </button>
+          <div className={`p-1 rounded-md transition-all ${
+            activeTab === 'dashboard' ? 'bg-[#2563EB] text-white' : 'hover:bg-white/5'
+          }`}>
+            <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+          </div>
+          <span className={`text-[10px] sm:text-[11px] mt-0.5 block truncate tracking-tight ${
+            activeTab === 'dashboard' ? 'font-bold text-white' : 'font-medium'
+          }`}>
+            Dashboard
+          </span>
+        </button>
 
-          {/* 2. Punto de Venta */}
-          <button
-            id="btn-nav-venta"
-            type="button"
-            onClick={() => setActiveTab('punto-de-venta')}
-            className="flex-1 flex flex-col items-center justify-center py-1 px-0.5 transition-all active:scale-95 cursor-pointer text-slate-400 hover:text-slate-200"
-          >
-            <div className="p-1 rounded-xl transition-all">
-              <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
-            </div>
-            <span className="text-[9px] sm:text-[10.5px] tracking-tight mt-0.5 whitespace-nowrap font-medium">
-              Punto de Venta
-            </span>
-          </button>
+        {/* 2. Punto de Venta */}
+        <button
+          id="btn-nav-venta"
+          type="button"
+          onClick={() => setActiveTab('punto-de-venta')}
+          className={`flex-1 flex flex-col items-center justify-center py-1 px-0.5 transition-all active:scale-95 cursor-pointer ${
+            activeTab === 'punto-de-venta' ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className={`p-1 rounded-md transition-all ${
+            activeTab === 'punto-de-venta' ? 'bg-[#2563EB] text-white' : 'hover:bg-white/5'
+          }`}>
+            <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+          </div>
+          <span className={`text-[9px] sm:text-[10.5px] tracking-tight mt-0.5 whitespace-nowrap ${
+            activeTab === 'punto-de-venta' ? 'font-bold text-white' : 'font-medium'
+          }`}>
+            Punto de Venta
+          </span>
+        </button>
 
-          {/* 3. Inventario */}
-          <button
-            id="btn-nav-inventario"
-            type="button"
-            onClick={() => setActiveTab('inventario')}
-            className="flex-1 flex flex-col items-center justify-center py-1 px-1 transition-all active:scale-95 cursor-pointer text-slate-400 hover:text-slate-200"
-          >
-            <div className="p-1 rounded-xl transition-all">
-              <Package className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
-            </div>
-            <span className="text-[10px] sm:text-[11px] tracking-tight mt-0.5 truncate font-medium">
-              Inventario
-            </span>
-          </button>
+        {/* 3. Inventario */}
+        <button
+          id="btn-nav-inventario"
+          type="button"
+          onClick={() => setActiveTab('inventario')}
+          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 transition-all active:scale-95 cursor-pointer ${
+            activeTab === 'inventario' ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className={`p-1 rounded-md transition-all ${
+            activeTab === 'inventario' ? 'bg-[#2563EB] text-white' : 'hover:bg-white/5'
+          }`}>
+            <Package className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+          </div>
+          <span className={`text-[10px] sm:text-[11px] tracking-tight mt-0.5 truncate ${
+            activeTab === 'inventario' ? 'font-bold text-white' : 'font-medium'
+          }`}>
+            Inventario
+          </span>
+        </button>
 
-          {/* 4. Compras */}
-          <button
-            id="btn-nav-compras"
-            type="button"
-            onClick={() => setActiveTab('compras')}
-            className="flex-1 flex flex-col items-center justify-center py-1 px-1 transition-all active:scale-95 cursor-pointer text-slate-400 hover:text-slate-200"
-          >
-            <div className="p-1 rounded-xl transition-all">
-              <ShoppingBag className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
-            </div>
-            <span className="text-[10px] sm:text-[11px] tracking-tight mt-0.5 truncate font-medium">
-              Compras
-            </span>
-          </button>
+        {/* 4. Compras */}
+        <button
+          id="btn-nav-compras"
+          type="button"
+          onClick={() => setActiveTab('compras')}
+          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 transition-all active:scale-95 cursor-pointer ${
+            activeTab === 'compras' ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className={`p-1 rounded-md transition-all ${
+            activeTab === 'compras' ? 'bg-[#2563EB] text-white' : 'hover:bg-white/5'
+          }`}>
+            <ShoppingBag className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+          </div>
+          <span className={`text-[10px] sm:text-[11px] tracking-tight mt-0.5 truncate ${
+            activeTab === 'compras' ? 'font-bold text-white' : 'font-medium'
+          }`}>
+            Compras
+          </span>
+        </button>
 
-          {/* 5. Menú */}
-          <button
-            id="btn-nav-menu"
-            type="button"
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="flex-1 flex flex-col items-center justify-center py-1 px-1 transition-all active:scale-95 cursor-pointer text-slate-400 hover:text-slate-200"
-          >
-            <div className="p-1 rounded-xl transition-all">
-              <Menu className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
-            </div>
-            <span className="text-[10px] sm:text-[11px] tracking-tight mt-0.5 truncate font-medium">
-              Menú
-            </span>
-          </button>
-        </nav>
-      )}
+        {/* 5. Menú */}
+        <button
+          id="btn-nav-menu"
+          type="button"
+          onClick={() => setIsMobileMenuOpen(true)}
+          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 transition-all active:scale-95 cursor-pointer ${
+            !['dashboard', 'punto-de-venta', 'inventario', 'compras'].includes(activeTab)
+              ? 'text-white' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className={`p-1 rounded-md transition-all ${
+            !['dashboard', 'punto-de-venta', 'inventario', 'compras'].includes(activeTab)
+              ? 'bg-[#2563EB] text-white' 
+              : 'hover:bg-white/5'
+          }`}>
+            <Menu className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+          </div>
+          <span className={`text-[10px] sm:text-[11px] tracking-tight mt-0.5 truncate ${
+            !['dashboard', 'punto-de-venta', 'inventario', 'compras'].includes(activeTab)
+              ? 'font-bold text-white' 
+              : 'font-medium'
+          }`}>
+            Menú
+          </span>
+        </button>
+      </nav>
 
       {/* Floating Suspension Alert Modal */}
       {isSuspended && showSuspensionModal && (

@@ -26,10 +26,11 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'expired' | 'soon' | 'valid'>('all');
+  const [hideDeBaja, setHideDeBaja] = useState(false);
 
   const handleRetirar = async (product: Product) => {
-    if (product.stock === 0) {
-      alert(`El producto "${product.name}" ya se encuentra con stock en 0.`);
+    if ((product.stock || 0) <= 0) {
+      alert(`El producto "${product.name}" ya se encuentra con stock en 0 (dado de baja).`);
       return;
     }
     const confirmMessage = `¿Está seguro de que desea retirar y dar de baja el producto "${product.name}"?\nEsto establecerá su stock en 0 de forma inmediata en el inventario.`;
@@ -84,29 +85,66 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
   // Counts
   const counts = useMemo(() => {
     let expired = 0;
+    let expiredWithStock = 0;
     let soon = 0;
     let valid = 0;
+    let deBajaCount = 0;
 
     productsStatus.forEach(x => {
-      if (x.status === 'expired') expired++;
-      else if (x.status === 'soon') soon++;
-      else valid++;
+      const isDeBaja = (x.product.stock || 0) <= 0 || x.product.status === 'Inactivo';
+      if (isDeBaja) deBajaCount++;
+      if (x.status === 'expired') {
+        expired++;
+        if (!isDeBaja) expiredWithStock++;
+      } else if (x.status === 'soon') {
+        soon++;
+      } else {
+        valid++;
+      }
     });
 
-    return { expired, soon, valid, total: productsWithExpiry.length };
+    return { 
+      expired, 
+      expiredWithStock, 
+      soon, 
+      valid, 
+      deBajaCount, 
+      total: productsWithExpiry.length 
+    };
   }, [productsStatus, productsWithExpiry]);
 
-  // Filter and search logic
+  // Filter, search and prioritized sorting: NO dados de baja first (stock > 0)
   const filteredItems = useMemo(() => {
-    return productsStatus.filter(item => {
+    const list = productsStatus.filter(item => {
+      const isDeBaja = (item.product.stock || 0) <= 0 || item.product.status === 'Inactivo';
+      if (hideDeBaja && isDeBaja) return false;
+
       const matchesSearch = item.product.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            item.product.code.includes(searchQuery);
+                            item.product.code.toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesFilter = filterStatus === 'all' || item.status === filterStatus;
 
       return matchesSearch && matchesFilter;
     });
-  }, [productsStatus, searchQuery, filterStatus]);
+
+    // Ordenar: Los productos que NO están de baja (stock > 0) aparecen PRIMERO
+    return [...list].sort((a, b) => {
+      const aDeBaja = (a.product.stock || 0) <= 0 || a.product.status === 'Inactivo';
+      const bDeBaja = (b.product.stock || 0) <= 0 || b.product.status === 'Inactivo';
+
+      // 1. Productos activos / NO dados de baja aparecen primero
+      if (!aDeBaja && bDeBaja) return -1;
+      if (aDeBaja && !bDeBaja) return 1;
+
+      // 2. Orden de severidad de estatus: Vencidos (0) > Próximos (1) > Vigentes (2)
+      const priority: Record<string, number> = { expired: 0, soon: 1, valid: 2 };
+      const priorityDiff = (priority[a.status] ?? 3) - (priority[b.status] ?? 3);
+      if (priorityDiff !== 0) return priorityDiff;
+
+      // 3. Menor días restantes primero
+      return a.daysLeft - b.daysLeft;
+    });
+  }, [productsStatus, searchQuery, filterStatus, hideDeBaja]);
 
   return (
     <div id="expirations-view" className="space-y-6 animate-in fade-in duration-200">
@@ -120,106 +158,141 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
       </div>
 
       {/* Widgets Overview Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {/* Total catalogued */}
-        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between">
+        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between">
           <div className="space-y-0.5">
-            <span className="text-[11px] text-slate-400 font-semibold uppercase">Catalogados</span>
-            <h3 className="text-xl font-extrabold text-slate-800 font-mono">{counts.total}</h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold uppercase">Catalogados</span>
+            <h3 className="text-lg sm:text-xl font-extrabold text-slate-800 font-mono">{counts.total}</h3>
           </div>
           <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-            <Calendar className="w-5 h-5" />
+            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
 
         {/* Expired */}
         <div 
           onClick={() => setFilterStatus('expired')}
-          className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-red-200 transition-all"
+          className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-red-200 transition-all"
         >
           <div className="space-y-0.5">
-            <span className="text-[11px] text-slate-400 font-semibold uppercase">Ya Vencidos</span>
-            <h3 className={`text-xl font-extrabold font-mono ${counts.expired > 0 ? 'text-red-600' : 'text-slate-800'}`}>{counts.expired}</h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold uppercase">Ya Vencidos</span>
+            <div className="flex items-baseline gap-1.5 sm:gap-2">
+              <h3 className={`text-lg sm:text-xl font-extrabold font-mono ${counts.expired > 0 ? 'text-red-600' : 'text-slate-800'}`}>{counts.expired}</h3>
+              {counts.expiredWithStock > 0 && (
+                <span className="text-[9px] sm:text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
+                  {counts.expiredWithStock} ret.
+                </span>
+              )}
+            </div>
           </div>
           <div className={`p-2 rounded-lg ${counts.expired > 0 ? 'bg-red-50 text-red-500' : 'bg-slate-50 text-slate-400'}`}>
-            <XOctagon className="w-5 h-5" />
+            <XOctagon className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
 
         {/* Expiring Soon */}
         <div 
           onClick={() => setFilterStatus('soon')}
-          className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-amber-200 transition-all"
+          className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-amber-200 transition-all"
         >
           <div className="space-y-0.5">
-            <span className="text-[11px] text-slate-400 font-semibold uppercase">Próximos a Vencer</span>
-            <h3 className={`text-xl font-extrabold font-mono ${counts.soon > 0 ? 'text-amber-600' : 'text-slate-800'}`}>{counts.soon}</h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold uppercase">Próximos</span>
+            <h3 className={`text-lg sm:text-xl font-extrabold font-mono ${counts.soon > 0 ? 'text-amber-600' : 'text-slate-800'}`}>{counts.soon}</h3>
           </div>
           <div className={`p-2 rounded-lg ${counts.soon > 0 ? 'bg-amber-50 text-amber-500' : 'bg-slate-50 text-slate-400'}`}>
-            <AlertTriangle className="w-5 h-5" />
+            <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
 
         {/* Safe */}
         <div 
           onClick={() => setFilterStatus('valid')}
-          className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-emerald-200 transition-all"
+          className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-emerald-200 transition-all"
         >
           <div className="space-y-0.5">
-            <span className="text-[11px] text-slate-400 font-semibold uppercase">Vigentes</span>
-            <h3 className="text-xl font-extrabold text-slate-800 font-mono">{counts.valid}</h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-semibold uppercase">Vigentes</span>
+            <h3 className="text-lg sm:text-xl font-extrabold text-slate-800 font-mono">{counts.valid}</h3>
           </div>
           <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-            <CheckCircle className="w-5 h-5" />
+            <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
       </div>
 
       {/* Filter and Search controls */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 flex flex-col md:flex-row gap-4 items-center">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-4 sm:p-5 flex flex-col md:flex-row gap-3 sm:gap-4 items-center justify-between">
         {/* Search */}
         <div className="relative w-full md:flex-1">
           <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-            <Search className="w-5 h-5" />
+            <Search className="w-4 h-4 sm:w-5 sm:h-5" />
           </span>
           <input
             type="text"
             placeholder="Filtrar por nombre de producto con fecha registrada..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 text-sm"
+            className="w-full pl-9 sm:pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 text-xs sm:text-sm"
           />
         </div>
 
-        {/* Tab state toggler */}
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-full md:w-auto shrink-0">
-          <button
-            type="button"
-            onClick={() => setFilterStatus('all')}
-            className={`flex-1 md:flex-none text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${
-              filterStatus === 'all' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Todos
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterStatus('expired')}
-            className={`flex-1 md:flex-none text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${
-              filterStatus === 'expired' ? 'bg-red-500 text-white shadow-xs' : 'text-red-500 hover:bg-red-50'
-            }`}
-          >
-            Vencidos
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterStatus('soon')}
-            className={`flex-1 md:flex-none text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${
-              filterStatus === 'soon' ? 'bg-amber-500 text-white shadow-xs' : 'text-amber-600 hover:bg-amber-50'
-            }`}
-          >
-            A vencer
-          </button>
+        {/* Tab state toggler & options */}
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <div className="flex gap-1 bg-slate-100 rounded-xl p-1 overflow-x-auto max-w-full">
+            <button
+              type="button"
+              onClick={() => setFilterStatus('all')}
+              className={`text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+                filterStatus === 'all' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Todos ({counts.total})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterStatus('expired')}
+              className={`text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                filterStatus === 'expired' ? 'bg-red-600 text-white shadow-xs' : 'text-red-600 hover:bg-red-50'
+              }`}
+            >
+              <span>Vencidos</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${filterStatus === 'expired' ? 'bg-white/20 text-white' : 'bg-red-100 text-red-700'}`}>
+                {counts.expired}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterStatus('soon')}
+              className={`text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                filterStatus === 'soon' ? 'bg-amber-500 text-white shadow-xs' : 'text-amber-600 hover:bg-amber-50'
+              }`}
+            >
+              <span>A vencer</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${filterStatus === 'soon' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'}`}>
+                {counts.soon}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterStatus('valid')}
+              className={`text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+                filterStatus === 'valid' ? 'bg-emerald-600 text-white shadow-xs' : 'text-emerald-600 hover:bg-emerald-50'
+              }`}
+            >
+              Vigentes ({counts.valid})
+            </button>
+          </div>
+
+          {/* Toggle para ocultar los que ya están de baja si el usuario lo desea */}
+          <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 cursor-pointer select-none transition-colors">
+            <input
+              type="checkbox"
+              checked={hideDeBaja}
+              onChange={(e) => setHideDeBaja(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+            />
+            <span>Ocultar dados de baja</span>
+          </label>
         </div>
       </div>
 
@@ -234,58 +307,43 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-medium uppercase">
-                  <th className="py-3 px-5">Producto</th>
-                  <th className="py-3 px-4 text-center">Código</th>
-                  <th className="py-3 px-4 text-center">Stock Disponible</th>
-                  <th className="py-3 px-4 text-center">Fecha Caducidad</th>
-                  <th className="py-3 px-4 text-center">Tiempo Restante</th>
-                  <th className="py-3 px-5 text-right">Estatus</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filteredItems.map(({ product, status, daysLeft }) => (
-                  <tr key={product.id} className="text-slate-700 hover:bg-slate-50/50 transition-colors">
-                    <td className="py-3.5 px-5">
-                      <div className="font-semibold text-slate-800">{product.name}</div>
-                      <div className="text-[10px] text-slate-400 font-medium">Categoría: {product.category}</div>
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono text-xs text-slate-500">{product.code}</td>
-                    <td className="py-3.5 px-4 text-center">
-                      <span className="font-mono font-bold text-slate-700">{product.stock} {product.unit || 'Pza'}</span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono text-xs font-bold text-slate-700">
-                      {(() => {
-                        const raw = product.expirationDate || (product.expirationDates && product.expirationDates.length > 0 ? product.expirationDates[0].date : '—');
-                        if (raw && raw.includes('-')) {
-                          const parts = raw.split('-');
-                          return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : raw;
-                        }
-                        return raw || '—';
-                      })()}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      {status === 'expired' ? (
-                        <span className="text-xs text-red-600 font-bold font-mono">
-                          Vencido hace {Math.abs(daysLeft)} días
-                        </span>
-                      ) : status === 'soon' ? (
-                        <span className="text-xs text-amber-600 font-bold font-mono flex items-center justify-center gap-1">
-                          <Clock className="w-3.5 h-3.5 shrink-0" />
-                          Vence en {daysLeft} días
+          <>
+            {/* Mobile Cards (< sm) */}
+            <div className="sm:hidden divide-y divide-slate-100">
+              {filteredItems.map(({ product, status, daysLeft }) => {
+                const isDeBaja = (product.stock || 0) <= 0 || product.status === 'Inactivo';
+                const formattedDate = (() => {
+                  const raw = product.expirationDate || (product.expirationDates && product.expirationDates.length > 0 ? product.expirationDates[0].date : '—');
+                  if (raw && raw.includes('-')) {
+                    const parts = raw.split('-');
+                    return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : raw;
+                  }
+                  return raw || '—';
+                })();
+
+                return (
+                  <div 
+                    key={`mob-exp-${product.id}`}
+                    className={`p-3.5 space-y-2.5 transition-colors ${
+                      isDeBaja ? 'bg-slate-50/50' : 'bg-white'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className={`text-xs font-semibold ${isDeBaja ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                          {product.name}
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          {product.code} • {product.category}
+                        </p>
+                      </div>
+
+                      {isDeBaja ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-500 border border-slate-200 shrink-0">
+                          De baja
                         </span>
                       ) : (
-                        <span className="text-xs text-emerald-600 font-bold font-mono">
-                          Vence en {daysLeft} días (Seguro)
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase shrink-0 ${
                           status === 'expired' ? 'bg-red-50 text-red-700 border border-red-100' :
                           status === 'soon' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
                           'bg-emerald-50 text-emerald-700 border border-emerald-100'
@@ -293,22 +351,157 @@ export default function Expirations({ products, config, onSaveProduct, onRefresh
                           {status === 'expired' ? 'Vencido' :
                            status === 'soon' ? 'Ofertar' : 'Vigente'}
                         </span>
-                        {status === 'expired' && product.stock > 0 && (
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-100">
+                      <div className="space-y-0.5">
+                        <div className="text-slate-500">
+                          Caduca: <strong className="text-slate-700 font-mono">{formattedDate}</strong>
+                        </div>
+                        <div className="text-[10px]">
+                          {status === 'expired' ? (
+                            <span className="text-red-600 font-bold font-mono">
+                              Vencido hace {Math.abs(daysLeft)} días
+                            </span>
+                          ) : status === 'soon' ? (
+                            <span className="text-amber-600 font-bold font-mono flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> Vence en {daysLeft} días
+                            </span>
+                          ) : (
+                            <span className="text-emerald-600 font-bold font-mono">
+                              Vence en {daysLeft} días
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs font-bold text-slate-700 font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          {product.stock} {product.unit || 'Pza'}
+                        </span>
+
+                        {status === 'expired' && !isDeBaja && (
                           <button
                             type="button"
                             onClick={() => handleRetirar(product)}
-                            className="px-2 py-1 text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-all cursor-pointer uppercase active:scale-95"
+                            className="px-2.5 py-1 text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs transition-all cursor-pointer uppercase active:scale-95"
                           >
                             Dar de Baja
                           </button>
                         )}
                       </div>
-                    </td>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table (sm and above, unchanged) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-xs font-medium uppercase">
+                    <th className="py-3 px-5">Producto</th>
+                    <th className="py-3 px-4 text-center">Código</th>
+                    <th className="py-3 px-4 text-center">Stock Disponible</th>
+                    <th className="py-3 px-4 text-center">Fecha Caducidad</th>
+                    <th className="py-3 px-4 text-center">Tiempo Restante</th>
+                    <th className="py-3 px-5 text-right">Estatus</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filteredItems.map(({ product, status, daysLeft }) => {
+                    const isDeBaja = (product.stock || 0) <= 0 || product.status === 'Inactivo';
+                    return (
+                      <tr 
+                        key={product.id} 
+                        className={`transition-colors ${
+                          isDeBaja 
+                            ? 'bg-slate-50/60 text-slate-400 hover:bg-slate-100/60' 
+                            : 'text-slate-700 hover:bg-slate-50/70'
+                        }`}
+                      >
+                        <td className="py-3.5 px-5">
+                          <div className={`font-semibold ${isDeBaja ? 'text-slate-600 line-through decoration-slate-300' : 'text-slate-800'}`}>
+                            {product.name}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-medium">Categoría: {product.category}</div>
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-mono text-xs text-slate-500">{product.code}</td>
+                        <td className="py-3.5 px-4 text-center">
+                          {isDeBaja ? (
+                            <div className="flex flex-col items-center">
+                              <span className="font-mono text-xs font-semibold text-slate-400">0 {product.unit || 'Pza'}</span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">Dado de baja</span>
+                            </div>
+                          ) : (
+                            <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2.5 py-0.5 rounded">
+                              {product.stock} {product.unit || 'Pza'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-mono text-xs font-bold text-slate-700">
+                          {(() => {
+                            const raw = product.expirationDate || (product.expirationDates && product.expirationDates.length > 0 ? product.expirationDates[0].date : '—');
+                            if (raw && raw.includes('-')) {
+                              const parts = raw.split('-');
+                              return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : raw;
+                            }
+                            return raw || '—';
+                          })()}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {status === 'expired' ? (
+                            <span className="text-xs text-red-600 font-bold font-mono">
+                              Vencido hace {Math.abs(daysLeft)} días
+                            </span>
+                          ) : status === 'soon' ? (
+                            <span className="text-xs text-amber-600 font-bold font-mono flex items-center justify-center gap-1">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              Vence en {daysLeft} días
+                            </span>
+                          ) : (
+                            <span className="text-xs text-emerald-600 font-bold font-mono">
+                              Vence en {daysLeft} días (Seguro)
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {isDeBaja ? (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-500 border border-slate-200">
+                                Dado de baja
+                              </span>
+                            ) : (
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                                status === 'expired' ? 'bg-red-50 text-red-700 border border-red-100' :
+                                status === 'soon' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
+                                'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                              }`}>
+                                {status === 'expired' ? 'Vencido' :
+                                 status === 'soon' ? 'Ofertar' : 'Vigente'}
+                              </span>
+                            )}
+                            {status === 'expired' && !isDeBaja && (
+                              <button
+                                type="button"
+                                onClick={() => handleRetirar(product)}
+                                className="px-2.5 py-1 text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs transition-all cursor-pointer uppercase active:scale-95 flex items-center gap-1"
+                                title="Retirar producto del inventario estableciendo su stock en 0"
+                              >
+                                Dar de Baja
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -262,64 +262,111 @@ export default function Expenses({
         {filteredExpenses.length === 0 ? (
           <div className="py-16 text-center text-[#64748B] text-xs">No se encontraron gastos registrados para los filtros seleccionados.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4">Fecha</th>
-                  <th className="py-3 px-4">Descripción</th>
-                  {hasMultipleBranches && <th className="py-3 px-4">Sucursal</th>}
-                  <th className="py-3 px-4">Categoría</th>
-                  <th className="py-3 px-4 text-right">Monto</th>
-                  <th className="py-3 px-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E2E8F0]">
-                {filteredExpenses.slice().reverse().map((e) => (
-                  <tr key={e.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
-                    <td className="py-3 px-4 font-mono text-xs text-[#1F2937]">
-                      {new Date(e.date).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit' })}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-[#1F2937]">{e.description}</div>
-                      {(e.paymentMethod || e.voucherNumber || e.observations) && (
-                        <div className="text-[10px] text-[#64748B] mt-0.5 flex flex-wrap gap-x-2.5 gap-y-1 items-center">
-                          {e.paymentMethod && <span className="bg-slate-100 text-[#1F2937] px-1.5 py-0.5 rounded text-[10px]">💵 {e.paymentMethod}</span>}
-                          {e.voucherNumber && <span className="text-[#64748B] font-mono">Ref: {e.voucherNumber}</span>}
-                          {e.observations && <span className="text-[#64748B] italic">💬 {e.observations}</span>}
-                        </div>
+          <>
+            {/* Mobile Cards View (< sm) */}
+            <div className="sm:hidden divide-y divide-[#E2E8F0]">
+              {filteredExpenses.slice().reverse().map((e) => (
+                <div key={`mob-exp-${e.id}`} className="p-3.5 space-y-2 bg-white hover:bg-slate-50/60 transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-semibold text-xs text-[#1F2937]">{e.description}</h4>
+                      <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-[#64748B] mt-0.5">
+                        <span className="font-mono">{new Date(e.date).toLocaleDateString('es-ES', { month: '2-digit', day: '2-digit' })}</span>
+                        <span>•</span>
+                        <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded">{e.category}</span>
+                        {hasMultipleBranches && (
+                          <span className="bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded font-medium">
+                            {e.branch || defaultBranchName}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="font-mono font-bold text-sm text-[#DC2626] shrink-0">
+                      -{currency}{e.amount.toFixed(2)}
+                    </span>
+                  </div>
+
+                  {(e.paymentMethod || e.voucherNumber) && (
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                      {e.paymentMethod && <span>💵 {e.paymentMethod}</span>}
+                      {e.voucherNumber && <span>Ref: {e.voucherNumber}</span>}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end pt-1 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(e.id)}
+                      className="p-1.5 text-slate-400 hover:text-[#DC2626] rounded-md hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Eliminar Gasto"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table (sm and above, unchanged) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                    <th className="py-3 px-4">Fecha</th>
+                    <th className="py-3 px-4">Descripción</th>
+                    {hasMultipleBranches && <th className="py-3 px-4">Sucursal</th>}
+                    <th className="py-3 px-4">Categoría</th>
+                    <th className="py-3 px-4 text-right">Monto</th>
+                    <th className="py-3 px-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E2E8F0]">
+                  {filteredExpenses.slice().reverse().map((e) => (
+                    <tr key={e.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-4 font-mono text-xs text-[#1F2937]">
+                        {new Date(e.date).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-[#1F2937]">{e.description}</div>
+                        {(e.paymentMethod || e.voucherNumber || e.observations) && (
+                          <div className="text-[10px] text-[#64748B] mt-0.5 flex flex-wrap gap-x-2.5 gap-y-1 items-center">
+                            {e.paymentMethod && <span className="bg-slate-100 text-[#1F2937] px-1.5 py-0.5 rounded text-[10px]">💵 {e.paymentMethod}</span>}
+                            {e.voucherNumber && <span className="text-[#64748B] font-mono">Ref: {e.voucherNumber}</span>}
+                            {e.observations && <span className="text-[#64748B] italic">💬 {e.observations}</span>}
+                          </div>
+                        )}
+                      </td>
+                      {hasMultipleBranches && (
+                        <td className="py-3 px-4 text-xs font-medium">
+                          <span className="inline-flex items-center gap-1 bg-slate-50 text-[#1F2937] border border-[#E2E8F0] px-2 py-0.5 rounded text-[11px] font-medium">
+                            <Building2 className="w-3 h-3 text-[#2563EB]" />
+                            {e.branch || defaultBranchName}
+                          </span>
+                        </td>
                       )}
-                    </td>
-                    {hasMultipleBranches && (
                       <td className="py-3 px-4 text-xs font-medium">
-                        <span className="inline-flex items-center gap-1 bg-slate-50 text-[#1F2937] border border-[#E2E8F0] px-2 py-0.5 rounded text-[11px] font-medium">
-                          <Building2 className="w-3 h-3 text-[#2563EB]" />
-                          {e.branch || defaultBranchName}
+                        <span className="bg-slate-100 text-[#1F2937] px-2 py-0.5 rounded border border-[#E2E8F0] text-xs">
+                          {e.category}
                         </span>
                       </td>
-                    )}
-                    <td className="py-3 px-4 text-xs font-medium">
-                      <span className="bg-slate-100 text-[#1F2937] px-2 py-0.5 rounded border border-[#E2E8F0] text-xs">
-                        {e.category}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-[#DC2626] tabular-nums">
-                      -{currency}{e.amount.toFixed(2)}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => handleDelete(e.id)}
-                        className="p-1.5 text-slate-400 hover:text-[#DC2626] rounded-md hover:bg-rose-50 transition-colors cursor-pointer inline-block"
-                        title="Eliminar Gasto"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-[#DC2626] tabular-nums">
+                        -{currency}{e.amount.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => handleDelete(e.id)}
+                          className="p-1.5 text-slate-400 hover:text-[#DC2626] rounded-md hover:bg-rose-50 transition-colors cursor-pointer inline-block"
+                          title="Eliminar Gasto"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

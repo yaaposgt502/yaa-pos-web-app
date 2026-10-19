@@ -291,59 +291,111 @@ export default function ClientsProviders({
           {filteredClients.length === 0 ? (
             <div className="py-16 text-center text-[#64748B] text-xs">No se encontraron clientes registrados.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
-                    <th className="py-3 px-4">Nombre / Razón Social</th>
-                    <th className="py-3 px-4">Teléfono</th>
-                    <th className="py-3 px-4">Correo Electrónico</th>
-                    <th className="py-3 px-4">Dirección Física</th>
-                    <th className="py-3 px-4 text-right">Límite Crédito</th>
-                    <th className="py-3 px-4 text-right">Saldo Deudor</th>
-                    <th className="py-3 px-4 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
-                  {filteredClients.map((c) => (
-                    <tr key={c.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-4 font-semibold text-[#1F2937]">{c.name}</td>
-                      <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937]">{c.phone}</td>
-                      <td className="py-3 px-4 text-xs text-[#64748B]">{c.email}</td>
-                      <td className="py-3 px-4 text-xs text-[#64748B] max-w-xs truncate">{c.address || 'Sin dirección registrada'}</td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-[#1F2937] tabular-nums">{currency}{c.limitCredit.toFixed(2)}</td>
-                      <td className="py-3 px-4 text-right">
-                        <span className={`px-2 py-0.5 rounded-md font-semibold font-mono text-[11px] tabular-nums border ${
-                          c.balanceCredit > 0 
-                            ? 'bg-amber-50 text-amber-700 border-amber-200' 
-                            : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
-                        }`}>
-                          {currency}{c.balanceCredit.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => openClientEdit(c)}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
-                            title="Editar"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleClientDelete(c.id)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                            title="Eliminar"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+            <>
+              {/* Mobile Clients Cards (< sm) */}
+              <div className="sm:hidden divide-y divide-[#E2E8F0]">
+                {filteredClients.map((c) => (
+                  <div key={`mob-client-${c.id}`} className="p-3.5 space-y-2.5 bg-white hover:bg-slate-50/60 transition-colors">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-semibold text-xs text-[#1F2937]">{c.name}</h4>
+                        <p className="text-[10px] text-[#64748B] font-mono">{c.phone} {c.email ? `• ${c.email}` : ''}</p>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-md font-semibold font-mono text-[10px] tabular-nums border shrink-0 ${
+                        c.balanceCredit > 0 
+                          ? 'bg-amber-50 text-amber-700 border-amber-200' 
+                          : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
+                      }`}>
+                        Debe: {currency}{c.balanceCredit.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {c.address && (
+                      <p className="text-[10px] text-slate-500 truncate">{c.address}</p>
+                    )}
+
+                    <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-100">
+                      <span className="text-[#64748B]">
+                        Límite: <strong className="font-mono text-slate-800">{currency}{c.limitCredit.toFixed(2)}</strong>
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openClientEdit(c)}
+                          className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
+                          title="Editar"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleClientDelete(c.id)}
+                          className="p-1.5 text-slate-500 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table (sm and above, unchanged) */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                      <th className="py-3 px-4">Cliente</th>
+                      <th className="py-3 px-4">Teléfono</th>
+                      <th className="py-3 px-4">Correo Electrónico</th>
+                      <th className="py-3 px-4">Dirección Física</th>
+                      <th className="py-3 px-4 text-right">Límite Crédito</th>
+                      <th className="py-3 px-4 text-right">Saldo Deudor</th>
+                      <th className="py-3 px-4 text-right">Acciones</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2E8F0]">
+                    {filteredClients.map((c) => (
+                      <tr key={c.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4 font-semibold text-[#1F2937]">{c.name}</td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937]">{c.phone}</td>
+                        <td className="py-3 px-4 text-xs text-[#64748B]">{c.email}</td>
+                        <td className="py-3 px-4 text-xs text-[#64748B] max-w-xs truncate">{c.address || 'Sin dirección registrada'}</td>
+                        <td className="py-3 px-4 text-right font-mono text-xs text-[#1F2937] tabular-nums">{currency}{c.limitCredit.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-right">
+                          <span className={`px-2 py-0.5 rounded-md font-semibold font-mono text-[11px] tabular-nums border ${
+                            c.balanceCredit > 0 
+                              ? 'bg-amber-50 text-amber-700 border-amber-200' 
+                              : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
+                          }`}>
+                            {currency}{c.balanceCredit.toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => openClientEdit(c)}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
+                              title="Editar"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleClientDelete(c.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                              title="Eliminar"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -354,68 +406,124 @@ export default function ClientsProviders({
           {filteredProviders.length === 0 ? (
             <div className="py-16 text-center text-[#64748B] text-xs">No se encontraron proveedores registrados.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
-                    <th className="py-3 px-4">NIT / ID Fiscal</th>
-                    <th className="py-3 px-4">Razón Social</th>
-                    <th className="py-3 px-4">Contacto</th>
-                    <th className="py-3 px-4">Teléfono</th>
-                    <th className="py-3 px-4 text-right">Total Compras</th>
-                    <th className="py-3 px-4 text-center">Crédito Pendiente</th>
-                    <th className="py-3 px-4 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
-                  {filteredProviders.map((p) => (
-                    <tr key={p.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937] font-semibold">{p.nit || '—'}</td>
-                      <td className="py-3 px-4 font-semibold text-[#1F2937]">{p.name}</td>
-                      <td className="py-3 px-4 text-xs font-medium text-[#64748B]">{p.contact}</td>
-                      <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937]">{p.phone}</td>
-                      <td className="py-3 px-4 font-mono text-xs font-semibold text-[#1F2937] text-right tabular-nums">
-                        {currency}{(p.totalPurchases ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`px-2.5 py-0.5 rounded-md font-semibold text-[11px] font-mono inline-block min-w-[70px] text-center border tabular-nums ${
-                          (p.creditPending ?? 0) > 0 
-                            ? 'bg-rose-50 text-[#DC2626] border-rose-200' 
-                            : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
-                        }`}>
-                          {currency}{(p.creditPending ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => openProviderView(p)}
-                            className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
-                            title="Ver detalles"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => openProviderEdit(p)}
-                            className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
-                            title="Editar"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleProviderDelete(p.id)}
-                            className="p-1.5 text-[#64748B] hover:text-[#DC2626] hover:bg-rose-50 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
-                            title="Eliminar"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
+            <>
+              {/* Mobile Providers Cards (< sm) */}
+              <div className="sm:hidden divide-y divide-[#E2E8F0]">
+                {filteredProviders.map((p) => (
+                  <div key={`mob-prov-${p.id}`} className="p-3.5 space-y-2.5 bg-white hover:bg-slate-50/60 transition-colors">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-semibold text-xs text-[#1F2937]">{p.name}</h4>
+                        <p className="text-[10px] text-[#64748B]">Contacto: {p.contact} • <span className="font-mono">{p.phone}</span></p>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-md font-semibold text-[10px] font-mono border shrink-0 ${
+                        (p.creditPending ?? 0) > 0 
+                          ? 'bg-rose-50 text-[#DC2626] border-rose-200' 
+                          : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
+                      }`}>
+                        Pendiente: {currency}{(p.creditPending ?? 0).toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-100">
+                      <span className="text-[#64748B]">
+                        Total compras: <strong className="font-mono text-slate-800">{currency}{(p.totalPurchases ?? 0).toFixed(2)}</strong>
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openProviderView(p)}
+                          className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors"
+                          title="Ver detalles"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openProviderEdit(p)}
+                          className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors"
+                          title="Editar"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleProviderDelete(p.id)}
+                          className="p-1.5 text-[#64748B] hover:text-[#DC2626] hover:bg-rose-50 rounded-md border border-[#E2E8F0] transition-colors"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table (sm and above, unchanged) */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] text-[11px] font-semibold uppercase tracking-wider">
+                      <th className="py-3 px-4">NIT / ID Fiscal</th>
+                      <th className="py-3 px-4">Razón Social</th>
+                      <th className="py-3 px-4">Contacto</th>
+                      <th className="py-3 px-4">Teléfono</th>
+                      <th className="py-3 px-4 text-right">Total Compras</th>
+                      <th className="py-3 px-4 text-center">Crédito Pendiente</th>
+                      <th className="py-3 px-4 text-right">Acciones</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2E8F0]">
+                    {filteredProviders.map((p) => (
+                      <tr key={p.id} className="text-[#64748B] hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937] font-semibold">{p.nit || '—'}</td>
+                        <td className="py-3 px-4 font-semibold text-[#1F2937]">{p.name}</td>
+                        <td className="py-3 px-4 text-xs font-medium text-[#64748B]">{p.contact}</td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#1F2937]">{p.phone}</td>
+                        <td className="py-3 px-4 font-mono text-xs font-semibold text-[#1F2937] text-right tabular-nums">
+                          {currency}{(p.totalPurchases ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2.5 py-0.5 rounded-md font-semibold text-[11px] font-mono inline-block min-w-[70px] text-center border tabular-nums ${
+                            (p.creditPending ?? 0) > 0 
+                              ? 'bg-rose-50 text-[#DC2626] border-rose-200' 
+                              : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
+                          }`}>
+                            {currency}{(p.creditPending ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => openProviderView(p)}
+                              className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
+                              title="Ver detalles"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => openProviderEdit(p)}
+                              className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
+                              title="Editar"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleProviderDelete(p.id)}
+                              className="p-1.5 text-[#64748B] hover:text-[#DC2626] hover:bg-rose-50 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
+                              title="Eliminar"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

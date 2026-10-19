@@ -487,79 +487,80 @@ export default function Dashboard({
       )}
 
       {/* Stats KPI Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats KPI Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Sales */}
         <div 
           onClick={() => onNavigate('historial-ventas')}
-          className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
+          className="bg-white p-3.5 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
           title="Ver Historial de Ventas"
         >
-          <div className="space-y-1">
-            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Ventas de Hoy</span>
-            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
+          <div className="space-y-0.5 sm:space-y-1 min-w-0">
+            <span className="text-[10px] sm:text-xs font-semibold text-[#64748B] uppercase tracking-wider block truncate">Ventas de Hoy</span>
+            <h3 className="text-base sm:text-2xl font-bold text-[#1F2937] font-mono tracking-tight truncate">
               {currency}{todaySalesTotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h3>
-            <span className="text-[11px] text-[#16A34A] font-medium flex items-center gap-0.5">
-              <ArrowUpRight className="w-3 h-3" />
-              {todaySales.length} {todaySales.length === 1 ? 'transacción' : 'transacciones'}
+            <span className="text-[10px] sm:text-[11px] text-[#16A34A] font-medium flex items-center gap-0.5 truncate">
+              <ArrowUpRight className="w-3 h-3 shrink-0" />
+              <span>{todaySales.length} {todaySales.length === 1 ? 'venta' : 'ventas'}</span>
             </span>
           </div>
-          <div className="p-2.5 bg-blue-50 text-[#2563EB] rounded-lg">
-            <TrendingUp className="w-5 h-5" />
+          <div className="p-2 sm:p-2.5 bg-blue-50 text-[#2563EB] rounded-lg shrink-0 ml-1">
+            <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
 
         {/* Profit */}
-        <div className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between">
-          <div className="space-y-1">
-            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Ganancia Estimada</span>
-            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
+        <div className="bg-white p-3.5 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between">
+          <div className="space-y-0.5 sm:space-y-1 min-w-0">
+            <span className="text-[10px] sm:text-xs font-semibold text-[#64748B] uppercase tracking-wider block truncate">Ganancia Estimada</span>
+            <h3 className="text-base sm:text-2xl font-bold text-[#1F2937] font-mono tracking-tight truncate">
               {currency}{todayProfit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </h3>
-            <span className="text-[11px] text-[#64748B] font-medium">
+            <span className="text-[10px] sm:text-[11px] text-[#64748B] font-medium truncate block">
               Calculado según costo
             </span>
           </div>
-          <div className="p-2.5 bg-emerald-50 text-[#16A34A] rounded-lg">
-            <DollarSign className="w-5 h-5" />
+          <div className="p-2 sm:p-2.5 bg-emerald-50 text-[#16A34A] rounded-lg shrink-0 ml-1">
+            <DollarSign className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
 
         {/* Low Stock */}
         <div 
           onClick={() => onNavigate('inventario')}
-          className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
+          className="bg-white p-3.5 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
         >
-          <div className="space-y-1">
-            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Stock Crítico</span>
-            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
+          <div className="space-y-0.5 sm:space-y-1 min-w-0">
+            <span className="text-[10px] sm:text-xs font-semibold text-[#64748B] uppercase tracking-wider block truncate">Stock Crítico</span>
+            <h3 className="text-base sm:text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
               {lowStock.length}
             </h3>
-            <span className={`text-[11px] font-medium flex items-center gap-0.5 ${lowStock.length > 0 ? 'text-[#DC2626]' : 'text-[#64748B]'}`}>
-              {lowStock.length > 0 ? 'Requiere reabastecimiento' : 'Stock en niveles óptimos'}
+            <span className={`text-[10px] sm:text-[11px] font-medium flex items-center gap-0.5 truncate ${lowStock.length > 0 ? 'text-[#DC2626]' : 'text-[#64748B]'}`}>
+              {lowStock.length > 0 ? 'Reabastecer' : 'Stock óptimo'}
             </span>
           </div>
-          <div className={`p-2.5 rounded-lg ${lowStock.length > 0 ? 'bg-rose-50 text-[#DC2626]' : 'bg-slate-50 text-[#64748B]'}`}>
-            <Package className="w-5 h-5" />
+          <div className={`p-2 sm:p-2.5 rounded-lg shrink-0 ml-1 ${lowStock.length > 0 ? 'bg-rose-50 text-[#DC2626]' : 'bg-slate-50 text-[#64748B]'}`}>
+            <Package className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
 
         {/* Expirations */}
         <div 
           onClick={() => onNavigate('vencimientos')}
-          className="bg-white p-4 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
+          className="bg-white p-3.5 sm:p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
         >
-          <div className="space-y-1">
-            <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Vencimientos</span>
-            <h3 className="text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
+          <div className="space-y-0.5 sm:space-y-1 min-w-0">
+            <span className="text-[10px] sm:text-xs font-semibold text-[#64748B] uppercase tracking-wider block truncate">Vencimientos</span>
+            <h3 className="text-base sm:text-2xl font-bold text-[#1F2937] font-mono tracking-tight">
               {expiringSoon.length}
             </h3>
-            <span className={`text-[11px] font-medium flex items-center gap-0.5 ${expiringSoon.length > 0 ? 'text-amber-700' : 'text-[#64748B]'}`}>
-              {expiringSoon.length > 0 ? `Vencen en < ${alertDays} días` : 'Sin alertas próximas'}
+            <span className={`text-[10px] sm:text-[11px] font-medium flex items-center gap-0.5 truncate ${expiringSoon.length > 0 ? 'text-amber-700' : 'text-[#64748B]'}`}>
+              {expiringSoon.length > 0 ? `< ${alertDays} días` : 'Sin alertas'}
             </span>
           </div>
-          <div className={`p-2.5 rounded-lg ${expiringSoon.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-[#64748B]'}`}>
-            <Calendar className="w-5 h-5" />
+          <div className={`p-2 sm:p-2.5 rounded-lg shrink-0 ml-1 ${expiringSoon.length > 0 ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-[#64748B]'}`}>
+            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
         </div>
       </div>

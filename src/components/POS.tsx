@@ -1300,7 +1300,7 @@ export default function POS({
         </div>
 
         {/* Professional SaaS Action Buttons Bar */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full scrollbar-none sm:flex-wrap shrink-0">
           {/* 1. Nuevo Pedido (Primary Action) */}
           <button
             type="button"
@@ -1836,7 +1836,7 @@ export default function POS({
 
       {/* FLOATING MOBILE & IPHONE BOTTOM CHECKOUT BUTTON */}
       {cart.length > 0 && !isAnyModalOpen && !isStaticBtnVisible && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 lg:hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 lg:hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
           <button
             type="button"
             disabled={cart.length === 0 || isSubmittingSale}
@@ -2273,7 +2273,7 @@ export default function POS({
               {/* Tipo de Comprobante */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-semibold text-[#1F2937]">Tipo de Comprobante</label>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                   {(['ticket', 'boleta', 'factura', 'recibo'] as const).map((t) => (
                     <button
                       key={t}

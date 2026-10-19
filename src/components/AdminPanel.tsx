@@ -49,7 +49,8 @@ import {
   MapPin,
   FileSpreadsheet,
   Package,
-  Sparkles
+  Sparkles,
+  Menu
 } from 'lucide-react';
 import { PlanDefinition, getAllPlans, getPlanDefinition, savePlans } from '../utils/planLimits';
 import PlanModal from './PlanModal';
@@ -71,6 +72,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
   // Sidebar navigation tab state
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isMobileAdminNavOpen, setIsMobileAdminNavOpen] = useState(false);
 
   // Licenses persistence state
   const [licenses, setLicenses] = useState<License[]>([]);
@@ -946,8 +948,8 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex font-sans select-none antialiased">
       
-      {/* 1. LEFT SIDEBAR - Original Dark Palette (#0A1221) */}
-      <aside className="w-64 bg-[#0A1221] text-slate-300 flex flex-col justify-between shrink-0 border-r border-slate-800 shadow-2xl z-20">
+      {/* 1. LEFT SIDEBAR - Original Dark Palette (#0A1221) - DESKTOP */}
+      <aside className="hidden lg:flex w-64 bg-[#0A1221] text-slate-300 flex-col justify-between shrink-0 border-r border-slate-800 shadow-2xl z-20">
         
         {/* LOGO & APP NAME */}
         <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
@@ -1089,35 +1091,190 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
         </div>
       </aside>
 
+      {/* MOBILE / TABLET SLIDE-OUT DRAWER FOR ADMIN */}
+      {isMobileAdminNavOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs transition-opacity"
+            onClick={() => setIsMobileAdminNavOpen(false)}
+          />
+
+          {/* Drawer content */}
+          <div className="relative w-72 max-w-[85vw] bg-[#0A1221] text-slate-300 flex flex-col justify-between z-10 shadow-2xl h-full animate-in slide-in-from-left duration-200 border-r border-slate-800">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className="text-lg font-black text-white tracking-wider font-display block">Yaa POS</span>
+                <span className="text-[10px] text-blue-400 font-bold tracking-widest uppercase block">Consola Admin</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileAdminNavOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Nav */}
+            <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+              <button
+                type="button"
+                onClick={() => { setActiveTab('dashboard'); setIsMobileAdminNavOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'dashboard'
+                    ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                    : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4 shrink-0" />
+                <span>Dashboard</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveTab('empresas'); setIsMobileAdminNavOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'empresas' || activeTab === 'clientes' || activeTab === 'usuarios' || activeTab === 'licencias_activas'
+                    ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                    : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
+                }`}
+              >
+                <Building2 className="w-4 h-4 shrink-0" />
+                <span>Empresas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveTab('paises_impuestos'); setIsMobileAdminNavOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'paises_impuestos'
+                    ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                    : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
+                }`}
+              >
+                <Globe className="w-4 h-4 shrink-0" />
+                <span>Países / Impuestos</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveTab('planes'); setIsMobileAdminNavOpen(false); }}
+                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'planes'
+                    ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                    : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Layers className="w-4 h-4 shrink-0" />
+                  <span>Planes</span>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === 'planes' ? 'bg-white/25 text-white' : 'bg-slate-800/80 text-slate-400'
+                }`}>
+                  {plans.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveTab('metodos_pago'); setIsMobileAdminNavOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'metodos_pago'
+                    ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                    : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
+                }`}
+              >
+                <CreditCard className="w-4 h-4 shrink-0" />
+                <span>Métodos de pago</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveTab('perfil'); setIsMobileAdminNavOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'perfil' || activeTab === 'configuracion'
+                    ? 'bg-[#1E88E5] text-white shadow-md shadow-[#1E88E5]/20 font-bold'
+                    : 'hover:bg-slate-800 hover:text-white text-slate-400 font-semibold'
+                }`}
+              >
+                <UserIcon className="w-4 h-4 shrink-0" />
+                <span>Mi Perfil</span>
+              </button>
+            </nav>
+
+            {/* Profile footer in drawer */}
+            <div className="border-t border-slate-800 px-3 py-4 space-y-3 shrink-0 bg-[#070D18]">
+              <div className="flex items-center gap-2.5 px-3">
+                <div className="p-1.5 bg-slate-800 text-blue-400 rounded-full shrink-0">
+                  <UserIcon className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">{user.name}</p>
+                  <p className="text-[9px] text-slate-400 font-mono truncate">{user.email}</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onViewPOS}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-slate-700/60 cursor-pointer transition-colors"
+              >
+                <Store className="w-3.5 h-3.5 text-blue-400" /> Ir a mi Tienda POS
+              </button>
+
+              <button
+                type="button"
+                onClick={onLogout}
+                className="w-full py-2 bg-red-950 hover:bg-red-900 text-red-200 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-red-900/40 cursor-pointer transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" /> Cerrar Sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 2. MAIN LAYOUT CONTAINER */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         
         {/* TOP BAR HEADER */}
-        <header className="bg-white border-b border-slate-200 px-8 py-3.5 flex items-center justify-between shrink-0 sticky top-0 z-10">
-          <div>
+        <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-3.5 flex items-center justify-between shrink-0 sticky top-0 z-10">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setIsMobileAdminNavOpen(true)}
+              className="lg:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              title="Abrir menú de administración"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
             <h2 className="text-sm font-bold text-slate-800">
               Consola de Administración
             </h2>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-4">
             <button
               type="button"
               onClick={onViewPOS}
-              className="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded-xl px-4 py-1.5 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+              className="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded-xl px-3 sm:px-4 py-1.5 text-xs font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer shadow-xs"
             >
-              <Store className="w-3.5 h-3.5 text-blue-600" />
-              <span>Panel de tienda</span>
+              <Store className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="hidden sm:inline">Panel de tienda</span>
+              <span className="sm:hidden">Tienda</span>
             </button>
 
-            <div className="w-8 h-8 rounded-full bg-[#1E88E5] text-white font-bold flex items-center justify-center text-xs shadow-xs">
+            <div className="w-8 h-8 rounded-full bg-[#1E88E5] text-white font-bold flex items-center justify-center text-xs shadow-xs shrink-0">
               {user.name ? user.name[0].toUpperCase() : 'A'}
             </div>
           </div>
         </header>
 
         {/* CORE VIEWS RENDERER */}
-        <main className="flex-1 p-8 space-y-8">
+        <main className="flex-1 p-3.5 sm:p-5 lg:p-8 space-y-6 lg:space-y-8">
           
           {/* TAB: DASHBOARD */}
           {activeTab === 'dashboard' && (

@@ -725,7 +725,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
       <div id="settings-view" className="bg-white rounded-2xl border border-slate-100 shadow-md overflow-hidden animate-in fade-in duration-200">
         
         {/* Navigation Tabs bar */}
-        <div className="flex flex-wrap border-b border-slate-200 bg-slate-50/50 p-2 gap-1">
+        <div className="flex overflow-x-auto no-scrollbar md:flex-wrap border-b border-slate-200 bg-slate-50/50 p-2 gap-1">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -733,7 +733,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all duration-150 rounded-xl cursor-pointer ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all duration-150 rounded-xl cursor-pointer whitespace-nowrap shrink-0 ${
                   isActive
                     ? 'bg-white text-blue-600 shadow-sm border border-slate-200/60'
                     : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
@@ -747,7 +747,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
         </div>
 
         {/* Tab content wrapper wrapped in the form selector */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6 text-left">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6 text-left">
           
           {/* TAB 1: EMPRESA */}
           {activeTab === 'empresa' && (

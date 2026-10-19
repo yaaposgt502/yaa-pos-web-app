@@ -348,46 +348,29 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
             <p className="text-xs font-medium">No se encontraron ventas para esta búsqueda o rango de fechas.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="py-2.5 px-3">Fecha/Hora</th>
-                  <th className="py-2.5 px-3">Sucursal</th>
-                  <th className="py-2.5 px-3">Cliente</th>
-                  <th className="py-2.5 px-3">Usuario</th>
-                  <th className="py-2.5 px-3">Comprobante</th>
-                  <th className="py-2.5 px-3 text-center">Tipo</th>
-                  <th className="py-2.5 px-3 text-center">Método</th>
-                  <th className="py-2.5 px-3 text-right">Total</th>
-                  <th className="py-2.5 px-3 text-center">Ver Comprobantes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {searchedSales.slice().reverse().map((sale) => (
-                  <tr key={sale.id} className="text-slate-700 hover:bg-slate-50/70 transition-colors">
-                    <td className="py-2.5 px-3 font-mono text-[10px]">
-                      {new Date(sale.date).toLocaleString('es-ES', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span className="px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700 border border-slate-200">
-                        {sale.branch || 'General'}
+          <>
+            {/* Mobile Cards View (< sm screens) */}
+            <div className="sm:hidden divide-y divide-slate-100 max-h-[550px] overflow-y-auto">
+              {searchedSales.slice().reverse().map((sale) => (
+                <div key={`mob-sale-${sale.id}`} className="p-3.5 space-y-2.5 bg-white hover:bg-slate-50/60 transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-xs text-slate-900">{getClientName(sale.clientId)}</span>
+                        <span className="px-1.5 py-0.2 rounded font-bold text-[9px] bg-slate-100 text-slate-700 border border-slate-200">
+                          {sale.branch || 'General'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {new Date(sale.date).toLocaleString('es-ES', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • Op: {sale.operatorName || 'Admin'}
+                      </p>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="font-mono font-bold text-sm text-slate-900 block">
+                        {currency} {sale.total.toFixed(2)}
                       </span>
-                    </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-800">
-                      {getClientName(sale.clientId)}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-500 font-medium">
-                      {sale.operatorName || 'Administrador'}
-                    </td>
-                    <td className="py-2.5 px-3 font-medium text-slate-600 capitalize text-[11px]">
-                      {sale.voucherType || 'ticket'}
-                    </td>
-                    <td className="py-2.5 px-3 text-center capitalize text-slate-500 text-[11px]">
-                      {sale.saleType || 'presencial'}
-                    </td>
-                    <td className="py-2.5 px-3 text-center capitalize">
-                      <span className={`px-2 py-0.5 rounded-md font-bold text-[9px] ${
+                      <span className={`inline-block px-1.5 py-0.2 rounded font-bold text-[9px] mt-0.5 ${
                         sale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
                         sale.paymentMethod === 'card' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
                         sale.paymentMethod === 'transfer' ? 'bg-purple-50 text-purple-700 border border-purple-100' :
@@ -397,43 +380,123 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                          sale.paymentMethod === 'card' ? 'Tarjeta' :
                          sale.paymentMethod === 'transfer' ? 'Transfer' : 'Crédito'}
                       </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">
-                      {currency} {sale.total.toFixed(2)}
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('ticket'); }}
-                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-blue-100 shadow-2xs"
-                          title="Ver Ticket"
-                        >
-                          <Receipt className="w-3 h-3 text-blue-600" /> Ticket
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('factura'); }}
-                          className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-purple-100 shadow-2xs"
-                          title="Ver Factura"
-                        >
-                          <FileText className="w-3 h-3 text-purple-600" /> Factura
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('comprobante'); }}
-                          className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-emerald-100 shadow-2xs"
-                          title="Ver Comprobante"
-                        >
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Comprobante
-                        </button>
-                      </div>
-                    </td>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-100">
+                    <span className="text-[10px] text-slate-500 capitalize">
+                      {sale.voucherType || 'ticket'} • {sale.saleType || 'presencial'}
+                    </span>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('ticket'); }}
+                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[10px] font-bold flex items-center gap-1 border border-blue-100 shadow-2xs"
+                      >
+                        <Receipt className="w-3 h-3 text-blue-600" /> Ticket
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('factura'); }}
+                        className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold flex items-center gap-1 border border-purple-100 shadow-2xs"
+                      >
+                        <FileText className="w-3 h-3 text-purple-600" /> Factura
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table (sm and above, unchanged) */}
+            <div className="hidden sm:block overflow-x-auto max-h-[500px] overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="py-2.5 px-3">Fecha/Hora</th>
+                    <th className="py-2.5 px-3">Sucursal</th>
+                    <th className="py-2.5 px-3">Cliente</th>
+                    <th className="py-2.5 px-3">Usuario</th>
+                    <th className="py-2.5 px-3">Comprobante</th>
+                    <th className="py-2.5 px-3 text-center">Tipo</th>
+                    <th className="py-2.5 px-3 text-center">Método</th>
+                    <th className="py-2.5 px-3 text-right">Total</th>
+                    <th className="py-2.5 px-3 text-center">Ver Comprobantes</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {searchedSales.slice().reverse().map((sale) => (
+                    <tr key={sale.id} className="text-slate-700 hover:bg-slate-50/70 transition-colors">
+                      <td className="py-2.5 px-3 font-mono text-[10px]">
+                        {new Date(sale.date).toLocaleString('es-ES', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700 border border-slate-200">
+                          {sale.branch || 'General'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 font-bold text-slate-800">
+                        {getClientName(sale.clientId)}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-500 font-medium">
+                        {sale.operatorName || 'Administrador'}
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-slate-600 capitalize text-[11px]">
+                        {sale.voucherType || 'ticket'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center capitalize text-slate-500 text-[11px]">
+                        {sale.saleType || 'presencial'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center capitalize">
+                        <span className={`px-2 py-0.5 rounded-md font-bold text-[9px] ${
+                          sale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                          sale.paymentMethod === 'card' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                          sale.paymentMethod === 'transfer' ? 'bg-purple-50 text-purple-700 border border-purple-100' :
+                          'bg-amber-50 text-amber-700 border border-amber-100'
+                        }`}>
+                          {sale.paymentMethod === 'cash' ? 'Efectivo' :
+                           sale.paymentMethod === 'card' ? 'Tarjeta' :
+                           sale.paymentMethod === 'transfer' ? 'Transfer' : 'Crédito'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">
+                        {currency} {sale.total.toFixed(2)}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('ticket'); }}
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-blue-100 shadow-2xs"
+                            title="Ver Ticket"
+                          >
+                            <Receipt className="w-3 h-3 text-blue-600" /> Ticket
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('factura'); }}
+                            className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-purple-100 shadow-2xs"
+                            title="Ver Factura"
+                          >
+                            <FileText className="w-3 h-3 text-purple-600" /> Factura
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('comprobante'); }}
+                            className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-emerald-100 shadow-2xs"
+                            title="Ver Comprobante"
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Comprobante
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
