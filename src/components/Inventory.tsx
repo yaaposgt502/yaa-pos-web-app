@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, AppConfig, Sale, Purchase, Branch, User } from '../types';
 import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
 import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
@@ -41,7 +42,10 @@ import {
   List,
   ArrowRightLeft,
   ArrowRight,
-  Loader2
+  Loader2,
+  Camera,
+  ScanLine,
+  SwitchCamera
 } from 'lucide-react';
 
 interface InventoryProps {
@@ -433,6 +437,200 @@ export default function Inventory({
     const fromProducts = products.map(p => p.laboratory).filter(Boolean) as string[];
     return Array.from(new Set([...laboratoriesList, ...fromProducts]));
   }, [laboratoriesList, products]);
+
+  // Mobile Barcode Scanner State for Product Form
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  const [barcodeScannerError, setBarcodeScannerError] = useState<string | null>(null);
+  const [isBarcodeScanning, setIsBarcodeScanning] = useState(false);
+  const [scannerFacingMode, setScannerFacingMode] = useState<'environment' | 'user'>('environment');
+  const [targetBarcodeField, setTargetBarcodeField] = useState<'barcode' | 'code'>('barcode');
+  const [scanSuccessFlash, setScanSuccessFlash] = useState(false);
+  const [scannedCodePreview, setScannedCodePreview] = useState<string>('');
+
+  const videoScannerRef = useRef<HTMLVideoElement | null>(null);
+  const scannerStreamRef = useRef<MediaStream | null>(null);
+  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+
+  const stopBarcodeScanner = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (codeReaderRef.current) {
+      try {
+        codeReaderRef.current.reset();
+      } catch (e) {}
+      codeReaderRef.current = null;
+    }
+    if (scannerStreamRef.current) {
+      try {
+        scannerStreamRef.current.getTracks().forEach(track => track.stop());
+      } catch (e) {}
+      scannerStreamRef.current = null;
+    }
+    if (videoScannerRef.current) {
+      videoScannerRef.current.srcObject = null;
+    }
+    setIsBarcodeScannerOpen(false);
+    setBarcodeScannerError(null);
+    setIsBarcodeScanning(false);
+  };
+
+  const startBarcodeScanner = async (field: 'barcode' | 'code' = 'barcode', mode: 'environment' | 'user' = 'environment') => {
+    setTargetBarcodeField(field);
+    setScannerFacingMode(mode);
+    setBarcodeScannerError(null);
+    setIsBarcodeScanning(true);
+    setIsBarcodeScannerOpen(true);
+    setScannedCodePreview('');
+    setScanSuccessFlash(false);
+
+    // Stop previous streams/decoders if any
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (codeReaderRef.current) {
+      try { codeReaderRef.current.reset(); } catch (e) {}
+      codeReaderRef.current = null;
+    }
+    if (scannerStreamRef.current) {
+      try { scannerStreamRef.current.getTracks().forEach(t => t.stop()); } catch (e) {}
+      scannerStreamRef.current = null;
+    }
+
+    setTimeout(async () => {
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+      } catch (err: any) {
+        console.warn('Initial HD camera stream failed, trying basic:', err);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: mode }
+          });
+        } catch (err2: any) {
+          console.warn('FacingMode camera failed, trying fallback stream:', err2);
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          } catch (permErr: any) {
+            console.error('Camera permission/access denied:', permErr);
+            setBarcodeScannerError(
+              permErr?.name === 'NotAllowedError' || permErr?.name === 'PermissionDeniedError'
+                ? 'Permiso de cámara denegado. Por favor, concede permiso de cámara en tu navegador para escanear.'
+                : 'No se pudo acceder a la cámara del dispositivo. Puedes ingresar el código manualmente.'
+            );
+            setIsBarcodeScanning(false);
+            return;
+          }
+        }
+      }
+
+      if (!stream) {
+        setBarcodeScannerError('No se encontró una cámara disponible en el dispositivo.');
+        setIsBarcodeScanning(false);
+        return;
+      }
+
+      scannerStreamRef.current = stream;
+      const video = videoScannerRef.current;
+      if (video) {
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        try {
+          await video.play();
+        } catch (e) {
+          console.warn('Video play caught:', e);
+        }
+      }
+
+      let detected = false;
+
+      const onDetected = (scannedCode: string) => {
+        if (detected || !scannedCode) return;
+        detected = true;
+        const cleanCode = scannedCode.trim();
+
+        try {
+          if (navigator.vibrate) navigator.vibrate(100);
+        } catch (e) {}
+
+        setScannedCodePreview(cleanCode);
+        setScanSuccessFlash(true);
+
+        if (field === 'barcode') {
+          setFormBarcode(cleanCode);
+          setFormCode(prev => (!prev || prev.startsWith('SKU-') ? cleanCode : prev));
+        } else {
+          setFormCode(cleanCode);
+        }
+
+        setTimeout(() => {
+          setScanSuccessFlash(false);
+          stopBarcodeScanner();
+        }, 650);
+      };
+
+      // 1. Hardware-accelerated native BarcodeDetector if supported
+      if ('BarcodeDetector' in window) {
+        try {
+          const barcodeDetector = new (window as any).BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'qr_code', 'itf']
+          });
+
+          const detectLoop = async () => {
+            if (detected || !videoScannerRef.current) return;
+            if (videoScannerRef.current.readyState >= 2) {
+              try {
+                const barcodes = await barcodeDetector.detect(videoScannerRef.current);
+                if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                  onDetected(barcodes[0].rawValue);
+                  return;
+                }
+              } catch (detErr) {}
+            }
+            animFrameRef.current = requestAnimationFrame(detectLoop);
+          };
+
+          animFrameRef.current = requestAnimationFrame(detectLoop);
+          return;
+        } catch (e) {
+          console.warn('Native BarcodeDetector init failed, using ZXing fallback:', e);
+        }
+      }
+
+      // 2. Reliable cross-browser ZXing fallback
+      try {
+        const codeReader = new BrowserMultiFormatReader();
+        codeReaderRef.current = codeReader;
+        codeReader.decodeFromStream(stream, videoScannerRef.current!, (result, err) => {
+          if (result && !detected) {
+            onDetected(result.getText());
+          }
+        });
+      } catch (zxingErr) {
+        console.warn('ZXing fallback start error:', zxingErr);
+      }
+    }, 200);
+  };
+
+  const toggleScannerCamera = () => {
+    const nextMode = scannerFacingMode === 'environment' ? 'user' : 'environment';
+    startBarcodeScanner(targetBarcodeField, nextMode);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopBarcodeScanner();
+    };
+  }, []);
 
   const isBlisterHidden = useMemo(() => {
     if (!formUnit) return false;
@@ -2830,7 +3028,10 @@ export default function Inventory({
               </h3>
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => {
+                  stopBarcodeScanner();
+                  setIsModalOpen(false);
+                }}
                 className="text-white hover:text-blue-100 font-bold text-xl cursor-pointer transition-colors p-1"
               >
                 ×
@@ -2859,14 +3060,31 @@ export default function Inventory({
 
                     {/* Código de Barra */}
                     <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-500 uppercase">Código de Barra</label>
-                      <input
-                        type="text"
-                        placeholder="000000088"
-                        value={formBarcode}
-                        onChange={(e) => setFormBarcode(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
-                      />
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-slate-500 uppercase">Código de Barra</label>
+                        <span className="text-[10px] text-blue-600 font-medium md:hidden flex items-center gap-1">
+                          <Barcode className="w-3 h-3" />
+                          Escáner cámara
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="000000088"
+                          value={formBarcode}
+                          onChange={(e) => setFormBarcode(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => startBarcodeScanner('barcode')}
+                          className="md:hidden flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer"
+                          title="Escanear código de barras con la cámara del móvil"
+                        >
+                          <Camera className="w-4 h-4" />
+                          <span className="text-[11px] font-semibold">Escanear</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Código/SKU */}
@@ -3425,15 +3643,32 @@ export default function Inventory({
 
                   {/* Code */}
                   <div className="space-y-1">
-                    <label className="block text-xs font-bold text-slate-500 uppercase">Código de barras *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ej: DEMO-P001"
-                      value={formCode}
-                      onChange={(e) => setFormCode(e.target.value)}
-                      className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#005e63] font-mono bg-white text-slate-800"
-                    />
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-500 uppercase">Código de barras *</label>
+                      <span className="text-[10px] text-blue-600 font-medium md:hidden flex items-center gap-1">
+                        <Barcode className="w-3 h-3" />
+                        Escáner cámara
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ej: DEMO-P001"
+                        value={formCode}
+                        onChange={(e) => setFormCode(e.target.value)}
+                        className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#005e63] font-mono bg-white text-slate-800"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => startBarcodeScanner('code')}
+                        className="md:hidden flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer"
+                        title="Escanear código de barras con la cámara del móvil"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span className="text-[11px] font-semibold">Escanear</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Category */}
@@ -3609,7 +3844,10 @@ export default function Inventory({
               <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs py-3 border-t border-slate-100 mt-6 shrink-0 flex gap-3 justify-end z-10 -mx-4 sm:-mx-6 px-4 sm:px-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.04)]">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => {
+                    stopBarcodeScanner();
+                    setIsModalOpen(false);
+                  }}
                   className="px-6 py-2 bg-slate-500 hover:bg-slate-600 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs active:scale-98"
                 >
                   Cancelar
@@ -3622,6 +3860,142 @@ export default function Inventory({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Barcode Camera Scanner Modal for Product Form */}
+      {isBarcodeScannerOpen && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[70] flex flex-col justify-between p-4 sm:p-6 animate-in fade-in duration-200">
+          {/* Scanner Header */}
+          <div className="flex items-center justify-between text-white shrink-0 pt-2 pb-3 border-b border-white/10">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-400">
+                <Camera className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                  Escanear Código de Barras
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                    Cámara Móvil
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-300">Apunta la cámara al código de barras del producto</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleScannerCamera}
+                className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white transition-colors cursor-pointer"
+                title="Cambiar entre cámara trasera y delantera"
+              >
+                <SwitchCamera className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={stopBarcodeScanner}
+                className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white transition-colors cursor-pointer"
+                title="Cerrar escáner"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Scanner Viewfinder */}
+          <div className="relative flex-1 my-4 flex items-center justify-center overflow-hidden rounded-2xl bg-black border border-white/10 shadow-2xl">
+            {barcodeScannerError ? (
+              <div className="p-6 text-center max-w-sm space-y-4">
+                <div className="w-14 h-14 rounded-full bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center">
+                  <AlertTriangle className="w-7 h-7" />
+                </div>
+                <div className="space-y-1.5">
+                  <h5 className="font-bold text-white text-base">Acceso a la Cámara</h5>
+                  <p className="text-xs text-slate-300 leading-relaxed">{barcodeScannerError}</p>
+                </div>
+                <div className="flex flex-col gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => startBarcodeScanner(targetBarcodeField, scannerFacingMode)}
+                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <RefreshCcw className="w-4 h-4" />
+                    <span>Reintentar Escaneo</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopBarcodeScanner}
+                    className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Edit className="w-4 h-4" />
+                    <span>Ingresar Código Manualmente</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <video
+                  ref={videoScannerRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Reticle / Target Scanner Frame */}
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6">
+                  <div className={`relative w-full max-w-[290px] h-52 border-2 ${scanSuccessFlash ? 'border-emerald-400 bg-emerald-500/25 shadow-[0_0_30px_rgba(52,211,153,0.6)]' : 'border-blue-400/90 bg-black/15 shadow-[0_0_20px_rgba(59,130,246,0.3)]'} rounded-2xl transition-all duration-200 flex flex-col justify-between p-2`}>
+                    {/* Corners */}
+                    <div className="flex justify-between">
+                      <div className="w-5 h-5 border-t-4 border-l-4 border-blue-400 rounded-tl-md -mt-1.5 -ml-1.5" />
+                      <div className="w-5 h-5 border-t-4 border-r-4 border-blue-400 rounded-tr-md -mt-1.5 -mr-1.5" />
+                    </div>
+
+                    {/* Animated Laser line */}
+                    {!scanSuccessFlash && (
+                      <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_10px_rgba(239,68,68,1)] animate-pulse" />
+                    )}
+
+                    {scanSuccessFlash && (
+                      <div className="my-auto flex flex-col items-center justify-center gap-2 animate-in zoom-in-90 duration-150">
+                        <CheckCircle2 className="w-12 h-12 text-emerald-400 animate-bounce" />
+                        <span className="text-sm font-mono font-black text-white bg-black/80 px-3 py-1.5 rounded-lg border border-emerald-400/60 shadow-lg tracking-wider">
+                          {scannedCodePreview}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between">
+                      <div className="w-5 h-5 border-b-4 border-l-4 border-blue-400 rounded-bl-md -mb-1.5 -ml-1.5" />
+                      <div className="w-5 h-5 border-b-4 border-r-4 border-blue-400 rounded-br-md -mb-1.5 -mr-1.5" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Guide Banner */}
+                <div className="absolute bottom-4 left-4 right-4 text-center pointer-events-none">
+                  <span className="inline-block bg-black/75 backdrop-blur-xs text-white text-[11px] px-3.5 py-1.5 rounded-full border border-white/15 font-medium shadow-md">
+                    {scanSuccessFlash ? '✓ ¡Código detectado! Completando formulario...' : 'Centra el código de barras físico dentro del recuadro'}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Bottom Actions */}
+          <div className="shrink-0 pt-1 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={stopBarcodeScanner}
+              className="w-full py-3 px-4 bg-white/15 hover:bg-white/25 active:bg-white/30 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Edit className="w-4 h-4" />
+              <span>Cerrar escáner e ingresar código manualmente</span>
+            </button>
+            <p className="text-[10px] text-slate-400 text-center">
+              Al detectar el código, se completará automáticamente en el formulario.
+            </p>
           </div>
         </div>
       )}

@@ -1362,28 +1362,28 @@ export default function Purchasing({
 
       {/* Detailed View Modal */}
       {selectedPurchaseDetails && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             
             {/* Modal Header */}
-            <div className="bg-[#0084FF] text-white p-4 flex justify-between items-center">
-              <div className="flex items-center gap-2 font-bold text-sm">
-                <FileText className="w-4 h-4" />
-                <span>Detalle de Compra N° {selectedPurchaseDetails.purchaseNumber}</span>
+            <div className="bg-[#0084FF] text-white p-3.5 sm:p-4 flex justify-between items-center">
+              <div className="flex items-center gap-2 font-bold text-xs sm:text-sm">
+                <FileText className="w-4 h-4 shrink-0" />
+                <span className="truncate">Detalle de Compra N° {selectedPurchaseDetails.purchaseNumber}</span>
               </div>
               <button 
                 onClick={() => setSelectedPurchaseDetails(null)}
-                className="text-white/85 hover:text-white transition-colors cursor-pointer"
+                className="text-white/85 hover:text-white transition-colors cursor-pointer p-1 rounded-lg hover:bg-white/10"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Content */}
-            <div className="p-6 space-y-6">
+            <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-6">
               
               {/* Info Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4 bg-slate-50 p-3 sm:p-4 rounded-xl border border-slate-100 text-xs">
                 <div>
                   <span className="block text-[10px] font-bold text-slate-400 uppercase">Proveedor</span>
                   <span className="font-bold text-slate-800 uppercase">{getProviderName(selectedPurchaseDetails.providerId)}</span>
@@ -1404,23 +1404,34 @@ export default function Purchasing({
                 </div>
               </div>
 
-              {/* Products Table */}
-              <div className="border border-slate-100 rounded-xl overflow-hidden shadow-xs bg-white text-xs">
-                <table className="w-full text-left border-collapse">
+              {/* Mobile swipe helper */}
+              <div className="sm:hidden flex items-center justify-between text-[11px] text-slate-500 font-medium px-1">
+                <span className="flex items-center gap-1.5 text-blue-600 font-semibold">
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  Desliza la tabla para ver todas las columnas
+                </span>
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono font-bold">
+                  {selectedPurchaseDetails.items.length} {selectedPurchaseDetails.items.length === 1 ? 'ítem' : 'ítems'}
+                </span>
+              </div>
+
+              {/* Products Table with horizontal scroll on mobile */}
+              <div className="border border-slate-100 rounded-xl overflow-x-auto shadow-xs bg-white touch-pan-x overscroll-x-contain">
+                <table className="w-full min-w-[540px] sm:min-w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-[#EBF5FF] border-b border-slate-100 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
-                      <th className="py-2.5 px-4 font-bold">Producto</th>
-                      <th className="py-2.5 px-3 font-bold text-center">Lote</th>
-                      <th className="py-2.5 px-3 font-bold text-center">Vence</th>
-                      <th className="py-2.5 px-3 font-bold text-center">Cantidad</th>
-                      <th className="py-2.5 px-3 font-bold text-right">P. Unitario</th>
-                      <th className="py-2.5 px-4 font-bold text-right">Subtotal</th>
+                    <tr className="bg-[#EBF5FF] border-b border-slate-100 text-slate-600 font-bold uppercase text-[10px] tracking-wider whitespace-nowrap">
+                      <th className="py-2.5 px-4 font-bold min-w-[140px]">Producto</th>
+                      <th className="py-2.5 px-3 font-bold text-center min-w-[70px]">Lote</th>
+                      <th className="py-2.5 px-3 font-bold text-center min-w-[85px]">Vence</th>
+                      <th className="py-2.5 px-3 font-bold text-center min-w-[75px]">Cantidad</th>
+                      <th className="py-2.5 px-3 font-bold text-right min-w-[90px]">P. Unitario</th>
+                      <th className="py-2.5 px-4 font-bold text-right min-w-[90px]">Subtotal</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                  <tbody className="divide-y divide-slate-100 text-slate-700 whitespace-nowrap">
                     {selectedPurchaseDetails.items.map((item: any, idx: number) => (
                       <tr key={idx} className="hover:bg-slate-50/40 transition-colors">
-                        <td className="py-3 px-4 font-semibold text-slate-800 uppercase">{item.name}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-800 uppercase min-w-[140px] whitespace-normal sm:whitespace-nowrap">{item.name}</td>
                         <td className="py-3 px-3 text-center font-mono text-slate-500">{item.lote || '—'}</td>
                         <td className="py-3 px-3 text-center font-mono text-slate-500">{item.expirationDate || '—'}</td>
                         <td className="py-3 px-3 text-center font-bold font-mono text-slate-900">{item.quantity}</td>
@@ -1434,7 +1445,7 @@ export default function Purchasing({
 
               {/* Totals Summary */}
               <div className="flex justify-end text-xs font-mono text-slate-700">
-                <div className="w-64 space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div className="w-full sm:w-64 space-y-2 bg-slate-50 p-3.5 sm:p-4 rounded-xl border border-slate-100">
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-semibold">Subtotal:</span>
                     <span className="font-bold text-slate-800">
