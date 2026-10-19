@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, Provider, Purchase, PurchaseItem, AppConfig, User } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
 import { 
@@ -21,7 +22,12 @@ import {
   Eye,
   Pill,
   Building2,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Camera,
+  Barcode,
+  ScanLine,
+  SwitchCamera,
+  AlertTriangle
 } from 'lucide-react';
 
 interface PurchasingProps {
@@ -149,11 +155,305 @@ export default function Purchasing({
 
   const filteredProdList = useMemo(() => {
     if (!prodSearch.trim()) return [];
+    const q = prodSearch.toLowerCase().trim();
     return products.filter(p => 
-      p.name.toLowerCase().includes(prodSearch.toLowerCase()) || 
-      p.code.includes(prodSearch)
-    ).slice(0, 5);
+      p.name.toLowerCase().includes(q) || 
+      p.code.toLowerCase().includes(q) ||
+      (p.barcode && p.barcode.toLowerCase().includes(q))
+    ).slice(0, 6);
   }, [prodSearch, products]);
+
+  // Barcode Scanner & Physical HID Reader states for Nueva Compra
+  const [purchaseScanFeedback, setPurchaseScanFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string; sub?: string } | null>(null);
+  const [isPurchaseBarcodeScannerOpen, setIsPurchaseBarcodeScannerOpen] = useState(false);
+  const [purchaseScannerFacingMode, setPurchaseScannerFacingMode] = useState<'environment' | 'user'>('environment');
+  const [purchaseScannerError, setPurchaseScannerError] = useState<string | null>(null);
+  const [isPurchaseBarcodeScanning, setIsPurchaseBarcodeScanning] = useState(false);
+  const [barcodeScanSuccessFlash, setBarcodeScanSuccessFlash] = useState(false);
+  const [scannedBarcodePreview, setScannedBarcodePreview] = useState<string>('');
+
+  const purchaseVideoRef = useRef<HTMLVideoElement | null>(null);
+  const purchaseStreamRef = useRef<MediaStream | null>(null);
+  const purchaseCodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const purchaseAnimFrameRef = useRef<number | null>(null);
+  const lastPurchaseScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+  const quantityInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (purchaseScanFeedback) {
+      const timer = setTimeout(() => setPurchaseScanFeedback(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [purchaseScanFeedback]);
+
+  const selectProductForPurchase = (p: Product) => {
+    setCurrentProduct(p);
+    setProdSearch(p.name);
+    setCurrentCost(p.cost.toString());
+    setCurrentPriceUnit(p.pricePerUnit?.toString() || p.price?.toString() || '');
+    setCurrentPriceBlister(p.pricePerBlister?.toString() || '');
+    setCurrentPriceBox(p.pricePerBox?.toString() || '');
+
+    const initialBatchName = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].batch)
+      ? p.expirationDates[p.expirationDates.length - 1].batch
+      : (p.initialBatch || '00101');
+    const initialExpDate = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].date)
+      ? p.expirationDates[p.expirationDates.length - 1].date
+      : (p.expirationDate || '');
+    
+    let formattedExp = initialExpDate;
+    if (initialExpDate && initialExpDate.includes('/')) {
+      const parts = initialExpDate.split('/');
+      if (parts.length === 3) {
+        formattedExp = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+
+    setCurrentLote(initialBatchName);
+    setCurrentVencimiento(formattedExp);
+    setCurrentQuantity(prev => (prev && prev !== '0' ? prev : '1'));
+  };
+
+  const handlePurchaseBarcodeScan = (rawCode: string, fromCamera: boolean = false) => {
+    const cleanCode = rawCode.trim();
+    if (!cleanCode) return;
+
+    const now = Date.now();
+    if (lastPurchaseScanRef.current.code.toLowerCase() === cleanCode.toLowerCase() && (now - lastPurchaseScanRef.current.time) < 400) {
+      return;
+    }
+    lastPurchaseScanRef.current = { code: cleanCode, time: now };
+
+    try {
+      if (navigator.vibrate) navigator.vibrate(80);
+    } catch (e) {}
+
+    if (fromCamera) {
+      setScannedBarcodePreview(cleanCode);
+      setBarcodeScanSuccessFlash(true);
+    }
+
+    const cleanLower = cleanCode.toLowerCase();
+    const matched = products.find(p => 
+      (p.barcode && p.barcode.trim().toLowerCase() === cleanLower) ||
+      (p.code && p.code.trim().toLowerCase() === cleanLower) ||
+      (p.id && p.id.trim().toLowerCase() === cleanLower)
+    );
+
+    if (matched) {
+      selectProductForPurchase(matched);
+      setPurchaseScanFeedback({
+        type: 'success',
+        message: `✓ Producto seleccionado: ${matched.name}`,
+        sub: `Código: ${cleanCode} | Stock actual: ${matched.stock} | Costo base: ${currency}${matched.cost.toFixed(2)}`
+      });
+      setTimeout(() => {
+        if (quantityInputRef.current) {
+          quantityInputRef.current.focus();
+          quantityInputRef.current.select();
+        }
+      }, 100);
+    } else {
+      setProdSearch(cleanCode);
+      setCurrentProduct(null);
+      setPurchaseScanFeedback({
+        type: 'warning',
+        message: `Código no registrado en catálogo: "${cleanCode}"`,
+        sub: `Puedes hacer clic abajo en "Registrar nuevo producto" para añadirlo a esta compra.`
+      });
+    }
+
+    if (fromCamera) {
+      setTimeout(() => {
+        setBarcodeScanSuccessFlash(false);
+        stopPurchaseBarcodeScanner();
+      }, 700);
+    }
+  };
+
+  const stopPurchaseBarcodeScanner = () => {
+    if (purchaseAnimFrameRef.current) {
+      cancelAnimationFrame(purchaseAnimFrameRef.current);
+      purchaseAnimFrameRef.current = null;
+    }
+    if (purchaseCodeReaderRef.current) {
+      try { purchaseCodeReaderRef.current.reset(); } catch (e) {}
+      purchaseCodeReaderRef.current = null;
+    }
+    if (purchaseStreamRef.current) {
+      try { purchaseStreamRef.current.getTracks().forEach(t => t.stop()); } catch (e) {}
+      purchaseStreamRef.current = null;
+    }
+    if (purchaseVideoRef.current) {
+      purchaseVideoRef.current.srcObject = null;
+    }
+    setIsPurchaseBarcodeScannerOpen(false);
+    setPurchaseScannerError(null);
+    setIsPurchaseBarcodeScanning(false);
+  };
+
+  const startPurchaseBarcodeScanner = async (mode: 'environment' | 'user' = 'environment') => {
+    setPurchaseScannerFacingMode(mode);
+    setPurchaseScannerError(null);
+    setIsPurchaseBarcodeScanning(true);
+    setIsPurchaseBarcodeScannerOpen(true);
+    setScannedBarcodePreview('');
+    setBarcodeScanSuccessFlash(false);
+
+    if (purchaseAnimFrameRef.current) {
+      cancelAnimationFrame(purchaseAnimFrameRef.current);
+      purchaseAnimFrameRef.current = null;
+    }
+    if (purchaseCodeReaderRef.current) {
+      try { purchaseCodeReaderRef.current.reset(); } catch (e) {}
+      purchaseCodeReaderRef.current = null;
+    }
+    if (purchaseStreamRef.current) {
+      try { purchaseStreamRef.current.getTracks().forEach(t => t.stop()); } catch (e) {}
+      purchaseStreamRef.current = null;
+    }
+
+    setTimeout(async () => {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setPurchaseScannerError('Tu navegador no permite acceso a la cámara o no está en un entorno seguro (HTTPS).');
+          setIsPurchaseBarcodeScanning(false);
+          return;
+        }
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: mode },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+        } catch (firstErr: any) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false
+            });
+          } catch (fallbackErr: any) {
+            setPurchaseScannerError(
+              fallbackErr?.name === 'NotAllowedError' || fallbackErr?.name === 'PermissionDeniedError'
+                ? 'Permiso de cámara denegado. Por favor concede acceso en tu navegador.'
+                : 'No se pudo acceder a la cámara del dispositivo.'
+            );
+            setIsPurchaseBarcodeScanning(false);
+            return;
+          }
+        }
+
+        purchaseStreamRef.current = stream;
+        const video = purchaseVideoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          video.setAttribute('playsinline', 'true');
+          try { await video.play(); } catch (e) {}
+        }
+
+        let detected = false;
+        const onDetected = (code: string) => {
+          if (detected || !code) return;
+          detected = true;
+          handlePurchaseBarcodeScan(code, true);
+        };
+
+        if ('BarcodeDetector' in window) {
+          try {
+            const detector = new (window as any).BarcodeDetector({
+              formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'qr_code', 'itf']
+            });
+
+            const loop = async () => {
+              if (detected || !purchaseVideoRef.current) return;
+              if (purchaseVideoRef.current.readyState >= 2) {
+                try {
+                  const barcodes = await detector.detect(purchaseVideoRef.current);
+                  if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                    onDetected(barcodes[0].rawValue);
+                    return;
+                  }
+                } catch (e) {}
+              }
+              purchaseAnimFrameRef.current = requestAnimationFrame(loop);
+            };
+            purchaseAnimFrameRef.current = requestAnimationFrame(loop);
+            return;
+          } catch (e) {}
+        }
+
+        // ZXing fallback
+        try {
+          const reader = new BrowserMultiFormatReader();
+          purchaseCodeReaderRef.current = reader;
+          reader.decodeFromStream(stream, purchaseVideoRef.current!, (res) => {
+            if (res && !detected) {
+              onDetected(res.getText());
+            }
+          });
+        } catch (e) {}
+      } catch (err: any) {
+        setPurchaseScannerError('Error al iniciar escáner de cámara.');
+        setIsPurchaseBarcodeScanning(false);
+      }
+    }, 200);
+  };
+
+  const togglePurchaseScannerCamera = () => {
+    const nextMode = purchaseScannerFacingMode === 'environment' ? 'user' : 'environment';
+    startPurchaseBarcodeScanner(nextMode);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopPurchaseBarcodeScanner();
+    };
+  }, []);
+
+  // Physical Barcode Reader Listener for Nueva Compra on Desktop & Tablet
+  useEffect(() => {
+    if (!isFormOpen) return;
+
+    let buffer = '';
+    let lastKeyTime = 0;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isPurchaseBarcodeScannerOpen || !!selectedPurchaseDetails) {
+        return;
+      }
+
+      const now = Date.now();
+      const timeDiff = now - lastKeyTime;
+
+      if (e.key === 'Enter') {
+        if (buffer.length >= 3 && timeDiff < 150) {
+          e.preventDefault();
+          const code = buffer;
+          buffer = '';
+          handlePurchaseBarcodeScan(code, false);
+        } else {
+          buffer = '';
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (timeDiff > 80 && buffer.length > 0) {
+          buffer = '';
+        }
+        buffer += e.key;
+        lastKeyTime = now;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isFormOpen, products, isPurchaseBarcodeScannerOpen, selectedPurchaseDetails, currency]);
 
   // Calculations for Draft Purchase
   const ivaRate = 0.12;
@@ -510,41 +810,90 @@ export default function Purchasing({
             <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-4">
               {/* Row 1: Product, Quantity, Cost, Batch, Expiration */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                {/* Product input search */}
+                {/* Product input search with Mobile Camera Button */}
                 <div className="sm:col-span-4 space-y-1 relative">
-                  <label className="block text-xs font-bold text-slate-700">Producto</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="BUSCAR PRODUCTO..."
-                      value={prodSearch}
-                      onChange={(e) => {
-                        setProdSearch(e.target.value);
-                        if (currentProduct && e.target.value !== currentProduct.name) {
-                          setCurrentProduct(null);
-                        }
-                      }}
-                      className="w-full text-xs border border-slate-200 rounded-xl pl-3 pr-8 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 uppercase font-medium"
-                    />
-                    {currentProduct && (
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-700">Producto</label>
+                    <span className="text-[10px] text-blue-600 font-medium md:hidden flex items-center gap-1">
+                      <Barcode className="w-3 h-3" />
+                      Escáner cámara
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        placeholder="BUSCAR PRODUCTO O ESCANEAR CÓDIGO..."
+                        value={prodSearch}
+                        onChange={(e) => {
+                          setProdSearch(e.target.value);
+                          if (currentProduct && e.target.value !== currentProduct.name) {
+                            setCurrentProduct(null);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const q = prodSearch.trim();
+                            if (q) handlePurchaseBarcodeScan(q, false);
+                          }
+                        }}
+                        className="w-full text-xs border border-slate-200 rounded-xl pl-3 pr-8 py-2 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-[#0086F0] h-9 uppercase font-medium"
+                      />
+                      {currentProduct && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentProduct(null);
+                            setProdSearch('');
+                            setCurrentCost('');
+                            setCurrentLote('');
+                            setCurrentVencimiento('');
+                            setCurrentPriceUnit('');
+                            setCurrentPriceBlister('');
+                            setCurrentPriceBox('');
+                          }}
+                          className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Mobile Camera Barcode Scanner Button */}
+                    <button
+                      type="button"
+                      onClick={() => startPurchaseBarcodeScanner()}
+                      className="md:hidden flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer h-9"
+                      title="Escanear código de barras con la cámara"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span className="text-[11px] font-semibold">Escanear</span>
+                    </button>
+                  </div>
+
+                  {/* Feedback toast for scan */}
+                  {purchaseScanFeedback && (
+                    <div className={`mt-1.5 p-2 rounded-lg text-xs font-semibold flex items-center justify-between gap-2 animate-in fade-in duration-150 ${
+                      purchaseScanFeedback.type === 'success'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        : purchaseScanFeedback.type === 'warning'
+                        ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                        : 'bg-red-50 text-red-800 border border-red-200'
+                    }`}>
+                      <div className="min-w-0">
+                        <p className="font-bold truncate">{purchaseScanFeedback.message}</p>
+                        {purchaseScanFeedback.sub && <p className="text-[11px] opacity-85 truncate">{purchaseScanFeedback.sub}</p>}
+                      </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          setCurrentProduct(null);
-                          setProdSearch('');
-                          setCurrentCost('');
-                          setCurrentLote('');
-                          setCurrentVencimiento('');
-                          setCurrentPriceUnit('');
-                          setCurrentPriceBlister('');
-                          setCurrentPriceBox('');
-                        }}
-                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        onClick={() => setPurchaseScanFeedback(null)}
+                        className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer shrink-0"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Dropdown list for search */}
                   {prodSearch.trim() !== '' && !currentProduct && (
@@ -552,37 +901,14 @@ export default function Purchasing({
                       {filteredProdList.map(p => (
                         <div
                           key={p.id}
-                          onClick={() => {
-                            setCurrentProduct(p);
-                            setProdSearch(p.name);
-                            setCurrentCost(p.cost.toString());
-                            setCurrentPriceUnit(p.pricePerUnit?.toString() || p.price?.toString() || '');
-                            setCurrentPriceBlister(p.pricePerBlister?.toString() || '');
-                            setCurrentPriceBox(p.pricePerBox?.toString() || '');
-
-                            const initialBatchName = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].batch)
-                              ? p.expirationDates[p.expirationDates.length - 1].batch
-                              : (p.initialBatch || '00101');
-                            const initialExpDate = (p.expirationDates && p.expirationDates.length > 0 && p.expirationDates[p.expirationDates.length - 1].date)
-                              ? p.expirationDates[p.expirationDates.length - 1].date
-                              : (p.expirationDate || '');
-                            
-                            let formattedExp = initialExpDate;
-                            if (initialExpDate && initialExpDate.includes('/')) {
-                              const parts = initialExpDate.split('/');
-                              if (parts.length === 3) {
-                                formattedExp = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                              }
-                            }
-
-                            setCurrentLote(initialBatchName);
-                            setCurrentVencimiento(formattedExp);
-                          }}
+                          onClick={() => selectProductForPurchase(p)}
                           className="p-2 hover:bg-blue-50/60 rounded-lg cursor-pointer flex justify-between items-center text-xs"
                         >
                           <div className="min-w-0 flex-1">
                             <p className="font-bold text-slate-800 uppercase truncate">{p.name}</p>
-                            <p className="text-[10px] text-slate-400 font-mono">Código: {p.code} | Stock: {p.stock}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">
+                              Código: {p.code} {p.barcode ? `| CB: ${p.barcode}` : ''} | Stock: {p.stock}
+                            </p>
                           </div>
                           <span className="text-[10px] font-bold text-[#0086F0] bg-blue-50 px-2 py-0.5 rounded-sm shrink-0 border border-blue-100">Seleccionar</span>
                         </div>
@@ -631,6 +957,7 @@ export default function Purchasing({
                 <div className="sm:col-span-1 space-y-1">
                   <label className="block text-xs font-bold text-slate-700 text-center">Cant.</label>
                   <input
+                    ref={quantityInputRef}
                     type="number"
                     min="1"
                     placeholder="Cant."
@@ -1489,6 +1816,124 @@ export default function Purchasing({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Barcode Scanner Camera Modal for Nueva Compra */}
+      {isPurchaseBarcodeScannerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-between p-4 animate-in fade-in duration-200">
+          {/* Header */}
+          <div className="w-full max-w-md flex items-center justify-between text-white pt-2 pb-3 border-b border-white/10">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-blue-600 rounded-xl">
+                <Camera className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm tracking-tight">Escanear Producto (Compra)</h3>
+                <p className="text-[11px] text-slate-300">Apunta la cámara al código de barras del producto</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={togglePurchaseScannerCamera}
+                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer"
+                title="Cambiar Cámara"
+              >
+                <SwitchCamera className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={stopPurchaseBarcodeScanner}
+                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer"
+                title="Cerrar Escáner"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Camera Viewport */}
+          <div className="relative w-full max-w-sm aspect-4/3 rounded-3xl overflow-hidden bg-black border-2 border-white/20 shadow-2xl flex items-center justify-center my-auto">
+            {purchaseScannerError ? (
+              <div className="p-6 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center mx-auto">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">{purchaseScannerError}</p>
+                <div className="flex flex-col gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => startPurchaseBarcodeScanner(purchaseScannerFacingMode)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all active:scale-95"
+                  >
+                    Reintentar Escaneo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopPurchaseBarcodeScanner}
+                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition-all"
+                  >
+                    Ingresar Código Manualmente
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <video
+                  ref={purchaseVideoRef}
+                  className="w-full h-full object-cover"
+                  muted
+                  playsInline
+                />
+                
+                {/* Viewfinder Target Overlay */}
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6">
+                  <div className={`relative w-full max-w-[280px] h-48 border-2 ${barcodeScanSuccessFlash ? 'border-emerald-400 bg-emerald-500/25 shadow-[0_0_30px_rgba(52,211,153,0.6)]' : 'border-blue-400/90 bg-black/15 shadow-[0_0_20px_rgba(59,130,246,0.3)]'} rounded-2xl transition-all duration-200 flex flex-col justify-between p-2`}>
+                    {/* Viewfinder Corners */}
+                    <div className="flex justify-between">
+                      <div className="w-5 h-5 border-t-4 border-l-4 border-blue-400 rounded-tl-lg" />
+                      <div className="w-5 h-5 border-t-4 border-r-4 border-blue-400 rounded-tr-lg" />
+                    </div>
+
+                    {/* Animated laser line */}
+                    {!barcodeScanSuccessFlash && (
+                      <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_8px_#ef4444] animate-pulse" />
+                    )}
+
+                    {barcodeScanSuccessFlash && (
+                      <div className="text-center py-2 bg-emerald-500/80 text-white rounded-lg backdrop-blur-xs shadow-lg animate-in zoom-in duration-150">
+                        <p className="text-xs font-bold">¡Código Detectado!</p>
+                        <p className="text-[11px] font-mono tracking-wider">{scannedBarcodePreview}</p>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between">
+                      <div className="w-5 h-5 border-b-4 border-l-4 border-blue-400 rounded-bl-lg" />
+                      <div className="w-5 h-5 border-b-4 border-r-4 border-blue-400 rounded-br-lg" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="absolute bottom-3 inset-x-0 text-center pointer-events-none">
+                  <span className="text-[11px] text-white/90 bg-black/60 px-3 py-1 rounded-full backdrop-blur-xs font-medium">
+                    {barcodeScanSuccessFlash ? '✓ ¡Código detectado! Cargando producto...' : 'Centra el código de barras físico del producto'}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Footer Controls */}
+          <div className="w-full max-w-sm pt-3 pb-2 text-center">
+            <button
+              type="button"
+              onClick={stopPurchaseBarcodeScanner}
+              className="w-full py-2.5 bg-white/10 hover:bg-white/20 active:scale-98 text-white rounded-xl text-xs font-bold transition-all cursor-pointer border border-white/15"
+            >
+              Cancelar y escribir manualmente
+            </button>
           </div>
         </div>
       )}

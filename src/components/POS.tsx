@@ -624,46 +624,7 @@ export default function POS({
       const onBarcodeDetected = (rawCode: string) => {
         if (detected || !rawCode) return;
         detected = true;
-        const cleanCode = rawCode.trim();
-
-        try {
-          if (navigator.vibrate) navigator.vibrate(100);
-        } catch (e) {}
-
-        setScannedBarcodePreview(cleanCode);
-        setBarcodeScanSuccessFlash(true);
-
-        // Auto-complete the search/barcode query
-        setSearchQuery(cleanCode);
-
-        // Match product by barcode, code or id
-        const cleanCodeLower = cleanCode.toLowerCase();
-        const matched = products.find(p => {
-          const bMatch = p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower;
-          const cMatch = p.code && p.code.trim().toLowerCase() === cleanCodeLower;
-          const idMatch = p.id && p.id.trim().toLowerCase() === cleanCodeLower;
-          return bMatch || cMatch || idMatch;
-        });
-
-        if (matched) {
-          addToCart(matched as POSProduct);
-          setBarcodeFeedbackBanner({
-            type: 'success',
-            message: `¡Producto agregado al carrito!`,
-            sub: `${matched.name} (${currency}${matched.price.toFixed(2)})`
-          });
-        } else {
-          setBarcodeFeedbackBanner({
-            type: 'error',
-            message: `Producto no encontrado`,
-            sub: `No existe ningún producto con el código "${cleanCode}". Verifica en Inventario o regístralo.`
-          });
-        }
-
-        setTimeout(() => {
-          setBarcodeScanSuccessFlash(false);
-          stopPosBarcodeScanner();
-        }, 700);
+        processBarcodeScan(rawCode, true);
       };
 
       // Native BarcodeDetector first
@@ -1183,6 +1144,109 @@ export default function POS({
     }));
   };
 
+  // Barcode Processing Engine (handles both Physical HID Scanner Guns & Camera Scanners)
+  const lastScanTimestampRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+
+  const processBarcodeScan = (rawCode: string, fromCamera: boolean = false) => {
+    const cleanCode = rawCode.trim();
+    if (!cleanCode) return;
+
+    // Guard against duplicate reads (rapid bounce within 400ms)
+    const now = Date.now();
+    if (lastScanTimestampRef.current.code.toLowerCase() === cleanCode.toLowerCase() && (now - lastScanTimestampRef.current.time) < 400) {
+      return;
+    }
+    lastScanTimestampRef.current = { code: cleanCode, time: now };
+
+    try {
+      if (navigator.vibrate) navigator.vibrate(100);
+    } catch (e) {}
+
+    if (fromCamera) {
+      setScannedBarcodePreview(cleanCode);
+      setBarcodeScanSuccessFlash(true);
+    }
+
+    const cleanCodeLower = cleanCode.toLowerCase();
+    const matched = products.find(p => {
+      const bMatch = p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower;
+      const cMatch = p.code && p.code.trim().toLowerCase() === cleanCodeLower;
+      const idMatch = p.id && p.id.trim().toLowerCase() === cleanCodeLower;
+      return bMatch || cMatch || idMatch;
+    });
+
+    if (matched) {
+      addToCart(matched as POSProduct);
+      setBarcodeFeedbackBanner({
+        type: 'success',
+        message: `¡Producto agregado al carrito!`,
+        sub: `${matched.name} (${currency}${matched.price.toFixed(2)})`
+      });
+      setSearchQuery('');
+    } else {
+      setBarcodeFeedbackBanner({
+        type: 'error',
+        message: `Producto no encontrado`,
+        sub: `No existe ningún producto con el código "${cleanCode}". Verifica en Inventario o regístralo.`
+      });
+    }
+
+    if (fromCamera) {
+      setTimeout(() => {
+        setBarcodeScanSuccessFlash(false);
+        stopPosBarcodeScanner();
+      }, 700);
+    }
+  };
+
+  // Physical Barcode Reader Listener for Desktop and Tablet in POS
+  useEffect(() => {
+    let buffer = '';
+    let lastKeyTime = 0;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Do not hijack typing inside text modals like client registration, checkout notes, etc.
+      if (
+        isAddClientModalOpen || 
+        isPrescriptionModalOpen || 
+        isDevolucionesModalOpen || 
+        isCotizacionesModalOpen || 
+        isBarcodeScannerOpen || 
+        isLiveCameraOpen
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      const timeDiff = now - lastKeyTime;
+
+      if (e.key === 'Enter') {
+        // Physical scanner burst detection (typically >= 3 chars typed within < 120ms between keys)
+        if (buffer.length >= 3 && timeDiff < 150) {
+          e.preventDefault();
+          const code = buffer;
+          buffer = '';
+          processBarcodeScan(code, false);
+        } else {
+          buffer = '';
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // Reset buffer if delay exceeds typical hardware scanner burst
+        if (timeDiff > 80 && buffer.length > 0) {
+          buffer = '';
+        }
+        buffer += e.key;
+        lastKeyTime = now;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [products, currency, isAddClientModalOpen, isPrescriptionModalOpen, isDevolucionesModalOpen, isCotizacionesModalOpen, isBarcodeScannerOpen, isLiveCameraOpen]);
+
   // Cart calculations
   const cartTotals = useMemo(() => {
     const subtotal = cart.reduce((acc, item) => acc + ((item.customPrice ?? item.product.price) * item.quantity), 0);
@@ -1699,6 +1763,15 @@ export default function POS({
                     placeholder="Buscar por nombre, código de barras o descripción..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const q = searchQuery.trim();
+                        if (q) {
+                          processBarcodeScan(q, false);
+                        }
+                      }
+                    }}
                     className="w-full pl-9 pr-3.5 py-2 rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] focus:border-[#2563EB] text-xs font-medium bg-white text-[#1F2937]"
                   />
                 </div>

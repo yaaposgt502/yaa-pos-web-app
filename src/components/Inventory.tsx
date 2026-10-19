@@ -447,6 +447,7 @@ export default function Inventory({
   const [scanSuccessFlash, setScanSuccessFlash] = useState(false);
   const [scannedCodePreview, setScannedCodePreview] = useState<string>('');
   const [inventoryScanFeedback, setInventoryScanFeedback] = useState<{ type: 'success' | 'error'; message: string; sub?: string } | null>(null);
+  const [productFormScanFeedback, setProductFormScanFeedback] = useState<{ type: 'success' | 'warning'; message: string } | null>(null);
 
   const videoScannerRef = useRef<HTMLVideoElement | null>(null);
   const scannerStreamRef = useRef<MediaStream | null>(null);
@@ -664,6 +665,152 @@ export default function Inventory({
       return () => clearTimeout(timer);
     }
   }, [inventoryScanFeedback]);
+
+  useEffect(() => {
+    if (productFormScanFeedback) {
+      const timer = setTimeout(() => {
+        setProductFormScanFeedback(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [productFormScanFeedback]);
+
+  // Physical Barcode Reader Engine for Desktop & Tablet
+  const lastPhysicalInventoryScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+
+  const handlePhysicalScanInForm = (rawCode: string) => {
+    const cleanCode = rawCode.trim();
+    if (!cleanCode) return;
+
+    const now = Date.now();
+    if (lastPhysicalInventoryScanRef.current.code.toLowerCase() === cleanCode.toLowerCase() && (now - lastPhysicalInventoryScanRef.current.time) < 400) {
+      return;
+    }
+    lastPhysicalInventoryScanRef.current = { code: cleanCode, time: now };
+
+    try {
+      if (navigator.vibrate) navigator.vibrate(80);
+    } catch (e) {}
+
+    // Fill barcode field and code field if empty/auto-generated
+    setFormBarcode(cleanCode);
+    setFormCode(prev => (!prev || prev.startsWith('SKU-') ? cleanCode : prev));
+
+    // Check if barcode already belongs to another product
+    const cleanCodeLower = cleanCode.toLowerCase();
+    const existing = products.find(p => 
+      (p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower) ||
+      (p.code && p.code.trim().toLowerCase() === cleanCodeLower) ||
+      (p.id && p.id.trim().toLowerCase() === cleanCodeLower)
+    );
+
+    if (existing && (!editingProduct || existing.id !== editingProduct.id)) {
+      setProductFormScanFeedback({
+        type: 'warning',
+        message: `Aviso: Este código ya pertenece a "${existing.name}" (SKU: ${existing.code})`
+      });
+    } else {
+      setProductFormScanFeedback({
+        type: 'success',
+        message: `✓ Código de barras capturado: ${cleanCode}`
+      });
+    }
+  };
+
+  const handlePhysicalScanInTable = (rawCode: string) => {
+    const cleanCode = rawCode.trim();
+    if (!cleanCode) return;
+
+    const now = Date.now();
+    if (lastPhysicalInventoryScanRef.current.code.toLowerCase() === cleanCode.toLowerCase() && (now - lastPhysicalInventoryScanRef.current.time) < 400) {
+      return;
+    }
+    lastPhysicalInventoryScanRef.current = { code: cleanCode, time: now };
+
+    try {
+      if (navigator.vibrate) navigator.vibrate(80);
+    } catch (e) {}
+
+    setSearchQuery(cleanCode);
+    setCodeFilter(cleanCode);
+
+    const cleanCodeLower = cleanCode.toLowerCase();
+    const matched = products.find(p => {
+      const bMatch = p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower;
+      const cMatch = p.code && p.code.trim().toLowerCase() === cleanCodeLower;
+      const idMatch = p.id && p.id.trim().toLowerCase() === cleanCodeLower;
+      return bMatch || cMatch || idMatch;
+    });
+
+    if (matched) {
+      setInventoryScanFeedback({
+        type: 'success',
+        message: `Producto identificado: ${matched.name}`,
+        sub: `Código: ${cleanCode} | Stock: ${getProductStock(matched)} | Ubicación: ${matched.location || 'Almacén Principal'}`
+      });
+    } else {
+      setInventoryScanFeedback({
+        type: 'error',
+        message: `Producto no encontrado en inventario`,
+        sub: `No existe ningún producto con el código "${cleanCode}". Puedes pulsar "Registrar Nuevo Producto" para añadirlo.`
+      });
+    }
+  };
+
+  // Global Keydown Listener for Hardware Barcode Scanners in Inventory View
+  useEffect(() => {
+    let buffer = '';
+    let lastKeyTime = 0;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Do not capture if camera scanner or specific modal is open
+      if (
+        isBarcodeScannerOpen || 
+        isAddLabModalOpen || 
+        isTransferModalOpen
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      const timeDiff = now - lastKeyTime;
+
+      if (e.key === 'Enter') {
+        // Fast sequence ending in Enter (typical physical scanner gun)
+        if (buffer.length >= 3 && timeDiff < 150) {
+          e.preventDefault();
+          const code = buffer;
+          buffer = '';
+          if (isModalOpen) {
+            handlePhysicalScanInForm(code);
+          } else {
+            handlePhysicalScanInTable(code);
+          }
+        } else {
+          buffer = '';
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (timeDiff > 80 && buffer.length > 0) {
+          buffer = '';
+        }
+        buffer += e.key;
+        lastKeyTime = now;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [
+    isModalOpen, 
+    products, 
+    isBarcodeScannerOpen, 
+    isAddLabModalOpen, 
+    isTransferModalOpen,
+    editingProduct
+  ]);
 
   const isBlisterHidden = useMemo(() => {
     if (!formUnit) return false;
@@ -1554,12 +1701,19 @@ export default function Inventory({
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const effStock = getProductStock(p);
-      // Name & category text search
-      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            p.category.toLowerCase().includes(searchQuery.toLowerCase());
+      // Name, category, barcode & code search
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q || 
+                            p.name.toLowerCase().includes(q) || 
+                            p.category.toLowerCase().includes(q) ||
+                            (p.barcode && p.barcode.toLowerCase().includes(q)) ||
+                            (p.code && p.code.toLowerCase().includes(q));
       
-      // Code filter
-      const matchesCode = !codeFilter || p.code.toLowerCase().includes(codeFilter.toLowerCase());
+      // Code / Barcode filter
+      const c = codeFilter.toLowerCase().trim();
+      const matchesCode = !c || 
+                          p.code.toLowerCase().includes(c) ||
+                          (p.barcode && p.barcode.toLowerCase().includes(c));
 
       // Location filter
       const matchesLocation = !locationFilter || (p.location || 'Almacén Principal').toLowerCase().includes(locationFilter.toLowerCase());
@@ -2242,9 +2396,16 @@ export default function Inventory({
                 </span>
                 <input
                   type="text"
-                  placeholder="Buscar por producto..."
+                  placeholder="Buscar por producto o código de barras..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const q = searchQuery.trim();
+                      if (q) handlePhysicalScanInTable(q);
+                    }
+                  }}
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937]"
                 />
               </div>
@@ -2272,6 +2433,13 @@ export default function Inventory({
                 placeholder="Código..."
                 value={codeFilter}
                 onChange={(e) => setCodeFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const c = codeFilter.trim();
+                    if (c) handlePhysicalScanInTable(c);
+                  }
+                }}
                 className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937] font-mono"
               />
             </div>
@@ -3147,9 +3315,16 @@ export default function Inventory({
                       <div className="flex gap-2">
                         <input
                           type="text"
-                          placeholder="000000088"
+                          placeholder="000000088 (Escanea con pistola o escribe)"
                           value={formBarcode}
                           onChange={(e) => setFormBarcode(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const val = (e.target as HTMLInputElement).value.trim();
+                              if (val) handlePhysicalScanInForm(val);
+                            }
+                          }}
                           className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono bg-white text-slate-800"
                         />
                         <button
@@ -3162,6 +3337,15 @@ export default function Inventory({
                           <span className="text-[11px] font-semibold">Escanear</span>
                         </button>
                       </div>
+                      {productFormScanFeedback && (
+                        <div className={`mt-1.5 p-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-150 ${
+                          productFormScanFeedback.type === 'success' 
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}>
+                          <span>{productFormScanFeedback.message}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Código/SKU */}
@@ -3731,9 +3915,16 @@ export default function Inventory({
                       <input
                         type="text"
                         required
-                        placeholder="Ej: DEMO-P001"
+                        placeholder="Ej: DEMO-P001 (Escanea con pistola o escribe)"
                         value={formCode}
                         onChange={(e) => setFormCode(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val) handlePhysicalScanInForm(val);
+                          }
+                        }}
                         className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#005e63] font-mono bg-white text-slate-800"
                       />
                       <button
@@ -3746,6 +3937,15 @@ export default function Inventory({
                         <span className="text-[11px] font-semibold">Escanear</span>
                       </button>
                     </div>
+                    {productFormScanFeedback && (
+                      <div className={`mt-1.5 p-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-150 ${
+                        productFormScanFeedback.type === 'success' 
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                          : 'bg-amber-50 text-amber-800 border border-amber-200'
+                      }`}>
+                        <span>{productFormScanFeedback.message}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Category */}
