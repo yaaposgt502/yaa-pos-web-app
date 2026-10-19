@@ -438,14 +438,15 @@ export default function Inventory({
     return Array.from(new Set([...laboratoriesList, ...fromProducts]));
   }, [laboratoriesList, products]);
 
-  // Mobile Barcode Scanner State for Product Form
+  // Mobile Barcode Scanner State for Product Form & Inventory Search
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
   const [barcodeScannerError, setBarcodeScannerError] = useState<string | null>(null);
   const [isBarcodeScanning, setIsBarcodeScanning] = useState(false);
   const [scannerFacingMode, setScannerFacingMode] = useState<'environment' | 'user'>('environment');
-  const [targetBarcodeField, setTargetBarcodeField] = useState<'barcode' | 'code'>('barcode');
+  const [targetBarcodeField, setTargetBarcodeField] = useState<'barcode' | 'code' | 'inventory_search'>('barcode');
   const [scanSuccessFlash, setScanSuccessFlash] = useState(false);
   const [scannedCodePreview, setScannedCodePreview] = useState<string>('');
+  const [inventoryScanFeedback, setInventoryScanFeedback] = useState<{ type: 'success' | 'error'; message: string; sub?: string } | null>(null);
 
   const videoScannerRef = useRef<HTMLVideoElement | null>(null);
   const scannerStreamRef = useRef<MediaStream | null>(null);
@@ -477,7 +478,7 @@ export default function Inventory({
     setIsBarcodeScanning(false);
   };
 
-  const startBarcodeScanner = async (field: 'barcode' | 'code' = 'barcode', mode: 'environment' | 'user' = 'environment') => {
+  const startBarcodeScanner = async (field: 'barcode' | 'code' | 'inventory_search' = 'barcode', mode: 'environment' | 'user' = 'environment') => {
     setTargetBarcodeField(field);
     setScannerFacingMode(mode);
     setBarcodeScannerError(null);
@@ -568,8 +569,31 @@ export default function Inventory({
         if (field === 'barcode') {
           setFormBarcode(cleanCode);
           setFormCode(prev => (!prev || prev.startsWith('SKU-') ? cleanCode : prev));
-        } else {
+        } else if (field === 'code') {
           setFormCode(cleanCode);
+        } else if (field === 'inventory_search') {
+          setCodeFilter(cleanCode);
+          setSearchQuery(cleanCode);
+          const cleanCodeLower = cleanCode.toLowerCase();
+          const matched = products.find(p => {
+            const bMatch = p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower;
+            const cMatch = p.code && p.code.trim().toLowerCase() === cleanCodeLower;
+            const idMatch = p.id && p.id.trim().toLowerCase() === cleanCodeLower;
+            return bMatch || cMatch || idMatch;
+          });
+          if (matched) {
+            setInventoryScanFeedback({
+              type: 'success',
+              message: `Producto identificado: ${matched.name}`,
+              sub: `Código: ${cleanCode} | Stock: ${getProductStock(matched)} | Ubicación: ${matched.location || 'Almacén Principal'}`
+            });
+          } else {
+            setInventoryScanFeedback({
+              type: 'error',
+              message: `Producto no encontrado en inventario`,
+              sub: `No existe ningún producto con el código "${cleanCode}". Puedes pulsar "Registrar Nuevo Producto" para añadirlo.`
+            });
+          }
         }
 
         setTimeout(() => {
@@ -631,6 +655,15 @@ export default function Inventory({
       stopBarcodeScanner();
     };
   }, []);
+
+  useEffect(() => {
+    if (inventoryScanFeedback) {
+      const timer = setTimeout(() => {
+        setInventoryScanFeedback(null);
+      }, 5500);
+      return () => clearTimeout(timer);
+    }
+  }, [inventoryScanFeedback]);
 
   const isBlisterHidden = useMemo(() => {
     if (!formUnit) return false;
@@ -2168,21 +2201,65 @@ export default function Inventory({
 
           </div>
 
+          {/* Inventory Barcode Scan Result Feedback Banner */}
+          {inventoryScanFeedback && (
+            <div className={`w-full p-2.5 sm:p-3 rounded-lg border text-xs flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200 ${
+              inventoryScanFeedback.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-amber-50 border-amber-200 text-amber-900'
+            }`}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                {inventoryScanFeedback.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="font-bold truncate">{inventoryScanFeedback.message}</p>
+                  {inventoryScanFeedback.sub && (
+                    <p className="text-[11px] opacity-90 truncate">{inventoryScanFeedback.sub}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInventoryScanFeedback(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 shrink-0 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* 4. Filters Panel matching professional SaaS layout */}
           <div className="bg-white rounded-lg border border-[#E2E8F0] shadow-2xs p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-center">
             
-            {/* Input 1: Search text */}
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                <Search className="w-4 h-4" />
-              </span>
-              <input
-                type="text"
-                placeholder="Buscar por producto..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937]"
-              />
+            {/* Input 1: Search text with Mobile Scan Button */}
+            <div className="flex gap-2 items-center">
+              <div className="relative flex-1">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                  <Search className="w-4 h-4" />
+                </span>
+                <input
+                  type="text"
+                  placeholder="Buscar por producto..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white text-[#1F2937]"
+                />
+              </div>
+
+              {/* Mobile Barcode Scanner Camera Button for Inventory */}
+              <button
+                type="button"
+                onClick={() => startBarcodeScanner('inventory_search')}
+                className="md:hidden flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer"
+                title="Escanear código de barras con la cámara"
+              >
+                <Camera className="w-4 h-4" />
+                <Barcode className="w-3.5 h-3.5 -ml-0.5" />
+                <span className="text-[11px] font-semibold">Escanear</span>
+              </button>
             </div>
 
             {/* Input 2: Barcode */}
@@ -3976,7 +4053,9 @@ export default function Inventory({
                 {/* Status Guide Banner */}
                 <div className="absolute bottom-4 left-4 right-4 text-center pointer-events-none">
                   <span className="inline-block bg-black/75 backdrop-blur-xs text-white text-[11px] px-3.5 py-1.5 rounded-full border border-white/15 font-medium shadow-md">
-                    {scanSuccessFlash ? '✓ ¡Código detectado! Completando formulario...' : 'Centra el código de barras físico dentro del recuadro'}
+                    {scanSuccessFlash 
+                      ? (targetBarcodeField === 'inventory_search' ? '✓ ¡Código detectado! Buscando en inventario...' : '✓ ¡Código detectado! Completando formulario...') 
+                      : 'Centra el código de barras físico dentro del recuadro'}
                   </span>
                 </div>
               </>
@@ -3994,7 +4073,9 @@ export default function Inventory({
               <span>Cerrar escáner e ingresar código manualmente</span>
             </button>
             <p className="text-[10px] text-slate-400 text-center">
-              Al detectar el código, se completará automáticamente en el formulario.
+              {targetBarcodeField === 'inventory_search'
+                ? 'Al detectar el código, se buscará e identificará el producto en el inventario.'
+                : 'Al detectar el código, se completará automáticamente en el formulario.'}
             </p>
           </div>
         </div>
