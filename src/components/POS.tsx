@@ -1624,18 +1624,6 @@ export default function POS({
 
         {/* Professional SaaS Action Buttons Bar */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full scrollbar-none sm:flex-wrap shrink-0">
-          {/* Mobile Quick Barcode Scanner Button */}
-          <button
-            type="button"
-            onClick={() => startPosBarcodeScanner()}
-            className="md:hidden h-9 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 active:scale-[0.98] text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
-            title="Escanear código de barras con la cámara"
-          >
-            <Camera className="w-4 h-4 text-white" />
-            <Barcode className="w-3.5 h-3.5 text-blue-200" />
-            <span>Escanear</span>
-          </button>
-
           {/* 1. Nuevo Pedido (Primary Action) */}
           <button
             type="button"
