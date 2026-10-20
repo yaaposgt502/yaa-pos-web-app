@@ -519,7 +519,12 @@ export default function POS({
   const [barcodeScannerFacingMode, setBarcodeScannerFacingMode] = useState<'environment' | 'user'>('environment');
   const [barcodeScanSuccessFlash, setBarcodeScanSuccessFlash] = useState(false);
   const [scannedBarcodePreview, setScannedBarcodePreview] = useState<string>('');
-  const [barcodeFeedbackBanner, setBarcodeFeedbackBanner] = useState<{ type: 'success' | 'error'; message: string; sub?: string } | null>(null);
+  const [barcodeFeedbackBanner, setBarcodeFeedbackBanner] = useState<{ 
+    type: 'success' | 'error'; 
+    message: string; 
+    sub?: string;
+    product?: POSProduct;
+  } | null>(null);
 
   const barcodeVideoRef = useRef<HTMLVideoElement | null>(null);
   const barcodeStreamRef = useRef<MediaStream | null>(null);
@@ -1021,24 +1026,37 @@ export default function POS({
 
     let result = products;
 
-    if (selectedCategory !== 'Todos') {
-      result = result.filter(p => p.category === selectedCategory);
-    }
-
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+      const query = searchQuery.toLowerCase().trim();
+      const queryNoZeros = query.replace(/^0+/, '');
       result = result.filter(p => {
+        const pBarcode = (p.barcode || '').toLowerCase().trim();
+        const pCode = (p.code || '').toLowerCase().trim();
+        const barcodeMatch = pBarcode.includes(query) || (queryNoZeros.length > 0 && pBarcode.includes(queryNoZeros));
+        const codeMatch = pCode.includes(query) || (queryNoZeros.length > 0 && pCode.includes(queryNoZeros));
         const nameMatch = p.name?.toLowerCase().includes(query);
-        const codeMatch = p.code?.toLowerCase().includes(query);
         const catMatch = p.category?.toLowerCase().includes(query);
         const detailMatch = p.detail?.toLowerCase().includes(query);
         const descMatch = (p as any).description?.toLowerCase().includes(query);
-        const barcodeMatch = p.barcode?.toLowerCase().includes(query);
         const symptomsMatch = p.symptoms?.toLowerCase().includes(query);
         const labMatch = p.laboratory?.toLowerCase().includes(query);
 
-        return nameMatch || codeMatch || catMatch || detailMatch || descMatch || barcodeMatch || symptomsMatch || labMatch;
+        const matchesQuery = nameMatch || codeMatch || catMatch || detailMatch || descMatch || barcodeMatch || symptomsMatch || labMatch;
+        if (!matchesQuery) return false;
+
+        // If it matches code or barcode directly, include it regardless of selected category
+        if (barcodeMatch || codeMatch) return true;
+
+        if (selectedCategory !== 'Todos') {
+          return p.category === selectedCategory;
+        }
+        return true;
       });
+      return result;
+    }
+
+    if (selectedCategory !== 'Todos') {
+      result = result.filter(p => p.category === selectedCategory);
     }
 
     return result;
@@ -1168,26 +1186,39 @@ export default function POS({
     }
 
     const cleanCodeLower = cleanCode.toLowerCase();
+    const cleanCodeNoZeros = cleanCodeLower.replace(/^0+/, '');
+
     const matched = products.find(p => {
-      const bMatch = p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower;
-      const cMatch = p.code && p.code.trim().toLowerCase() === cleanCodeLower;
-      const idMatch = p.id && p.id.trim().toLowerCase() === cleanCodeLower;
-      return bMatch || cMatch || idMatch;
+      const pBarcode = (p.barcode || '').trim().toLowerCase();
+      const pCode = (p.code || '').trim().toLowerCase();
+      const pId = (p.id || '').trim().toLowerCase();
+      return (
+        pBarcode === cleanCodeLower ||
+        (cleanCodeNoZeros.length > 0 && pBarcode === cleanCodeNoZeros) ||
+        pCode === cleanCodeLower ||
+        (cleanCodeNoZeros.length > 0 && pCode === cleanCodeNoZeros) ||
+        pId === cleanCodeLower
+      );
     });
 
+    // Reset category so the found product is guaranteed to be shown in the visual list
+    setSelectedCategory('Todos');
+
     if (matched) {
-      addToCart(matched as POSProduct);
+      // Set search query to display the product in the product list (Venta Visual / Rápida)
+      setSearchQuery(matched.barcode?.trim() || matched.code?.trim() || cleanCode);
       setBarcodeFeedbackBanner({
         type: 'success',
-        message: `¡Producto agregado al carrito!`,
-        sub: `${matched.name} (${currency}${matched.price.toFixed(2)})`
+        message: `Producto encontrado: ${matched.name}`,
+        sub: `Código: ${matched.code} ${matched.barcode ? `| CB: ${matched.barcode}` : ''} | Precio: ${currency}${matched.price.toFixed(2)} | Stock: ${getProductEffectiveStock(matched)}`,
+        product: matched as POSProduct
       });
-      setSearchQuery('');
     } else {
+      setSearchQuery(cleanCode);
       setBarcodeFeedbackBanner({
         type: 'error',
         message: `Producto no encontrado`,
-        sub: `No existe ningún producto con el código "${cleanCode}". Verifica en Inventario o regístralo.`
+        sub: `No existe ningún producto con el código de barras "${cleanCode}". Verifica en Inventario o regístralo.`
       });
     }
 
@@ -1195,7 +1226,7 @@ export default function POS({
       setTimeout(() => {
         setBarcodeScanSuccessFlash(false);
         stopPosBarcodeScanner();
-      }, 700);
+      }, 650);
     }
   };
 
@@ -1772,8 +1803,21 @@ export default function POS({
                         }
                       }
                     }}
-                    className="w-full pl-9 pr-3.5 py-2 rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] focus:border-[#2563EB] text-xs font-medium bg-white text-[#1F2937]"
+                    className="w-full pl-9 pr-8 py-2 rounded-lg border border-[#E2E8F0] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] focus:border-[#2563EB] text-xs font-medium bg-white text-[#1F2937]"
                   />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setBarcodeFeedbackBanner(null);
+                      }}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                      title="Limpiar búsqueda"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Mobile Barcode Scanner Camera Button */}
@@ -1823,13 +1867,28 @@ export default function POS({
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setBarcodeFeedbackBanner(null)}
-                  className="text-slate-400 hover:text-slate-600 p-1 shrink-0 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {barcodeFeedbackBanner.product && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addToCart(barcodeFeedbackBanner.product!);
+                        setBarcodeFeedbackBanner(null);
+                      }}
+                      className="px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] active:scale-95 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer flex items-center gap-1 transition-all whitespace-nowrap"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Agregar al Ticket</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setBarcodeFeedbackBanner(null)}
+                    className="text-slate-400 hover:text-slate-600 p-1 shrink-0 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
