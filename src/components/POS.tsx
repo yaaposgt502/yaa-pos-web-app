@@ -1201,25 +1201,34 @@ export default function POS({
       );
     });
 
-    // Reset category so the found product is guaranteed to be shown in the visual list
-    setSelectedCategory('Todos');
-
-    if (matched) {
-      // Set search query to display the product in the product list (Venta Visual / Rápida)
-      setSearchQuery(matched.barcode?.trim() || matched.code?.trim() || cleanCode);
-      setBarcodeFeedbackBanner({
-        type: 'success',
-        message: `Producto encontrado: ${matched.name}`,
-        sub: `Código: ${matched.code} ${matched.barcode ? `| CB: ${matched.barcode}` : ''} | Precio: ${currency}${matched.price.toFixed(2)} | Stock: ${getProductEffectiveStock(matched)}`,
-        product: matched as POSProduct
-      });
+    if (posMode === 'rapida') {
+      // VENTA RÁPIDA / CÓDIGO: Original fast workflow — immediately adds product to active cart/ticket
+      if (matched) {
+        addToCart(matched as POSProduct);
+        setSearchQuery('');
+        setBarcodeFeedbackBanner(null);
+      } else {
+        alert(`Producto no encontrado con el código "${cleanCode}".`);
+      }
     } else {
-      setSearchQuery(cleanCode);
-      setBarcodeFeedbackBanner({
-        type: 'error',
-        message: `Producto no encontrado`,
-        sub: `No existe ningún producto con el código de barras "${cleanCode}". Verifica en Inventario o regístralo.`
-      });
+      // VENTA VISUAL: Locate product, filter view and present confirmation banner with action
+      setSelectedCategory('Todos');
+      if (matched) {
+        setSearchQuery(matched.barcode?.trim() || matched.code?.trim() || cleanCode);
+        setBarcodeFeedbackBanner({
+          type: 'success',
+          message: `Producto encontrado: ${matched.name}`,
+          sub: `Código: ${matched.code} ${matched.barcode ? `| CB: ${matched.barcode}` : ''} | Precio: ${currency}${matched.price.toFixed(2)} | Stock: ${getProductEffectiveStock(matched)}`,
+          product: matched as POSProduct
+        });
+      } else {
+        setSearchQuery(cleanCode);
+        setBarcodeFeedbackBanner({
+          type: 'error',
+          message: `Producto no encontrado`,
+          sub: `No existe ningún producto con el código de barras "${cleanCode}". Verifica en Inventario o regístralo.`
+        });
+      }
     }
 
     if (fromCamera) {
@@ -1276,7 +1285,7 @@ export default function POS({
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [products, currency, isAddClientModalOpen, isPrescriptionModalOpen, isDevolucionesModalOpen, isCotizacionesModalOpen, isBarcodeScannerOpen, isLiveCameraOpen]);
+  }, [posMode, products, currency, isAddClientModalOpen, isPrescriptionModalOpen, isDevolucionesModalOpen, isCotizacionesModalOpen, isBarcodeScannerOpen, isLiveCameraOpen]);
 
   // Cart calculations
   const cartTotals = useMemo(() => {
@@ -1700,7 +1709,10 @@ export default function POS({
             <span>Venta Visual</span>
           </button>
           <button
-            onClick={() => setPosMode('rapida')}
+            onClick={() => {
+              setPosMode('rapida');
+              setBarcodeFeedbackBanner(null);
+            }}
             className={`px-3.5 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-all cursor-pointer ${
               posMode === 'rapida' 
                 ? 'bg-white text-[#1F2937] shadow-xs' 
@@ -1847,8 +1859,8 @@ export default function POS({
               </div>
             </div>
 
-            {/* Barcode scan result feedback banner */}
-            {barcodeFeedbackBanner && (
+            {/* Barcode scan result feedback banner (only in Venta Visual) */}
+            {posMode === 'classica' && barcodeFeedbackBanner && (
               <div className={`w-full p-2.5 sm:p-3 rounded-lg border text-xs flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200 ${
                 barcodeFeedbackBanner.type === 'success'
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
@@ -1970,7 +1982,7 @@ export default function POS({
                 {filteredProducts.map(p => (
                   <div 
                     key={p.id} 
-                    onClick={() => openAddToCartModal(p)}
+                    onClick={() => addToCart(p)}
                     className="flex items-center justify-between py-2.5 px-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors"
                   >
                     <div>
@@ -1989,13 +2001,19 @@ export default function POS({
                       <span className="text-xs font-bold text-[#2563EB] font-mono">{currency}{p.price.toFixed(2)}</span>
                       <button 
                         className="px-2.5 py-1 bg-slate-100 text-[#2563EB] hover:bg-[#2563EB] hover:text-white rounded-md text-[11px] font-semibold transition-colors"
-                        onClick={(e) => { e.stopPropagation(); openAddToCartModal(p); }}
+                        onClick={(e) => { e.stopPropagation(); addToCart(p); }}
                       >
                         + Agregar
                       </button>
                     </div>
                   </div>
                 ))}
+                {filteredProducts.length === 0 && (
+                  <div className="py-12 text-center text-[#64748B]">
+                    <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs font-medium">No se encontraron productos coincidentes.</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
