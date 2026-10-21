@@ -829,7 +829,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       badge: planBadge || 'Activo',
       maxBranches: Number(planMaxBranches) || 1,
       maxUsers: Number(planMaxUsers) || 3,
-      maxProducts: Number(planMaxProducts) || 250,
+      maxProducts: Number(planMaxProducts) || 999999,
       felAllowed: Boolean(planFelAllowed),
       aiAssistantAllowed: Boolean(planAiAssistantAllowed),
       multiBranchAllowed: Boolean(planMultiBranchAllowed),
@@ -851,7 +851,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     setPlanStatus(plan.status || 'Activo');
     setPlanMaxBranches(typeof plan.maxBranches === 'number' ? plan.maxBranches : 1);
     setPlanMaxUsers(typeof plan.maxUsers === 'number' ? plan.maxUsers : 3);
-    setPlanMaxProducts(typeof plan.maxProducts === 'number' ? plan.maxProducts : 250);
+    setPlanMaxProducts(typeof plan.maxProducts === 'number' ? plan.maxProducts : 999999);
     setPlanFelAllowed(Boolean(plan.felAllowed));
     setPlanAiAssistantAllowed(Boolean(plan.aiAssistantAllowed));
     setPlanMultiBranchAllowed(Boolean(plan.multiBranchAllowed));
@@ -874,7 +874,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
           badge: planBadge,
           maxBranches: Number(planMaxBranches) || 1,
           maxUsers: Number(planMaxUsers) || 3,
-          maxProducts: Number(planMaxProducts) || 250,
+          maxProducts: Number(planMaxProducts) || 999999,
           felAllowed: Boolean(planFelAllowed),
           aiAssistantAllowed: Boolean(planAiAssistantAllowed),
           multiBranchAllowed: Boolean(planMultiBranchAllowed),
@@ -2183,7 +2183,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                         <div className="bg-slate-50/80 rounded-xl p-2 border border-slate-100">
                           <span className="text-[10px] font-bold text-slate-400 uppercase block">Productos</span>
                           <span className="text-xs font-black text-slate-800">
-                            {p.maxProducts >= 999999 ? 'Ilimitados' : p.maxProducts || 250}
+                            {p.maxProducts >= 999999 ? 'Ilimitados' : (p.maxProducts || 'Ilimitados')}
                           </span>
                         </div>
                       </div>

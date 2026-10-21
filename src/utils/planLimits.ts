@@ -24,14 +24,14 @@ export const SYSTEM_PLANS: Record<'basico' | 'profesional' | 'empresarial', Plan
     badge: 'Activo',
     maxBranches: 1,
     maxUsers: 3,
-    maxProducts: 250,
+    maxProducts: 999999,
     felAllowed: false,
     aiAssistantAllowed: false,
     multiBranchAllowed: false,
     features: [
       '1 sucursal o punto de venta',
       'Hasta 3 usuarios (operadores y admin)',
-      'Hasta 250 productos en catálogo',
+      'Productos ilimitados en catálogo',
       'Control de ventas y caja'
     ]
   },
@@ -137,9 +137,13 @@ export function getAllPlans(): PlanDefinition[] {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((p: any) => {
+          const mapped = parsed.map((p: any) => {
             const planKey = normalizePlanId(p.id || p.name);
             const base = SYSTEM_PLANS[planKey] || SYSTEM_PLANS.basico;
+            const sanitizedFeatures = Array.isArray(p.features) && p.features.length > 0 
+              ? p.features.map((f: string) => f.includes('250 productos') ? 'Productos ilimitados en catálogo' : f)
+              : base.features;
+
             return {
               id: p.id || planKey,
               name: p.name || base.name,
@@ -149,13 +153,16 @@ export function getAllPlans(): PlanDefinition[] {
               badge: p.badge || (planKey === 'profesional' ? 'Recomendado' : planKey === 'empresarial' ? 'Ilimitado' : 'Activo'),
               maxBranches: typeof p.maxBranches === 'number' ? p.maxBranches : (planKey === 'basico' ? 1 : planKey === 'profesional' ? 3 : 999),
               maxUsers: typeof p.maxUsers === 'number' ? p.maxUsers : (planKey === 'basico' ? 3 : planKey === 'profesional' ? 5 : 999),
-              maxProducts: typeof p.maxProducts === 'number' ? p.maxProducts : (planKey === 'basico' ? 250 : 999999),
+              maxProducts: 999999, // Todos los planes están configurados a productos ilimitados
               felAllowed: typeof p.felAllowed === 'boolean' ? p.felAllowed : (planKey !== 'basico'),
               aiAssistantAllowed: typeof p.aiAssistantAllowed === 'boolean' ? p.aiAssistantAllowed : (planKey !== 'basico'),
               multiBranchAllowed: typeof p.multiBranchAllowed === 'boolean' ? p.multiBranchAllowed : (planKey !== 'basico'),
-              features: Array.isArray(p.features) && p.features.length > 0 ? p.features : base.features
+              features: sanitizedFeatures
             };
           });
+          // Ensure upgraded unlimited limits are written back to localStorage
+          localStorage.setItem('yaa_pos_plans', JSON.stringify(mapped));
+          return mapped;
         }
       } else {
         localStorage.setItem('yaa_pos_plans', JSON.stringify(defaults));
@@ -216,24 +223,19 @@ export function checkUserLimit(currentCount: number, planType?: string | null): 
 
 /**
  * Check if the company can add more products to inventory
+ * Configurado a productos ilimitados en todos los planes.
  */
-export function checkProductLimit(currentCount: number, planType?: string | null): {
+export function checkProductLimit(currentCount: number, _planType?: string | null): {
   allowed: boolean;
   max: number;
   current: number;
   message?: string;
 } {
-  const plan = getPlanDefinition(planType);
-  const max = plan.maxProducts;
-  const allowed = currentCount < max;
-
   return {
-    allowed,
-    max,
+    allowed: true,
+    max: 999999,
     current: currentCount,
-    message: allowed
-      ? undefined
-      : `Has alcanzado el límite de ${max} productos de tu plan ${plan.name}. Para registrar más productos, actualiza tu plan.`
+    message: undefined
   };
 }
 
