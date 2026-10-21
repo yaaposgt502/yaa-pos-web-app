@@ -488,7 +488,7 @@ Si el usuario hace preguntas generales o te pide analizar, usa estos datos reale
 
       if (ai) {
         const response = await ai.models.generateContent({
-          model: 'gemini-3.5-flash',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: {
             systemInstruction: systemInstruction,

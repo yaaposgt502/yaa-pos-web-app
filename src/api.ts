@@ -32,7 +32,7 @@ import {
 } from 'firebase/storage';
 import { auth, db, storage } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
-import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License } from './types';
+import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License, Quotation, Consignment } from './types';
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
 import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './utils/planLimits';
 
@@ -487,11 +487,23 @@ export async function logoutUser(): Promise<void> {
 }
 
 export async function getMe(): Promise<User> {
-  // Ensure Firebase Auth is loaded to prevent race conditions on page refresh
+  // Ensure Firebase Auth is loaded to prevent race conditions on page refresh (with 2.5-second safety timeout)
   await new Promise<void>((resolve) => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      unsubscribe();
-      resolve();
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve();
+      }
+    }, 2500);
+
+    const unsubscribe = auth.onAuthStateChanged(() => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve();
+      }
     });
   });
 
@@ -501,6 +513,10 @@ export async function getMe(): Promise<User> {
   }
 
   const firebaseUser = auth.currentUser;
+  // If there is no authenticated Firebase session, do not make unauthenticated Firestore calls
+  if (!firebaseUser) {
+    throw new Error('Sesión expirada. Inicie sesión nuevamente.');
+  }
   if (firebaseUser?.email) {
     try {
       const globalRef = doc(db, 'operators', firebaseUser.email.toLowerCase());
@@ -1665,7 +1681,9 @@ export async function resetUserDatabase(): Promise<void> {
     'purchases',
     'expenses',
     'shifts',
-    'operators'
+    'operators',
+    'quotations',
+    'consignments'
   ];
 
   for (const colName of collectionsToClear) {
@@ -1679,5 +1697,197 @@ export async function resetUserDatabase(): Promise<void> {
     }
   }
 }
+
+// =========================================================================
+// QUOTATIONS / PROFORMAS
+// =========================================================================
+
+export async function getQuotations(): Promise<Quotation[]> {
+  try {
+    const colRef = getCollectionRef('quotations');
+    const snapshot = await getDocs(colRef);
+    const quotes = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Quotation));
+    
+    // Check and merge any local proformas saved in localStorage
+    try {
+      const local = localStorage.getItem('yaa_pos_quotations');
+      if (local) {
+        const localQuotes: Quotation[] = JSON.parse(local);
+        const map = new Map<string, Quotation>();
+        quotes.forEach(q => map.set(q.id, q));
+        localQuotes.forEach(q => {
+          if (!map.has(q.id)) {
+            map.set(q.id, q);
+          }
+        });
+        return Array.from(map.values()).sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return quotes.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+  } catch (error) {
+    console.warn('Firestore quotations fallback to localStorage:', error);
+    try {
+      const local = localStorage.getItem('yaa_pos_quotations');
+      return local ? JSON.parse(local) : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+export async function saveQuotation(quotation: Quotation): Promise<Quotation> {
+  const quoteToSave = { ...quotation };
+  if (!quoteToSave.id) {
+    quoteToSave.id = `COT-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
+  }
+  if (!quoteToSave.createdAt) {
+    quoteToSave.createdAt = new Date().toISOString();
+  }
+  quoteToSave.updatedAt = new Date().toISOString();
+
+  // Save to local storage for immediate offline reliability
+  try {
+    const local = localStorage.getItem('yaa_pos_quotations');
+    const list: Quotation[] = local ? JSON.parse(local) : [];
+    const idx = list.findIndex(q => q.id === quoteToSave.id);
+    if (idx >= 0) {
+      list[idx] = quoteToSave;
+    } else {
+      list.unshift(quoteToSave);
+    }
+    localStorage.setItem('yaa_pos_quotations', JSON.stringify(list));
+  } catch (e) {
+    console.warn('Error saving quotation to localStorage', e);
+  }
+
+  try {
+    const docRef = getDocRef('quotations', quoteToSave.id);
+    await setDoc(docRef, quoteToSave);
+  } catch (error) {
+    console.warn('Could not sync quotation to Firestore (saved offline):', error);
+  }
+
+  return quoteToSave;
+}
+
+export async function deleteQuotation(id: string): Promise<{ success: boolean }> {
+  try {
+    const local = localStorage.getItem('yaa_pos_quotations');
+    if (local) {
+      const list: Quotation[] = JSON.parse(local);
+      const filtered = list.filter(q => q.id !== id);
+      localStorage.setItem('yaa_pos_quotations', JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.warn('Error removing quote from local storage', e);
+  }
+
+  try {
+    const docRef = getDocRef('quotations', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.warn('Could not delete quotation from Firestore:', error);
+  }
+
+  return { success: true };
+}
+
+// =========================================================================
+// CONSIGNMENTS (Consignaciones)
+// =========================================================================
+
+export async function getConsignments(): Promise<Consignment[]> {
+  try {
+    const colRef = getCollectionRef('consignments');
+    const snapshot = await getDocs(colRef);
+    const consignments = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Consignment));
+    
+    try {
+      const local = localStorage.getItem('yaa_pos_consignments');
+      if (local) {
+        const localCons: Consignment[] = JSON.parse(local);
+        const map = new Map<string, Consignment>();
+        consignments.forEach(c => map.set(c.id, c));
+        localCons.forEach(c => {
+          if (!map.has(c.id)) {
+            map.set(c.id, c);
+          }
+        });
+        return Array.from(map.values()).sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return consignments.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+  } catch (error) {
+    console.warn('Firestore consignments fallback to localStorage:', error);
+    try {
+      const local = localStorage.getItem('yaa_pos_consignments');
+      return local ? JSON.parse(local) : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+export async function saveConsignment(consignment: Consignment): Promise<Consignment> {
+  const consToSave = { ...consignment };
+  if (!consToSave.id) {
+    consToSave.id = `CSG-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
+  }
+  if (!consToSave.createdAt) {
+    consToSave.createdAt = new Date().toISOString();
+  }
+
+  try {
+    const local = localStorage.getItem('yaa_pos_consignments');
+    const list: Consignment[] = local ? JSON.parse(local) : [];
+    const idx = list.findIndex(c => c.id === consToSave.id);
+    if (idx >= 0) {
+      list[idx] = consToSave;
+    } else {
+      list.unshift(consToSave);
+    }
+    localStorage.setItem('yaa_pos_consignments', JSON.stringify(list));
+  } catch (e) {
+    console.warn('Error saving consignment to localStorage', e);
+  }
+
+  try {
+    const docRef = getDocRef('consignments', consToSave.id);
+    await setDoc(docRef, consToSave);
+  } catch (error) {
+    console.warn('Could not sync consignment to Firestore (saved offline):', error);
+  }
+
+  return consToSave;
+}
+
+export async function deleteConsignment(id: string): Promise<{ success: boolean }> {
+  try {
+    const local = localStorage.getItem('yaa_pos_consignments');
+    if (local) {
+      const list: Consignment[] = JSON.parse(local);
+      const filtered = list.filter(c => c.id !== id);
+      localStorage.setItem('yaa_pos_consignments', JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.warn('Error removing consignment from local storage', e);
+  }
+
+  try {
+    const docRef = getDocRef('consignments', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.warn('Could not delete consignment from Firestore:', error);
+  }
+
+  return { success: true };
+}
+
 
 

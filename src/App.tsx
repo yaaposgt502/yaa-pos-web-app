@@ -17,6 +17,7 @@ import { SalesLedger } from './components/SalesLedger';
 import Settings from './components/Settings';
 import Branches from './components/Branches';
 import AdminPanel from './components/AdminPanel';
+import Quotations from './components/Quotations';
 import ErrorBoundary from './components/ErrorBoundary';
 import PlanModal from './components/PlanModal';
 import { getPlanDefinition, checkBranchLimit, checkUserLimit } from './utils/planLimits';
@@ -27,6 +28,7 @@ import {
   LayoutGrid,
   ShoppingCart, 
   Package, 
+  FileText,
   FileSpreadsheet,
   History,
   ShoppingBag, 
@@ -257,12 +259,23 @@ export default function App() {
   const [forgotStatus, setForgotStatus] = useState<{ message: string; isError: boolean } | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
 
-  // Auto-validate session on startup
+  // Auto-validate session on startup with safety timeout to prevent stuck loading screen
   useEffect(() => {
+    let isCancelled = false;
+    const safetyTimer = setTimeout(() => {
+      if (!isCancelled) {
+        setIsInitializing(false);
+      }
+    }, 3500);
+
     async function checkSession() {
       if (token) {
         try {
-          const profile = await api.getMe();
+          const profile = await Promise.race([
+            api.getMe(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado al validar sesión')), 4000))
+          ]);
+          if (isCancelled) return;
           if (profile.id !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
             const license = await api.getUserLicense(profile.id);
             const val = api.performValidation(license, profile);
@@ -280,11 +293,9 @@ export default function App() {
             }
           }
           setUser(profile);
-          await loadAllData();
+          loadAllData(profile).catch((err) => console.warn('Background loadAllData warning:', err));
         } catch (err: any) {
-          if (err instanceof Error) {
-            setAuthError(err.message);
-          }
+          if (isCancelled) return;
           try {
             await api.logoutUser();
           } catch {
@@ -292,11 +303,23 @@ export default function App() {
             setToken(null);
             setUser(null);
           }
+          // Only show auth error if it's an explicit blocking reason, not normal expired/empty session
+          if (err instanceof Error && (err.message.includes('suspendida') || err.message.includes('desactivada') || err.message.includes('expirado'))) {
+            setAuthError(err.message);
+          }
         }
       }
-      setIsInitializing(false);
+      if (!isCancelled) {
+        clearTimeout(safetyTimer);
+        setIsInitializing(false);
+      }
     }
     checkSession();
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(safetyTimer);
+    };
   }, [token]);
 
   // Handle session expiration dispatch
@@ -751,8 +774,9 @@ export default function App() {
     await onSaveConfig(updated);
   };
 
-  async function loadAllData() {
-    if (!user) return;
+  async function loadAllData(overrideUser?: User) {
+    const currentUser = overrideUser || user;
+    if (!currentUser) return;
     setIsDataLoading(true);
     try {
       const [prods, clis, provs, sls, purcs, exps, sfts, fls, cfg] = await Promise.all([
@@ -1101,33 +1125,38 @@ export default function App() {
       setClients(prev => prev.map(c => c.id === cu.id ? cu : c));
     }
 
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: saleBranch, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: saleBranch, timestamp: Date.now() });
     return saved;
   };
 
   const onSavePurchase = async (pur: Purchase) => {
-    const purchaseBranch = pur.branch || activeBranch.name;
+    const purchaseBranch = pur.branch || activeBranch?.name || '';
     // 1. Aumentar stock e ingresar costo, lote y vencimiento del producto en ESTA sucursal si la compra está completada
     if (pur.status === 'completed') {
       const updatedProductsMap = new Map<string, Product>();
 
       for (const item of pur.items) {
+        if (!item) continue;
         let product =
           updatedProductsMap.get(item.productId) ||
-          products.find(p => p.id === item.productId && isItemInBranch(p.branch, purchaseBranch, systemBranches));
+          products.find(p => p && p.id === item.productId && isItemInBranch(p.branch, purchaseBranch, systemBranches));
         
-        if (!product) {
+        if (!product && item.name) {
+          const itemNeedle = item.name.trim().toLowerCase();
           product = products.find(
             p =>
+              p &&
+              p.name &&
               isItemInBranch(p.branch, purchaseBranch, systemBranches) &&
-              p.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+              p.name.trim().toLowerCase() === itemNeedle
           );
         }
 
         if (!product) {
           // Si el producto existe en otra sucursal pero no en esta, clonar su ficha base con stock 0 para esta sucursal
+          const itemNeedle = item.name ? item.name.trim().toLowerCase() : '';
           const templateProd = products.find(
-            p => p.id === item.productId || p.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+            p => p && (p.id === item.productId || (p.name && itemNeedle && p.name.trim().toLowerCase() === itemNeedle))
           );
           const itemAny = item as any;
           const initialUnitPrice =
@@ -1139,7 +1168,7 @@ export default function App() {
             ...(templateProd || {}),
             id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             code: itemAny.productCode || templateProd?.code || `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
-            name: item.name,
+            name: item.name || templateProd?.name || 'Producto',
             category: itemAny.productCategory || templateProd?.category || 'General',
             cost: item.cost || templateProd?.cost || 0,
             price: initialUnitPrice,
@@ -1172,7 +1201,7 @@ export default function App() {
 
     // 2. Actualizar métricas del proveedor (compras totales, cuentas por pagar)
     if (pur.providerId) {
-      const provider = providers.find(p => p.id === pur.providerId);
+      const provider = providers.find(p => p && p.id === pur.providerId);
       if (provider) {
         const extraCredit = pur.paymentType === 'credit' ? pur.total : 0;
         await api.saveProvider({
@@ -1190,7 +1219,7 @@ export default function App() {
     };
 
     const saved = await api.savePurchase(purchaseWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch.id, branchName: purchaseBranch, timestamp: Date.now() });
+    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: purchaseBranch, timestamp: Date.now() });
     await loadAllData();
     return saved;
   };
@@ -1552,6 +1581,7 @@ export default function App() {
   const sidebarTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'punto-de-venta', label: 'Punto de Venta', icon: <ShoppingCart className="w-4 h-4" /> },
+    { id: 'cotizaciones', label: 'Cotizaciones / Proformas', icon: <FileText className="w-4 h-4 text-sky-400" /> },
     { id: 'inventario', label: 'Inventario', icon: <Package className="w-4 h-4" /> },
     { id: 'historial-ventas', label: 'Historial de Ventas', icon: <History className="w-4 h-4 text-emerald-400" /> },
     { id: 'compras', label: 'Gestión Compras', icon: <ShoppingBag className="w-4 h-4" /> },
@@ -1636,6 +1666,25 @@ export default function App() {
             activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
+          />
+        );
+      case 'cotizaciones':
+        return (
+          <Quotations
+            products={branchProducts}
+            clients={branchClients}
+            config={config}
+            user={user}
+            activeBranch={activeBranch?.name}
+            currency={config.currency}
+            onBackToPOS={() => setActiveTab('punto-de-venta')}
+            onClientCreated={() => {
+              loadAllData();
+            }}
+            onNavigateToPOS={(items, client) => {
+              sessionStorage.setItem('yaa_pos_proforma_to_cart', JSON.stringify({ items, client }));
+              setActiveTab('punto-de-venta');
+            }}
           />
         );
       case 'inventario':

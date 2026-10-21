@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Product, Client, Sale, Shift, AppConfig, PrescriptionData, Branch } from '../types';
+import { Product, Client, Sale, Shift, AppConfig, PrescriptionData, Branch, Quotation } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
 import { 
   Search, 
@@ -39,7 +39,9 @@ import {
   CameraOff,
   SwitchCamera,
   Building2,
-  Barcode
+  Barcode,
+  MoreVertical,
+  Mail
 } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import * as api from '../api';
@@ -333,6 +335,37 @@ export default function POS({
       clearInterval(interval);
     };
   }, [cart]);
+
+  // Load converted proforma / quotation items into cart if requested
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('yaa_pos_proforma_to_cart');
+      if (raw) {
+        sessionStorage.removeItem('yaa_pos_proforma_to_cart');
+        const parsed = JSON.parse(raw);
+        if (parsed?.items && Array.isArray(parsed.items) && parsed.items.length > 0) {
+          const newCartItems = parsed.items.map((it: any) => ({
+            product: it.product,
+            quantity: it.quantity || 1,
+            customPrice: it.customPrice
+          }));
+          setSessions(prev => prev.map(s => {
+            if (s.id === 1) {
+              return {
+                ...s,
+                cart: newCartItems,
+                selectedClientId: parsed.client?.id || s.selectedClientId
+              };
+            }
+            return s;
+          }));
+          setActiveSessionId(1);
+        }
+      }
+    } catch (e) {
+      console.warn('Error loading converted proforma to cart', e);
+    }
+  }, []);
 
   // Success completed state
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
@@ -869,9 +902,19 @@ export default function POS({
     setIsAddToCartModalOpen(true);
   };
 
-  // Cotizacion State
+  // Cotizacion / Proforma State
   const [quoteItems, setQuoteItems] = useState<CartItem[]>([]);
   const [quoteClientName, setQuoteClientName] = useState('');
+  const [quoteExpirationDate, setQuoteExpirationDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 15);
+    return d.toISOString().split('T')[0];
+  });
+  const [quoteIsConsignment, setQuoteIsConsignment] = useState<boolean>(false);
+  const [quoteClientEmails, setQuoteClientEmails] = useState<string[]>([]);
+  const [quoteEmailInput, setQuoteEmailInput] = useState<string>('');
+  const [quoteNotes, setQuoteNotes] = useState<string>('');
+  const [isCartMenuOpen, setIsCartMenuOpen] = useState<boolean>(false);
 
   // Nuevo Pedido Form
   const [orderClientName, setOrderClientName] = useState('');
@@ -1502,67 +1545,242 @@ export default function POS({
     }
   };
 
-  // Quote submit print
-  const handlePrintQuote = () => {
-    if (quoteItems.length === 0) {
-      alert('Agregue productos a la cotización.');
+  // Proforma / Cotizaciones Handlers
+  const openProformaModalWithCart = () => {
+    if (cart.length === 0) {
+      alert('Agrega al menos un producto al carrito para generar la proforma o cotización.');
       return;
+    }
+    const currentClient = clients.find(c => c.id === selectedClientId);
+    const clientName = currentClient ? currentClient.name : (selectedClientId === 'general' ? 'Cliente General' : '');
+    const clientEmail = currentClient?.email ? [currentClient.email] : [];
+
+    const d = new Date();
+    d.setDate(d.getDate() + 15);
+
+    setQuoteItems([...cart]);
+    setQuoteClientName(clientName);
+    setQuoteClientEmails(clientEmail);
+    setQuoteEmailInput('');
+    setQuoteExpirationDate(d.toISOString().split('T')[0]);
+    setQuoteIsConsignment(false);
+    setQuoteNotes('');
+    setIsCartMenuOpen(false);
+    setIsCotizacionesModalOpen(true);
+  };
+
+  const handleAddQuoteEmail = () => {
+    const trimmed = quoteEmailInput.trim();
+    if (!trimmed) return;
+    if (!quoteClientEmails.includes(trimmed)) {
+      setQuoteClientEmails(prev => [...prev, trimmed]);
+    }
+    setQuoteEmailInput('');
+  };
+
+  const handleRemoveQuoteEmail = (emailToRemove: string) => {
+    setQuoteClientEmails(prev => prev.filter(e => e !== emailToRemove));
+  };
+
+  const handleSaveAndPrintProforma = () => {
+    if (quoteItems.length === 0) {
+      alert('Agregue productos a la proforma.');
+      return;
+    }
+
+    const proformaId = `PROF-${Date.now().toString().slice(-6)}`;
+    const totalQuote = quoteItems.reduce((acc, item) => acc + ((item.customPrice ?? item.product.price) * item.quantity), 0);
+    const discountAmount = discountType === 'percent' 
+      ? (totalQuote * (parseFloat(discountValue) || 0) / 100)
+      : (parseFloat(discountValue) || 0);
+    const subtotalAfterDiscount = Math.max(0, totalQuote - discountAmount);
+    const taxAmount = (subtotalAfterDiscount * (taxRateVal || 0)) / 100;
+    const finalTotal = subtotalAfterDiscount + taxAmount;
+
+    // Save to Firestore and localStorage
+    try {
+      const newQuote: Quotation = {
+        id: proformaId,
+        correlative: proformaId,
+        clientId: selectedClientId,
+        clientName: quoteClientName || 'Cliente General',
+        clientNit: clients.find(c => c.id === selectedClientId)?.nit || '',
+        clientPhone: clients.find(c => c.id === selectedClientId)?.phone || '',
+        clientEmail: clients.find(c => c.id === selectedClientId)?.email || '',
+        emails: quoteClientEmails,
+        date: new Date().toISOString().split('T')[0],
+        expirationDate: quoteExpirationDate,
+        items: quoteItems.map(it => ({
+          productId: it.product.id,
+          name: it.product.name,
+          code: it.product.code,
+          category: it.product.category,
+          unit: it.selectedUnit || it.product.unit || 'Pza',
+          quantity: it.quantity,
+          unitPrice: it.customPrice ?? it.product.price,
+          cost: it.product.cost,
+          discountPercent: 0,
+          discountAmount: 0,
+          subtotal: (it.customPrice ?? it.product.price) * it.quantity,
+          selectedLote: it.selectedLote
+        })),
+        subtotal: subtotalAfterDiscount,
+        discountTotal: discountAmount,
+        taxRate: taxRateVal,
+        taxTotal: taxAmount,
+        total: finalTotal,
+        currency: currency,
+        status: 'vigente',
+        notes: quoteNotes,
+        termsAndConditions: '1. Precios válidos hasta la fecha de vencimiento.\n2. Precios en Quetzales e incluyen impuestos de ley.\n3. Tiempo de entrega: Inmediato / sujeto a existencias.\n4. Forma de pago: Contado / Transferencia acordada.',
+        isConsignment: quoteIsConsignment,
+        branch: currentOperatingBranch,
+        operatorId: (user as any)?.operatorId || user?.id,
+        operatorName: user?.name,
+        createdAt: new Date().toISOString()
+      };
+      api.saveQuotation(newQuote).catch(console.warn);
+    } catch (e) {
+      console.warn('Error saving proforma to api', e);
     }
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      alert('Ventana bloqueada. Permita popups.');
+      alert('Ventana emergente bloqueada por el navegador. Por favor, permita popups para imprimir la proforma.');
+      setIsCotizacionesModalOpen(false);
       return;
     }
 
-    const totalQuote = quoteItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
-    const itemsRows = quoteItems.map(item => `
+    const itemsRows = quoteItems.map((item, idx) => `
       <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd;">${item.product.name}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.quantity}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${currency}${item.product.price.toFixed(2)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${currency}${(item.product.price * item.quantity).toFixed(2)}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;">${idx + 1}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0;">
+          <strong style="color: #1e293b;">${item.product.name}</strong>
+          <div style="font-size: 10px; color: #64748b; font-family: monospace;">Cód: ${item.product.code || '—'} ${item.selectedUnit ? `| Unidad: ${item.selectedUnit}` : ''} ${item.selectedLote ? `| ${item.selectedLote}` : ''}</div>
+        </td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600;">${item.quantity}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace;">${currency}${(item.customPrice ?? item.product.price).toFixed(2)}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; font-family: monospace; color: #0f172a;">${currency}${((item.customPrice ?? item.product.price) * item.quantity).toFixed(2)}</td>
       </tr>
     `).join('');
 
     printWindow.document.write(`
+      <!DOCTYPE html>
       <html>
         <head>
-          <title>Cotización - ${config.storeName}</title>
+          <title>Proforma / Cotización ${proformaId} - ${config.storeName}</title>
+          <meta charset="utf-8" />
           <style>
-            body { font-family: sans-serif; padding: 20px; color: #333; }
-            .header { text-align: center; margin-bottom: 30px; }
-            .details { margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th { background-color: #f4f4f4; padding: 10px; text-align: left; border-bottom: 2px solid #ddd; }
-            .total { text-align: right; font-size: 1.2rem; font-weight: bold; margin-top: 20px; }
+            * { box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 32px; color: #1e293b; background: #fff; max-width: 800px; margin: 0 auto; }
+            .header-table { width: 100%; border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px; }
+            .brand-title { font-size: 24px; font-weight: 800; color: #1e3a8a; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+            .brand-sub { font-size: 12px; color: #64748b; margin: 4px 0 0 0; }
+            .doc-tag { display: inline-block; background: #eff6ff; color: #1d4ed8; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 12px; border: 1px solid #bfdbfe; }
+            .consignacion-badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 11px; border: 1px solid #fde68a; margin-top: 4px; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; font-size: 12px; }
+            .info-row { margin-bottom: 4px; }
+            .info-label { font-weight: 700; color: #475569; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+            th { background-color: #f1f5f9; padding: 10px 8px; text-align: left; border-bottom: 2px solid #cbd5e1; color: #334155; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+            .totals-container { margin-top: 20px; display: flex; justify-content: flex-end; }
+            .totals-box { width: 280px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px; }
+            .tot-row { display: flex; justify-content: space-between; padding: 4px 0; }
+            .tot-grand { font-size: 16px; font-weight: 800; border-top: 2px solid #e2e8f0; padding-top: 8px; margin-top: 4px; color: #0f172a; }
+            .notes-box { margin-top: 24px; background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 12px; font-size: 11px; color: #92400e; }
+            .signatures { margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; text-align: center; font-size: 11px; color: #64748b; }
+            .sig-line { border-top: 1px solid #94a3b8; padding-top: 6px; }
+            @media print {
+              body { padding: 0; }
+              @page { margin: 1.5cm; }
+            }
           </style>
         </head>
         <body>
-          <div class="header">
-            <h2>${config.storeName}</h2>
-            <p>Documento de Cotización de Productos</p>
+          <table class="header-table">
+            <tr>
+              <td>
+                <h1 class="brand-title">${config.storeName || 'YAA POS'}</h1>
+                <p class="brand-sub">${config.branches?.[0]?.address || 'Documento Oficial de Cotización / Proforma'}</p>
+                ${quoteIsConsignment ? '<span class="consignacion-badge">★ PROFORMA DE CONSIGNACIÓN</span>' : ''}
+              </td>
+              <td style="text-align: right; vertical-align: top;">
+                <div class="doc-tag">PROFORMA Nº ${proformaId}</div>
+                <p style="font-size: 11px; color: #64748b; margin: 6px 0 0 0;">Fecha: ${new Date().toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                <p style="font-size: 11px; color: #dc2626; margin: 3px 0 0 0; font-weight: 600;">Válida hasta: ${quoteExpirationDate ? new Date(quoteExpirationDate + 'T00:00:00').toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' }) : '15 días'}</p>
+              </td>
+            </tr>
+          </table>
+
+          <div class="info-grid">
+            <div>
+              <div class="info-row"><span class="info-label">Cliente:</span> ${quoteClientName || 'Consumidor Final'}</div>
+              ${quoteClientEmails.length > 0 ? `<div class="info-row"><span class="info-label">Email(s):</span> ${quoteClientEmails.join(', ')}</div>` : ''}
+              <div class="info-row"><span class="info-label">Sucursal:</span> ${currentOperatingBranch}</div>
+            </div>
+            <div>
+              <div class="info-row"><span class="info-label">Emisor:</span> ${user?.name || 'Ventas'}</div>
+              <div class="info-row"><span class="info-label">Estado:</span> Vigente</div>
+              <div class="info-row"><span class="info-label">Tipo:</span> ${quoteIsConsignment ? 'Consignación' : 'Cotización estándar'}</div>
+            </div>
           </div>
-          <div class="details">
-            <p><strong>Cliente:</strong> ${quoteClientName || 'Cliente General'}</p>
-            <p><strong>Fecha:</strong> ${new Date().toLocaleDateString()}</p>
-          </div>
+
           <table>
             <thead>
               <tr>
-                <th>Producto</th>
-                <th style="text-align: center;">Cantidad</th>
-                <th style="text-align: right;">Precio Unitario</th>
-                <th style="text-align: right;">Subtotal</th>
+                <th style="width: 30px; text-align: center;">#</th>
+                <th>Descripción del Producto</th>
+                <th style="width: 70px; text-align: center;">Cant.</th>
+                <th style="width: 100px; text-align: right;">Precio Unit.</th>
+                <th style="width: 110px; text-align: right;">Total</th>
               </tr>
             </thead>
             <tbody>
               ${itemsRows}
             </tbody>
           </table>
-          <div class="total">
-            Total Cotizado: ${currency}${totalQuote.toFixed(2)}
+
+          <div class="totals-container">
+            <div class="totals-box">
+              <div class="tot-row">
+                <span style="color: #64748b;">Subtotal:</span>
+                <span style="font-family: monospace; font-weight: 600;">${currency}${totalQuote.toFixed(2)}</span>
+              </div>
+              ${discountAmount > 0 ? `
+                <div class="tot-row" style="color: #dc2626;">
+                  <span>Descuento (${discountValue}${discountType === 'percent' ? '%' : ''}):</span>
+                  <span style="font-family: monospace; font-weight: 600;">-${currency}${discountAmount.toFixed(2)}</span>
+                </div>
+              ` : ''}
+              ${taxAmount > 0 ? `
+                <div class="tot-row">
+                  <span style="color: #64748b;">${taxName} (${taxRateVal}%):</span>
+                  <span style="font-family: monospace; font-weight: 600;">${currency}${taxAmount.toFixed(2)}</span>
+                </div>
+              ` : ''}
+              <div class="tot-row tot-grand">
+                <span>TOTAL:</span>
+                <span style="font-family: monospace;">${currency}${finalTotal.toFixed(2)}</span>
+              </div>
+            </div>
           </div>
+
+          ${quoteNotes ? `
+            <div class="notes-box">
+              <strong>Observaciones:</strong><br />
+              ${quoteNotes.replace(/\\n/g, '<br />')}
+            </div>
+          ` : ''}
+
+          <div class="signatures">
+            <div>
+              <div class="sig-line">Emitido por / Yaa POS</div>
+            </div>
+            <div>
+              <div class="sig-line">Aceptado por Cliente</div>
+            </div>
+          </div>
+
           <script>
             window.onload = function() {
               window.print();
@@ -1574,6 +1792,8 @@ export default function POS({
     printWindow.document.close();
     setIsCotizacionesModalOpen(false);
   };
+
+  const handlePrintQuote = handleSaveAndPrintProforma;
 
   // Create new order submit
   const handleCreateOrderSubmit = (e: React.FormEvent) => {
@@ -1652,8 +1872,17 @@ export default function POS({
           {/* 3. Cotizaciones */}
           <button
             type="button"
-            onClick={() => setIsCotizacionesModalOpen(true)}
+            onClick={() => {
+              if (cart.length > 0) {
+                openProformaModalWithCart();
+              } else if (onNavigate) {
+                onNavigate('cotizaciones');
+              } else {
+                openProformaModalWithCart();
+              }
+            }}
             className="h-9 px-3.5 bg-white hover:bg-slate-50 active:scale-[0.98] border border-[#E2E8F0] text-[#1F2937] text-xs font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer whitespace-nowrap"
+            title="Generar Proforma o consultar Cotizaciones"
           >
             <FileText className="w-3.5 h-3.5 shrink-0 text-slate-500" />
             <span>Cotizaciones</span>
@@ -2016,9 +2245,19 @@ export default function POS({
               <ShoppingCart className="w-4 h-4 text-blue-300" />
               <h2 className="font-semibold text-xs uppercase tracking-wider text-white">Ticket de Venta</h2>
             </div>
-            <span className="text-[11px] font-mono text-blue-200 bg-white/10 px-2 py-0.5 rounded-md">
-              {cart.reduce((sum, item) => sum + item.quantity, 0)} {cart.length === 1 ? 'artículo' : 'artículos'}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono text-blue-200 bg-white/10 px-2 py-0.5 rounded-md">
+                {cart.reduce((sum, item) => sum + item.quantity, 0)} {cart.length === 1 ? 'artículo' : 'artículos'}
+              </span>
+              <button
+                type="button"
+                onClick={openProformaModalWithCart}
+                className="p-1 hover:bg-white/15 text-blue-200 hover:text-white rounded-md transition-colors cursor-pointer"
+                title="Generar Proforma / Cotización con el carrito"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Sidebar content container */}
@@ -2233,6 +2472,19 @@ export default function POS({
                   <Clock className="w-3.5 h-3.5" />
                   <span>Historial</span>
                 </button>
+
+                {/* 3 vertical dots button: Generar Proforma o Cotización con productos del carrito */}
+                <button
+                  type="button"
+                  onClick={openProformaModalWithCart}
+                  disabled={cart.length === 0}
+                  className="hover:text-[#2563EB] text-[#334155] transition-all flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed px-2.5 py-1 hover:bg-blue-50 rounded-lg font-semibold border border-transparent hover:border-blue-200"
+                  title="Generar Proforma o Cotización con los productos del carrito"
+                >
+                  <MoreVertical className="w-4 h-4 text-[#2563EB]" />
+                  <span>Proforma</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={clearCart}
@@ -3139,72 +3391,207 @@ export default function POS({
         </div>
       )}
 
-      {/* MODAL 6: COTIZADOR */}
+      {/* MODAL 6: PROFORMA / COTIZACIONES (Matched with user screenshot) */}
       {isCotizacionesModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 border border-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                <FileText className="w-5 h-5 text-blue-500" />
-                Generar Cotización Rápida
-              </h3>
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[92vh]">
+            
+            {/* Header: Blue banner matching screenshot */}
+            <div className="bg-[#1E74BD] text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-200" />
+                <h3 className="text-sm font-bold tracking-wide text-white">Proforma / Cotización</h3>
+              </div>
               <button 
+                type="button"
                 onClick={() => setIsCotizacionesModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-white/80 hover:text-white p-1 rounded-md hover:bg-white/10 transition-colors cursor-pointer"
+                title="Cerrar"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 space-y-3.5 overflow-y-auto">
+              
+              {/* Total Banner in Solid Black */}
+              {(() => {
+                const totalQuote = quoteItems.reduce((acc, item) => acc + ((item.customPrice ?? item.product.price) * item.quantity), 0);
+                const discountAmount = discountType === 'percent' 
+                  ? (totalQuote * (parseFloat(discountValue) || 0) / 100)
+                  : (parseFloat(discountValue) || 0);
+                const subtotalAfterDiscount = Math.max(0, totalQuote - discountAmount);
+                const taxAmount = (subtotalAfterDiscount * (taxRateVal || 0)) / 100;
+                const finalTotal = subtotalAfterDiscount + taxAmount;
+
+                return (
+                  <div className="bg-black text-white px-5 py-3.5 rounded-xl flex items-center justify-between shadow-xs">
+                    <span className="text-sm sm:text-base font-semibold tracking-wide">Total</span>
+                    <span className="text-2xl sm:text-3xl font-mono font-bold tracking-tight text-white">
+                      {currency}{finalTotal.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* Toggle: Proforma de consignación */}
+              <div className="flex items-center gap-3 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setQuoteIsConsignment(!quoteIsConsignment)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    quoteIsConsignment ? 'bg-[#2563EB]' : 'bg-slate-300'
+                  }`}
+                  role="switch"
+                  aria-checked={quoteIsConsignment}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                      quoteIsConsignment ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+                <span className="text-xs font-bold text-[#1F2937]">Proforma de consignación</span>
+              </div>
+
+              {/* Fecha de vencimiento */}
               <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase">Nombre Cliente Prospecto</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Juan de Dios"
-                  value={quoteClientName}
-                  onChange={(e) => setQuoteClientName(e.target.value)}
-                  className="w-full text-xs font-semibold border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-800 focus:outline-hidden"
+                <label className="block text-xs font-bold text-[#1F2937]">Fecha de vencimiento</label>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="date"
+                    value={quoteExpirationDate}
+                    onChange={(e) => setQuoteExpirationDate(e.target.value)}
+                    className="w-full pl-9 pr-9 py-2 border border-[#E2E8F0] rounded-lg text-xs font-semibold text-[#1F2937] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white cursor-pointer"
+                  />
+                  <Calendar className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Nombre del cliente */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-[#1F2937]">Nombre del cliente</label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Cirilo Gomez Perez"
+                    value={quoteClientName}
+                    onChange={(e) => setQuoteClientName(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-[#E2E8F0] rounded-lg text-xs font-semibold text-[#1F2937] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Email del cliente */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-[#1F2937]">Email del cliente</label>
+                
+                {/* Yellow Helper Box matching screenshot */}
+                <div className="bg-[#FEF08A] text-[#854D0E] text-[11px] font-medium px-3 py-2 rounded-lg border border-amber-200">
+                  Digite los correos que desee separados con un enter.
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 p-2 border border-[#E2E8F0] rounded-lg bg-white min-h-[42px] focus-within:ring-1 focus-within:ring-[#2563EB]">
+                  <Mail className="w-4 h-4 text-slate-400 shrink-0 ml-1 mr-0.5" />
+                  {quoteClientEmails.map(email => (
+                    <span 
+                      key={email} 
+                      className="bg-[#BBF7D0] text-[#166534] border border-[#86EFAC] text-xs font-medium px-2 py-0.5 rounded-md flex items-center gap-1"
+                    >
+                      <span>{email}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveQuoteEmail(email)}
+                        className="text-[#166534] hover:text-rose-700 ml-0.5 cursor-pointer font-bold leading-none"
+                        title="Eliminar correo"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type="email"
+                    placeholder={quoteClientEmails.length === 0 ? "Cirilo@gmail.com" : "añadir otro correo..."}
+                    value={quoteEmailInput}
+                    onChange={(e) => setQuoteEmailInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddQuoteEmail();
+                      }
+                    }}
+                    className="flex-1 min-w-[130px] text-xs text-[#1F2937] focus:outline-hidden px-1"
+                  />
+                </div>
+              </div>
+
+              {/* Nota */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-[#1F2937]">Nota</label>
+                <textarea
+                  rows={2}
+                  placeholder="Observaciones de proforma"
+                  value={quoteNotes}
+                  onChange={(e) => setQuoteNotes(e.target.value)}
+                  className="w-full p-2.5 border border-[#E2E8F0] rounded-lg text-xs text-[#1F2937] focus:outline-hidden focus:ring-1 focus:ring-[#2563EB] bg-white resize-none"
                 />
               </div>
 
-              {/* Selection for quote */}
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase">Cargar del carrito actual:</label>
+              {/* Items included summary */}
+              <div className="space-y-1 pt-1">
+                <div className="flex justify-between items-center text-[11px] font-bold text-[#64748B] uppercase">
+                  <span>Productos del Carrito ({quoteItems.reduce((acc, it) => acc + it.quantity, 0)} items)</span>
+                  <button
+                    type="button"
+                    onClick={() => setQuoteItems([...cart])}
+                    className="text-[#2563EB] hover:underline font-semibold lowercase cursor-pointer"
+                    title="Actualizar con el carrito actual"
+                  >
+                    recargar carrito
+                  </button>
+                </div>
+                <div className="border border-[#E2E8F0] rounded-lg p-2 max-h-24 overflow-y-auto divide-y divide-slate-100 bg-slate-50 text-xs">
+                  {quoteItems.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 text-center py-2">No hay productos cargados.</p>
+                  ) : (
+                    quoteItems.map(it => (
+                      <div key={it.product.id} className="py-1 flex justify-between items-center text-xs">
+                        <span className="font-medium text-[#1F2937] truncate max-w-[260px]">{it.quantity}x {it.product.name}</span>
+                        <span className="font-mono font-bold text-[#2563EB]">{currency}{((it.customPrice ?? it.product.price) * it.quantity).toFixed(2)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Green Action Button matching screenshot */}
+              <div className="space-y-2 mt-2">
                 <button
                   type="button"
-                  onClick={() => setQuoteItems(cart)}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-black uppercase tracking-wider cursor-pointer"
+                  onClick={handleSaveAndPrintProforma}
+                  className="w-full py-3 bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.99] text-white rounded-lg text-sm font-bold tracking-wide transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
                 >
-                  Importar {cart.length} productos del carrito
+                  <FileText className="w-4 h-4" />
+                  <span>Agregar proforma e Imprimir</span>
                 </button>
-              </div>
 
-              {/* Quote lists */}
-              <div className="border border-slate-150 rounded-xl p-3 min-h-[100px] max-h-40 overflow-y-auto space-y-2">
-                {quoteItems.length === 0 ? (
-                  <p className="text-[10px] text-slate-400 text-center py-6 font-bold">Sin ítems para cotizar. Importe del carrito para continuar.</p>
-                ) : (
-                  quoteItems.map(it => (
-                    <div key={it.product.id} className="flex justify-between items-center text-xs">
-                      <span className="font-semibold text-slate-800">{it.product.name}</span>
-                      <span className="font-mono font-bold text-slate-600">x{it.quantity} - {currency}{(it.product.price * it.quantity).toFixed(2)}</span>
-                    </div>
-                  ))
+                {onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCotizacionesModalOpen(false);
+                      onNavigate('cotizaciones');
+                    }}
+                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <span>Ver todas las cotizaciones y proformas</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
-
-              <div className="text-right text-xs font-black font-mono">
-                Total Cotizado: {currency}{quoteItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0).toFixed(2)}
-              </div>
-
-              <button
-                type="button"
-                onClick={handlePrintQuote}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
-              >
-                Imprimir Documento de Cotización
-              </button>
             </div>
           </div>
         </div>

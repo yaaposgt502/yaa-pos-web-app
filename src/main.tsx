@@ -38,21 +38,30 @@ if (typeof window !== 'undefined' && window.location.hash && window.location.has
   }
 }
 
-// Register Service Worker for PWA Offline support (and clear stale dev caches if needed)
+// PWA Service Worker management:
+// In development, unregister any active service worker and clear caches to avoid stale iframe states
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    const isDev = Boolean((import.meta as any).env?.DEV);
-    if (isDev) {
-      navigator.serviceWorker.getRegistrations().then((registrations) => {
-        for (const registration of registrations) {
-          registration.update().catch(() => {});
+  const isDev = Boolean((import.meta as any).env?.DEV);
+  if (isDev) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const reg of registrations) {
+        reg.unregister().catch(() => {});
+      }
+    });
+    if ('caches' in window) {
+      caches.keys().then((names) => {
+        for (const name of names) {
+          caches.delete(name).catch(() => {});
         }
       });
     }
-    navigator.serviceWorker.register('/sw.js')
-      .then((reg) => console.log('[Service Worker] Registered successfully:', reg.scope))
-      .catch((err) => console.error('[Service Worker] Registration failed:', err));
-  });
+  } else {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => console.log('[Service Worker] Registered:', reg.scope))
+        .catch((err) => console.warn('[Service Worker] Registration warning:', err));
+    });
+  }
 }
 
 const rootElement = document.getElementById('root');

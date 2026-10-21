@@ -596,8 +596,8 @@ export default function Purchasing({
       id: '',
       date: new Date(purchaseDate + 'T12:00:00').toISOString(),
       items: purchaseItems.map(item => ({
-        productId: item.product.id,
-        name: item.product.name,
+        productId: item.product?.id || (item as any).productId || '',
+        name: item.product?.name || (item as any).name || 'Producto',
         quantity: item.quantity,
         cost: item.cost,
         lote: item.lote,
@@ -608,6 +608,7 @@ export default function Purchasing({
       })),
       total: calculations.total,
       providerId: selectedProviderId,
+      branch: purchaseBranch || activeBranchName || defaultBranchName || '',
       status: purchaseStatus,
       paymentType,
       voucherType,
@@ -1243,9 +1244,9 @@ export default function Purchasing({
                       </tr>
                     ) : (
                       purchaseItems.map((item, idx) => (
-                        <tr key={`${item.product.id}-${idx}`} className="hover:bg-slate-50/50 transition-colors whitespace-nowrap">
+                        <tr key={`${item.product?.id || idx}-${idx}`} className="hover:bg-slate-50/50 transition-colors whitespace-nowrap">
                         <td className="py-3 px-4 font-semibold text-slate-800 uppercase">
-                          {item.product.name}
+                          {item.product?.name || (item as any).name || 'Producto'}
                         </td>
                         <td className="py-3 px-3 text-center font-mono text-slate-500">
                           {item.lote}

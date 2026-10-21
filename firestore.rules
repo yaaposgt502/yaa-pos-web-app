@@ -312,6 +312,18 @@ service cloud.firestore {
         allow delete: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
       }
 
+      match /quotations/{quotationId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(quotationId) && canWriteBranchScopedDoc(userId);
+        allow delete: if isValidId(quotationId) && canWriteTenant(userId);
+      }
+
+      match /consignments/{consignmentId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(consignmentId) && canWriteBranchScopedDoc(userId);
+        allow delete: if isValidId(consignmentId) && canWriteTenant(userId);
+      }
+
       // Fallback for any additional subcollections inside tenant space
       match /{subcollection}/{docId} {
         allow read, write: if canWriteTenant(userId);

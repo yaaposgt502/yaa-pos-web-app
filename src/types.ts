@@ -280,3 +280,100 @@ export interface License {
   maxUsers?: number;
   maxBranches?: number;
 }
+
+export type QuotationStatus = 'borrador' | 'vigente' | 'vencida' | 'aceptada' | 'convertida';
+
+export interface QuotationItem {
+  productId: string;
+  name: string;
+  code?: string;
+  category?: string;
+  unit?: string;
+  quantity: number;
+  unitPrice: number;
+  cost?: number;
+  discountPercent?: number;
+  discountAmount?: number;
+  subtotal: number;
+  selectedLote?: string;
+  notes?: string;
+}
+
+export interface Quotation {
+  id: string;
+  correlative: string; // e.g. "COT-0001" or "PROF-0001"
+  clientId?: string;
+  clientName: string;
+  clientNit?: string;
+  clientPhone?: string;
+  clientEmail?: string;
+  clientAddress?: string;
+  emails: string[]; // Additional recipient emails
+  date: string; // YYYY-MM-DD
+  expirationDate: string; // YYYY-MM-DD
+  items: QuotationItem[];
+  subtotal: number;
+  discountTotal: number;
+  taxRate?: number;
+  taxTotal: number;
+  total: number;
+  currency: string;
+  status: QuotationStatus;
+  notes?: string;
+  termsAndConditions?: string;
+  isConsignment?: boolean;
+  branch?: string;
+  operatorId?: string;
+  operatorName?: string;
+  createdAt: string;
+  updatedAt?: string;
+  convertedSaleId?: string;
+  convertedAt?: string;
+}
+
+export interface ConsignmentItem {
+  productId: string;
+  name: string;
+  code?: string;
+  unit?: string;
+  price: number;
+  cost: number;
+  quantityDelivered: number;
+  quantityReturned: number;
+  quantitySold: number;
+  quantityPending: number;
+}
+
+export interface ConsignmentLog {
+  id: string;
+  date: string;
+  type: 'entrega' | 'devolucion' | 'venta';
+  productId: string;
+  productName: string;
+  quantity: number;
+  notes?: string;
+  saleId?: string;
+}
+
+export interface Consignment {
+  id: string;
+  correlative: string; // e.g. "CSG-0001"
+  clientId: string;
+  clientName: string;
+  clientPhone?: string;
+  clientEmail?: string;
+  clientNit?: string;
+  date: string;
+  dueDate?: string;
+  status: 'activa' | 'liquidada_parcial' | 'liquidada_total' | 'devuelta_total';
+  items: ConsignmentItem[];
+  totalDeliveredValue: number;
+  totalPendingValue: number;
+  notes?: string;
+  branch?: string;
+  operatorId?: string;
+  operatorName?: string;
+  createdAt: string;
+  logs?: ConsignmentLog[];
+}
+

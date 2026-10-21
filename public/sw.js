@@ -38,8 +38,11 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET, API requests, Firebase endpoints, Dev Server hot reload, Chrome extensions
+  // Skip caching on development, local, or AI Studio preview environments
   if (
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.hostname.includes('ais-dev-') ||
     request.method !== 'GET' ||
     url.pathname.startsWith('/api') ||
     url.hostname.includes('firestore.googleapis.com') ||
