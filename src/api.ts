@@ -3,7 +3,8 @@ import {
   signInWithEmailAndPassword, 
   signOut,
   updatePassword,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  updateProfile
 } from 'firebase/auth';
 import { initializeApp, getApp, deleteApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
@@ -160,6 +161,47 @@ export function getToken(): string | null {
   return apiToken;
 }
 
+export function getCachedUser(): User | null {
+  try {
+    const raw = localStorage.getItem('yaa_pos_user_profile');
+    const token = getToken();
+    if (!raw || !token) return null;
+    const parsed = JSON.parse(raw) as User;
+    if (parsed && (parsed.id === token || parsed.id)) {
+      return parsed;
+    }
+  } catch (e) {
+    console.warn('Error reading cached user profile:', e);
+  }
+  return null;
+}
+
+export function cacheUser(user: User | null): void {
+  try {
+    if (user && user.id) {
+      localStorage.setItem('yaa_pos_user_profile', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('yaa_pos_user_profile');
+    }
+  } catch (e) {
+    console.warn('Error saving cached user profile:', e);
+  }
+}
+
+export function formatNameFromEmail(email: string): string {
+  if (!email) return 'Usuario';
+  const prefix = email.split('@')[0];
+  const clean = prefix.replace(/\d+$/, '').replace(/[._-]/g, ' ').trim();
+  if (!clean) {
+    return prefix.charAt(0).toUpperCase() + prefix.slice(1);
+  }
+  return clean
+    .split(' ')
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
 // Helper to get collection reference inside the user's isolated document
 function getCollectionRef(subcollectionName: string) {
   const uid = getToken();
@@ -177,12 +219,22 @@ function getDocRef(subcollectionName: string, docId: string) {
 // --- AUTH API ---
 
 export async function registerUser(email: string, name: string, password: string): Promise<{ token: string, user: User }> {
-  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const cleanName = name.trim();
+  const cleanEmail = email.trim().toLowerCase();
+  const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
   const firebaseUser = userCredential.user;
+
+  // Persist name directly in Firebase Auth so auth.currentUser preserves it permanently across reloads
+  try {
+    await updateProfile(firebaseUser, { displayName: cleanName });
+  } catch (profErr) {
+    console.warn("Could not set displayName on firebaseUser:", profErr);
+  }
+
   const safeUser: User = {
     id: firebaseUser.uid,
-    email: firebaseUser.email || email,
-    name: name,
+    email: firebaseUser.email || cleanEmail,
+    name: cleanName,
     createdAt: new Date().toISOString()
   };
   
@@ -192,8 +244,8 @@ export async function registerUser(email: string, name: string, password: string
   // Assign default Básico subscription plan to the new company
   const defaultLicense: License = {
     userId: firebaseUser.uid,
-    clientName: name,
-    clientEmail: firebaseUser.email || email,
+    clientName: cleanName,
+    clientEmail: firebaseUser.email || cleanEmail,
     application: 'Yaa POS',
     planType: 'Básico',
     expirationDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
@@ -217,6 +269,7 @@ export async function registerUser(email: string, name: string, password: string
   }
 
   setToken(firebaseUser.uid);
+  cacheUser(safeUser);
   return { token: firebaseUser.uid, user: safeUser };
 }
 
@@ -407,13 +460,18 @@ export async function loginUser(email: string, password: string): Promise<{ toke
   // First, authenticate with standard Firebase Auth
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
   const firebaseUser = userCredential.user;
+  const normalizedEmail = (firebaseUser.email || email).trim().toLowerCase();
   
-  // Check if this user is configured as an operator globally
+  // Check if this user is configured as an operator globally or in owner subcollections
   try {
-    const globalRef = doc(db, 'operators', email.toLowerCase());
+    let opData: Operator | null = null;
+    const globalRef = doc(db, 'operators', normalizedEmail);
     const opSnap = await getDocumentSnap(globalRef);
     if (opSnap.exists()) {
-      const opData = opSnap.data() as Operator;
+      opData = opSnap.data() as Operator;
+    }
+
+    if (opData) {
       if (opData.status !== 'active') {
         await signOut(auth);
         throw new Error('Su cuenta de operador ha sido desactivada por el administrador.');
@@ -424,7 +482,7 @@ export async function loginUser(email: string, password: string): Promise<{ toke
       
       // Load the owner's profile info
       const userDoc = await getDocumentSnap(doc(db, 'users', ownerId));
-      const baseUser = userDoc.exists() ? (userDoc.data() as User) : { id: ownerId, name: 'Usuario Yaa POS', email: '' };
+      const baseUser = userDoc.exists() ? (userDoc.data() as User) : { id: ownerId, name: 'Propietario / Administrador', email: '' };
       
       // Validate the owner's account status and license
       if (ownerId !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
@@ -440,9 +498,9 @@ export async function loginUser(email: string, password: string): Promise<{ toke
       const safeUser: User = {
         ...baseUser,
         id: ownerId,
-        name: opData.name,
-        email: opData.email,
-        role: opData.role,
+        name: opData.name || firebaseUser.displayName || formatNameFromEmail(normalizedEmail),
+        email: opData.email || normalizedEmail,
+        role: opData.role || 'Cajero',
         isOperator: true,
         operatorId: opData.id,
         branch: opData.branch,
@@ -452,6 +510,7 @@ export async function loginUser(email: string, password: string): Promise<{ toke
       
       setToken(ownerId);
       localStorage.setItem('yaa_pos_operator_email', opData.email);
+      cacheUser(safeUser);
       return { token: ownerId, user: safeUser };
     }
   } catch (err) {
@@ -469,18 +528,54 @@ export async function loginUser(email: string, password: string): Promise<{ toke
   let safeUser: User;
   if (userDoc.exists()) {
     safeUser = userDoc.data() as User;
+    // Heal missing or generic name if needed
+    if (!safeUser.name || safeUser.name.trim() === 'Usuario Yaa POS') {
+      let resolvedName = firebaseUser.displayName;
+      if (!resolvedName || resolvedName.trim() === 'Usuario Yaa POS') {
+        const licDoc = await getDocumentSnap(doc(db, 'licenses', firebaseUser.uid)).catch(() => null);
+        if (licDoc && licDoc.exists() && licDoc.data().clientName && licDoc.data().clientName !== 'Empresa') {
+          resolvedName = licDoc.data().clientName;
+        }
+      }
+      if (!resolvedName || resolvedName.trim() === 'Usuario Yaa POS') {
+        resolvedName = formatNameFromEmail(normalizedEmail);
+      }
+      safeUser.name = resolvedName;
+      await setDoc(doc(db, 'users', firebaseUser.uid), safeUser, { merge: true }).catch(() => {});
+    }
+    if (!safeUser.email) {
+      safeUser.email = normalizedEmail;
+      await setDoc(doc(db, 'users', firebaseUser.uid), safeUser, { merge: true }).catch(() => {});
+    }
     if (!safeUser.createdAt) {
       safeUser.createdAt = new Date().toISOString();
-      await setDoc(doc(db, 'users', firebaseUser.uid), safeUser).catch(() => {});
+      await setDoc(doc(db, 'users', firebaseUser.uid), safeUser, { merge: true }).catch(() => {});
     }
   } else {
+    let resolvedName = firebaseUser.displayName;
+    if (!resolvedName || resolvedName.trim() === 'Usuario Yaa POS') {
+      const licDoc = await getDocumentSnap(doc(db, 'licenses', firebaseUser.uid)).catch(() => null);
+      if (licDoc && licDoc.exists() && licDoc.data().clientName && licDoc.data().clientName !== 'Empresa') {
+        resolvedName = licDoc.data().clientName;
+      }
+    }
+    if (!resolvedName || resolvedName.trim() === 'Usuario Yaa POS') {
+      resolvedName = formatNameFromEmail(normalizedEmail);
+    }
     safeUser = {
       id: firebaseUser.uid,
-      email: firebaseUser.email || email,
-      name: firebaseUser.displayName || 'Usuario Yaa POS',
+      email: normalizedEmail,
+      name: resolvedName,
       createdAt: new Date().toISOString()
     };
     await setDoc(doc(db, 'users', firebaseUser.uid), safeUser).catch(() => {});
+  }
+
+  // Ensure Firebase Auth displayName is synchronized in Auth persistence
+  if (safeUser.name && (!firebaseUser.displayName || firebaseUser.displayName !== safeUser.name)) {
+    try {
+      await updateProfile(firebaseUser, { displayName: safeUser.name });
+    } catch {}
   }
 
   // Validate standard owner profile and license status
@@ -496,6 +591,7 @@ export async function loginUser(email: string, password: string): Promise<{ toke
   
   setToken(firebaseUser.uid);
   localStorage.removeItem('yaa_pos_operator_email');
+  cacheUser(safeUser);
   return { token: firebaseUser.uid, user: safeUser };
 }
 
@@ -503,30 +599,33 @@ export async function logoutUser(): Promise<void> {
   clearMemoryCache();
   await signOut(auth);
   setToken(null);
+  cacheUser(null);
   localStorage.removeItem('yaa_pos_operator_email');
   window.dispatchEvent(new Event('yaa_pos_logout'));
 }
 
 export async function getMe(): Promise<User> {
-  // Ensure Firebase Auth is loaded to prevent race conditions on page refresh (with 2.5-second safety timeout)
-  await new Promise<void>((resolve) => {
-    let resolved = false;
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        resolve();
-      }
-    }, 2500);
+  // Ensure Firebase Auth is loaded to prevent race conditions on page refresh (with 3-second safety timeout)
+  if (!auth.currentUser) {
+    await new Promise<void>((resolve) => {
+      let resolved = false;
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      }, 3000);
 
-    const unsubscribe = auth.onAuthStateChanged(() => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        unsubscribe();
-        resolve();
-      }
+      const unsubscribe = auth.onAuthStateChanged((user) => {
+        if (!resolved && (user || !getToken())) {
+          resolved = true;
+          clearTimeout(timer);
+          unsubscribe();
+          resolve();
+        }
+      });
     });
-  });
+  }
 
   const uid = getToken();
   if (!uid) {
@@ -534,22 +633,46 @@ export async function getMe(): Promise<User> {
   }
 
   const firebaseUser = auth.currentUser;
+  const cachedUser = getCachedUser();
+
   // If there is no authenticated Firebase session, do not make unauthenticated Firestore calls
   if (!firebaseUser) {
+    if (cachedUser && (cachedUser.id === uid || cachedUser.id)) {
+      return cachedUser;
+    }
     throw new Error('Sesión expirada. Inicie sesión nuevamente.');
   }
-  if (firebaseUser?.email) {
+
+  const userEmail = (firebaseUser.email || cachedUser?.email || '').toLowerCase().trim();
+
+  // 1. Check if user is an operator (global collection or owner's subcollection)
+  if (userEmail) {
     try {
-      const globalRef = doc(db, 'operators', firebaseUser.email.toLowerCase());
+      let opData: Operator | null = null;
+      
+      // Global operators lookup
+      const globalRef = doc(db, 'operators', userEmail);
       const opSnap = await getDocumentSnap(globalRef);
       if (opSnap.exists()) {
-        const opData = opSnap.data() as Operator;
+        opData = opSnap.data() as Operator;
+      } else {
+        // Fallback: check tenant's operator subcollection
+        const tenantOpRef = doc(db, 'users', uid, 'operators', userEmail);
+        const tenantOpSnap = await getDocumentSnap(tenantOpRef);
+        if (tenantOpSnap.exists()) {
+          opData = tenantOpSnap.data() as Operator;
+        }
+      }
+
+      if (opData) {
         if (opData.status !== 'active') {
           throw new Error('Su cuenta de operador ha sido desactivada por el administrador.');
         }
 
         const userDoc = await getDocumentSnap(doc(db, 'users', uid));
-        const baseUser = userDoc.exists() ? (userDoc.data() as User) : { id: uid, name: 'Usuario Yaa POS', email: '' };
+        const baseUser = userDoc.exists() 
+          ? (userDoc.data() as User) 
+          : { id: uid, name: opData.name || 'Operador', email: userEmail };
         
         // Validate block/suspension for the owner in operator session
         if (uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
@@ -561,18 +684,20 @@ export async function getMe(): Promise<User> {
           }
         }
 
-        return {
+        const resolvedOperator: User = {
           ...baseUser,
           id: uid,
-          name: opData.name,
-          email: opData.email,
-          role: opData.role,
+          name: opData.name || firebaseUser.displayName || formatNameFromEmail(userEmail),
+          email: opData.email || userEmail,
+          role: opData.role || 'Cajero',
           isOperator: true,
           operatorId: opData.id,
           branch: opData.branch,
           branches: opData.branches || (opData.branch && opData.branch !== 'Todas' ? [opData.branch] : []),
           disabledTabs: opData.disabledTabs || []
         };
+        cacheUser(resolvedOperator);
+        return resolvedOperator;
       }
     } catch (err) {
       if (isQuotaExceededError(err)) {
@@ -585,20 +710,96 @@ export async function getMe(): Promise<User> {
     }
   }
 
-  const userDoc = await getDocumentSnap(doc(db, 'users', uid));
-  const baseUser = userDoc.exists() ? (userDoc.data() as User) : { id: uid, name: 'Usuario Yaa POS', email: '' };
+  // 2. Standard user (owner) identity recovery
+  let userData: User | null = null;
+  try {
+    const userDoc = await getDocumentSnap(doc(db, 'users', uid));
+    if (userDoc.exists()) {
+      userData = userDoc.data() as User;
+    }
+  } catch (err) {
+    console.warn("Could not fetch user document from Firestore:", err);
+  }
+
+  // Multi-tier recovery for name:
+  // 1. Existing Firestore name if valid and not generic
+  // 2. Firebase Auth displayName if valid and not generic
+  // 3. Cached user profile in localStorage if belongs to same uid
+  // 4. License clientName (saved during registration or admin)
+  // 5. Owner operator record in /users/{uid}/operators/
+  // 6. Formatted display name derived from authenticated email
+  let resolvedName = '';
+  if (userData?.name && userData.name.trim() !== 'Usuario Yaa POS') {
+    resolvedName = userData.name.trim();
+  } else if (firebaseUser.displayName && firebaseUser.displayName.trim() !== 'Usuario Yaa POS') {
+    resolvedName = firebaseUser.displayName.trim();
+  } else if (cachedUser && cachedUser.id === uid && cachedUser.name && cachedUser.name.trim() !== 'Usuario Yaa POS') {
+    resolvedName = cachedUser.name.trim();
+  }
+
+  if (!resolvedName || resolvedName === 'Usuario Yaa POS') {
+    try {
+      const licDoc = await getDocumentSnap(doc(db, 'licenses', uid));
+      if (licDoc.exists()) {
+        const licData = licDoc.data() as License;
+        if (licData.clientName && licData.clientName !== 'Empresa' && licData.clientName.trim() !== 'Usuario Yaa POS') {
+          resolvedName = licData.clientName.trim();
+        }
+      }
+    } catch {}
+  }
+
+  if (!resolvedName || resolvedName === 'Usuario Yaa POS') {
+    try {
+      const opSnapshot = await getDocs(collection(db, 'users', uid, 'operators'));
+      const adminOp = opSnapshot.docs.find(d => {
+        const dData = d.data();
+        return dData.role === 'Propietario / Administrador' || dData.id === '1';
+      });
+      if (adminOp && adminOp.data()?.name && adminOp.data().name.trim() !== 'Usuario Yaa POS') {
+        resolvedName = adminOp.data().name.trim();
+      }
+    } catch {}
+  }
+
+  if (!resolvedName || resolvedName === 'Usuario Yaa POS') {
+    resolvedName = formatNameFromEmail(userEmail);
+  }
+
+  const resolvedEmail = userData?.email || userEmail || cachedUser?.email || '';
+
+  const safeUser: User = {
+    ...(userData || {}),
+    id: uid,
+    name: resolvedName,
+    email: resolvedEmail,
+    createdAt: userData?.createdAt || new Date().toISOString()
+  };
+
+  // Sync back to Firestore if name or email was restored/corrected
+  if (!userData || userData.name !== resolvedName || userData.email !== resolvedEmail) {
+    setDoc(doc(db, 'users', uid), safeUser, { merge: true }).catch(() => {});
+  }
+
+  // Sync to Firebase Auth displayName
+  if (firebaseUser && (!firebaseUser.displayName || firebaseUser.displayName !== resolvedName)) {
+    try {
+      updateProfile(firebaseUser, { displayName: resolvedName }).catch(() => {});
+    } catch {}
+  }
 
   // Validate standard owner profile and license status
   if (uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
     const licenseDoc = await getDocumentSnap(doc(db, 'licenses', uid));
     const license = licenseDoc.exists() ? licenseDoc.data() as License : null;
-    const validation = performValidation(license, baseUser);
+    const validation = performValidation(license, safeUser);
     if (validation.isBlocked) {
       throw new Error(validation.reason);
     }
   }
 
-  return baseUser;
+  cacheUser(safeUser);
+  return safeUser;
 }
 
 // --- OPERATORS REAL API ---

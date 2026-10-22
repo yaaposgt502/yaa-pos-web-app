@@ -200,7 +200,7 @@ export function applyPurchaseItemToProduct(
 
 export default function App() {
   const [token, setToken] = useState<string | null>(api.getToken());
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => api.getCachedUser());
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -399,6 +399,34 @@ export default function App() {
         if (cloudUser) {
           latestUser = cloudUser;
           runValidation();
+          setUser(prev => {
+            if (!prev) {
+              api.cacheUser(cloudUser);
+              return cloudUser;
+            }
+            if (prev.isOperator) {
+              const updatedOp: User = {
+                ...cloudUser,
+                ...prev,
+                name: prev.name || cloudUser.name,
+                email: prev.email || cloudUser.email
+              };
+              api.cacheUser(updatedOp);
+              return updatedOp;
+            }
+            const cleanName = (cloudUser.name && cloudUser.name.trim() !== 'Usuario Yaa POS')
+              ? cloudUser.name.trim()
+              : (prev.name && prev.name.trim() !== 'Usuario Yaa POS' ? prev.name.trim() : cloudUser.name);
+            const cleanEmail = cloudUser.email || prev.email || '';
+            const merged: User = {
+              ...prev,
+              ...cloudUser,
+              name: cleanName,
+              email: cleanEmail
+            };
+            api.cacheUser(merged);
+            return merged;
+          });
         }
       });
 
@@ -988,6 +1016,7 @@ export default function App() {
       sessionStorage.removeItem('yaa_pos_session_password');
       localStorage.removeItem('yaa_pos_owner_password');
       localStorage.removeItem('yaa_pos_operator_email');
+      api.cacheUser(null);
       setToken(null);
       setUser(null);
       setProducts([]);
@@ -2532,11 +2561,17 @@ export default function App() {
               isSidebarCollapsed ? 'justify-center' : ''
             }`}>
               <div className="w-7 h-7 bg-white/10 text-blue-300 rounded-md flex items-center justify-center shrink-0 text-xs font-bold font-mono">
-                {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                {user.name && user.name.trim() !== 'Usuario Yaa POS'
+                  ? user.name.trim().charAt(0).toUpperCase()
+                  : (user.email ? user.email.trim().charAt(0).toUpperCase() : 'U')}
               </div>
               <div className={`min-w-0 flex-1 ${isSidebarCollapsed ? 'hidden' : 'block'}`}>
-                <p className="text-xs font-semibold text-white truncate">{user.name}</p>
-                <p className="text-[10px] text-slate-400 font-mono truncate">{user.email}</p>
+                <p className="text-xs font-semibold text-white truncate">
+                  {user.name && user.name.trim() !== 'Usuario Yaa POS'
+                    ? user.name
+                    : (user.email ? user.email.split('@')[0] : 'Usuario')}
+                </p>
+                <p className="text-[10px] text-slate-400 font-mono truncate">{user.email || ''}</p>
               </div>
             </div>
 
