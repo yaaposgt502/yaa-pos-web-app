@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, Provider, Purchase, PurchaseItem, AppConfig, User } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
+import { matchProductsByCode, SUPPORTED_BARCODE_FORMATS } from '../utils/barcodeHelper';
 import { 
   Plus, 
   Search, 
@@ -172,6 +173,11 @@ export default function Purchasing({
   const [barcodeScanSuccessFlash, setBarcodeScanSuccessFlash] = useState(false);
   const [scannedBarcodePreview, setScannedBarcodePreview] = useState<string>('');
 
+  // Multiple barcode matches selection modal for shared/short barcodes
+  const [purchaseMultipleMatches, setPurchaseMultipleMatches] = useState<Product[]>([]);
+  const [purchaseMultipleCode, setPurchaseMultipleCode] = useState<string>('');
+  const [isPurchaseMultipleModalOpen, setIsPurchaseMultipleModalOpen] = useState<boolean>(false);
+
   const purchaseVideoRef = useRef<HTMLVideoElement | null>(null);
   const purchaseStreamRef = useRef<MediaStream | null>(null);
   const purchaseCodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -233,14 +239,10 @@ export default function Purchasing({
       setBarcodeScanSuccessFlash(true);
     }
 
-    const cleanLower = cleanCode.toLowerCase();
-    const matched = products.find(p => 
-      (p.barcode && p.barcode.trim().toLowerCase() === cleanLower) ||
-      (p.code && p.code.trim().toLowerCase() === cleanLower) ||
-      (p.id && p.id.trim().toLowerCase() === cleanLower)
-    );
+    const { exactMatches, partialMatches } = matchProductsByCode(products, cleanCode);
 
-    if (matched) {
+    if (exactMatches.length === 1) {
+      const matched = exactMatches[0];
       selectProductForPurchase(matched);
       setPurchaseScanFeedback({
         type: 'success',
@@ -253,6 +255,28 @@ export default function Purchasing({
           quantityInputRef.current.select();
         }
       }, 100);
+    } else if (exactMatches.length > 1) {
+      setPurchaseMultipleMatches(exactMatches);
+      setPurchaseMultipleCode(cleanCode);
+      setIsPurchaseMultipleModalOpen(true);
+    } else if (partialMatches.length === 1) {
+      const matched = partialMatches[0];
+      selectProductForPurchase(matched);
+      setPurchaseScanFeedback({
+        type: 'success',
+        message: `✓ Producto seleccionado: ${matched.name}`,
+        sub: `Código: ${cleanCode} (coincidencia parcial) | Stock actual: ${matched.stock} | Costo base: ${currency}${matched.cost.toFixed(2)}`
+      });
+      setTimeout(() => {
+        if (quantityInputRef.current) {
+          quantityInputRef.current.focus();
+          quantityInputRef.current.select();
+        }
+      }, 100);
+    } else if (partialMatches.length > 1) {
+      setPurchaseMultipleMatches(partialMatches);
+      setPurchaseMultipleCode(cleanCode);
+      setIsPurchaseMultipleModalOpen(true);
     } else {
       setProdSearch(cleanCode);
       setCurrentProduct(null);
@@ -269,6 +293,23 @@ export default function Purchasing({
         stopPurchaseBarcodeScanner();
       }, 700);
     }
+  };
+
+  const handleSelectPurchaseMultipleMatch = (p: Product) => {
+    setIsPurchaseMultipleModalOpen(false);
+    setPurchaseMultipleMatches([]);
+    selectProductForPurchase(p);
+    setPurchaseScanFeedback({
+      type: 'success',
+      message: `✓ Producto seleccionado: ${p.name}`,
+      sub: `Código: ${purchaseMultipleCode} | Stock actual: ${p.stock} | Costo base: ${currency}${p.cost.toFixed(2)}`
+    });
+    setTimeout(() => {
+      if (quantityInputRef.current) {
+        quantityInputRef.current.focus();
+        quantityInputRef.current.select();
+      }
+    }, 100);
   };
 
   const stopPurchaseBarcodeScanner = () => {
@@ -366,7 +407,7 @@ export default function Purchasing({
         if ('BarcodeDetector' in window) {
           try {
             const detector = new (window as any).BarcodeDetector({
-              formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'qr_code', 'itf']
+              formats: SUPPORTED_BARCODE_FORMATS
             });
 
             const loop = async () => {
@@ -423,7 +464,7 @@ export default function Purchasing({
     let lastKeyTime = 0;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isPurchaseBarcodeScannerOpen || !!selectedPurchaseDetails) {
+      if (isPurchaseBarcodeScannerOpen || isPurchaseMultipleModalOpen || !!selectedPurchaseDetails) {
         return;
       }
 
@@ -453,7 +494,7 @@ export default function Purchasing({
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [isFormOpen, products, isPurchaseBarcodeScannerOpen, selectedPurchaseDetails, currency]);
+  }, [isFormOpen, products, isPurchaseBarcodeScannerOpen, isPurchaseMultipleModalOpen, selectedPurchaseDetails, currency]);
 
   // Calculations for Draft Purchase
   const ivaRate = 0.12;
@@ -1935,6 +1976,113 @@ export default function Purchasing({
             >
               Cancelar y escribir manualmente
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Selección cuando múltiples productos coinciden con el código escaneado en Compras */}
+      {isPurchaseMultipleModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh] border border-slate-200">
+            <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-xs">
+                  <Barcode className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-tight">Productos Coincidentes</h3>
+                  <p className="text-xs text-blue-100">
+                    Código escaneado: <span className="font-mono font-bold bg-white/20 px-1.5 py-0.5 rounded">{purchaseMultipleCode}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPurchaseMultipleModalOpen(false);
+                  setPurchaseMultipleMatches([]);
+                }}
+                className="p-1.5 hover:bg-white/20 rounded-lg text-white/80 hover:text-white transition-colors"
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-amber-50 border-b border-amber-200/60 text-xs text-amber-800 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+              <span>Se encontraron {purchaseMultipleMatches.length} productos con este código. Selecciona el correcto para la compra:</span>
+            </div>
+
+            <div className="p-3 overflow-y-auto divide-y divide-slate-100 flex-1">
+              {purchaseMultipleMatches.map(prod => (
+                <div
+                  key={prod.id}
+                  onClick={() => handleSelectPurchaseMultipleMatch(prod)}
+                  className="p-3 hover:bg-blue-50/70 rounded-xl cursor-pointer transition-all flex items-center justify-between gap-3 group border border-transparent hover:border-blue-200"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {prod.imageUrl ? (
+                      <img
+                        src={prod.imageUrl}
+                        alt={prod.name}
+                        className="w-12 h-12 rounded-lg object-cover bg-slate-100 border border-slate-200 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0 text-blue-600">
+                        <ShoppingBag className="w-6 h-6 opacity-70" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800 text-sm truncate group-hover:text-blue-700">
+                        {prod.name}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-slate-500">
+                        <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+                          Cód: {prod.code}
+                        </span>
+                        {prod.barcode && (
+                          <span className="font-mono bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">
+                            CB: {prod.barcode}
+                          </span>
+                        )}
+                        <span className="text-slate-400">•</span>
+                        <span>Stock: <strong className="text-slate-700">{prod.stock}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-bold text-slate-900 text-sm">
+                      {currency}{prod.cost.toFixed(2)}
+                    </p>
+                    <p className="text-[10px] text-slate-400">Costo base</p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectPurchaseMultipleMatch(prod);
+                      }}
+                      className="mt-1 text-xs bg-blue-600 group-hover:bg-blue-700 text-white font-medium px-2.5 py-1 rounded-lg transition-colors shadow-xs"
+                    >
+                      Seleccionar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPurchaseMultipleModalOpen(false);
+                  setPurchaseMultipleMatches([]);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

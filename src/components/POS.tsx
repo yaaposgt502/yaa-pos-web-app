@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import * as api from '../api';
+import { matchProductsByCode, SUPPORTED_BARCODE_FORMATS } from '../utils/barcodeHelper';
 
 interface Combo {
   id: string;
@@ -559,6 +560,11 @@ export default function POS({
     product?: POSProduct;
   } | null>(null);
 
+  // Multiple barcode matches selection modal for shared/short barcodes
+  const [multipleMatchesList, setMultipleMatchesList] = useState<Product[]>([]);
+  const [multipleMatchesCode, setMultipleMatchesCode] = useState<string>('');
+  const [isMultipleMatchesModalOpen, setIsMultipleMatchesModalOpen] = useState(false);
+
   const barcodeVideoRef = useRef<HTMLVideoElement | null>(null);
   const barcodeStreamRef = useRef<MediaStream | null>(null);
   const barcodeCodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -669,7 +675,7 @@ export default function POS({
       if ('BarcodeDetector' in window) {
         try {
           const detector = new (window as any).BarcodeDetector({
-            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'qr_code', 'itf']
+            formats: SUPPORTED_BARCODE_FORMATS
           });
 
           const detectLoop = async () => {
@@ -1228,35 +1234,16 @@ export default function POS({
       setBarcodeScanSuccessFlash(true);
     }
 
-    const cleanCodeLower = cleanCode.toLowerCase();
-    const cleanCodeNoZeros = cleanCodeLower.replace(/^0+/, '');
+    const { exactMatches, partialMatches } = matchProductsByCode(products, cleanCode);
 
-    const matched = products.find(p => {
-      const pBarcode = (p.barcode || '').trim().toLowerCase();
-      const pCode = (p.code || '').trim().toLowerCase();
-      const pId = (p.id || '').trim().toLowerCase();
-      return (
-        pBarcode === cleanCodeLower ||
-        (cleanCodeNoZeros.length > 0 && pBarcode === cleanCodeNoZeros) ||
-        pCode === cleanCodeLower ||
-        (cleanCodeNoZeros.length > 0 && pCode === cleanCodeNoZeros) ||
-        pId === cleanCodeLower
-      );
-    });
-
-    if (posMode === 'rapida') {
-      // VENTA RÁPIDA / CÓDIGO: Original fast workflow — immediately adds product to active cart/ticket
-      if (matched) {
+    if (exactMatches.length === 1) {
+      const matched = exactMatches[0];
+      if (posMode === 'rapida') {
         addToCart(matched as POSProduct);
         setSearchQuery('');
         setBarcodeFeedbackBanner(null);
       } else {
-        alert(`Producto no encontrado con el código "${cleanCode}".`);
-      }
-    } else {
-      // VENTA VISUAL: Locate product, filter view and present confirmation banner with action
-      setSelectedCategory('Todos');
-      if (matched) {
+        setSelectedCategory('Todos');
         setSearchQuery(matched.barcode?.trim() || matched.code?.trim() || cleanCode);
         setBarcodeFeedbackBanner({
           type: 'success',
@@ -1264,12 +1251,42 @@ export default function POS({
           sub: `Código: ${matched.code} ${matched.barcode ? `| CB: ${matched.barcode}` : ''} | Precio: ${currency}${matched.price.toFixed(2)} | Stock: ${getProductEffectiveStock(matched)}`,
           product: matched as POSProduct
         });
+      }
+    } else if (exactMatches.length > 1) {
+      // Multiple products share this code (e.g. short code 4-5 digits)
+      setMultipleMatchesList(exactMatches);
+      setMultipleMatchesCode(cleanCode);
+      setIsMultipleMatchesModalOpen(true);
+    } else if (partialMatches.length === 1) {
+      const matched = partialMatches[0];
+      if (posMode === 'rapida') {
+        addToCart(matched as POSProduct);
+        setSearchQuery('');
+        setBarcodeFeedbackBanner(null);
       } else {
+        setSelectedCategory('Todos');
+        setSearchQuery(matched.barcode?.trim() || matched.code?.trim() || cleanCode);
+        setBarcodeFeedbackBanner({
+          type: 'success',
+          message: `Producto encontrado: ${matched.name}`,
+          sub: `Código: ${matched.code} ${matched.barcode ? `| CB: ${matched.barcode}` : ''} | Precio: ${currency}${matched.price.toFixed(2)} | Stock: ${getProductEffectiveStock(matched)}`,
+          product: matched as POSProduct
+        });
+      }
+    } else if (partialMatches.length > 1) {
+      setMultipleMatchesList(partialMatches);
+      setMultipleMatchesCode(cleanCode);
+      setIsMultipleMatchesModalOpen(true);
+    } else {
+      if (posMode === 'rapida') {
+        alert(`Producto no encontrado con el código "${cleanCode}".`);
+      } else {
+        setSelectedCategory('Todos');
         setSearchQuery(cleanCode);
         setBarcodeFeedbackBanner({
           type: 'error',
           message: `Producto no encontrado`,
-          sub: `No existe ningún producto con el código de barras "${cleanCode}". Verifica en Inventario o regístralo.`
+          sub: `No existe ningún producto con el código "${cleanCode}". Verifica en Inventario o regístralo.`
         });
       }
     }
@@ -1279,6 +1296,25 @@ export default function POS({
         setBarcodeScanSuccessFlash(false);
         stopPosBarcodeScanner();
       }, 650);
+    }
+  };
+
+  const handleSelectMultipleMatch = (selectedProduct: Product) => {
+    setIsMultipleMatchesModalOpen(false);
+    setMultipleMatchesList([]);
+    if (posMode === 'rapida') {
+      addToCart(selectedProduct as POSProduct);
+      setSearchQuery('');
+      setBarcodeFeedbackBanner(null);
+    } else {
+      setSelectedCategory('Todos');
+      setSearchQuery(selectedProduct.barcode?.trim() || selectedProduct.code?.trim() || selectedProduct.name);
+      setBarcodeFeedbackBanner({
+        type: 'success',
+        message: `Producto seleccionado: ${selectedProduct.name}`,
+        sub: `Código: ${selectedProduct.code} ${selectedProduct.barcode ? `| CB: ${selectedProduct.barcode}` : ''} | Precio: ${currency}${selectedProduct.price.toFixed(2)} | Stock: ${getProductEffectiveStock(selectedProduct)}`,
+        product: selectedProduct as POSProduct
+      });
     }
   };
 
@@ -1295,7 +1331,8 @@ export default function POS({
         isDevolucionesModalOpen || 
         isCotizacionesModalOpen || 
         isBarcodeScannerOpen || 
-        isLiveCameraOpen
+        isLiveCameraOpen ||
+        isMultipleMatchesModalOpen
       ) {
         return;
       }
@@ -4836,6 +4873,109 @@ export default function POS({
             <p className="text-[10px] text-slate-400 text-center">
               Al detectar el código, se buscará y agregará automáticamente al carrito actual.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Selección cuando múltiples productos coinciden con el código escaneado */}
+      {isMultipleMatchesModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh] border border-slate-200">
+            <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-xs">
+                  <Barcode className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-tight">Productos Coincidentes</h3>
+                  <p className="text-xs text-blue-100">
+                    Código escaneado: <span className="font-mono font-bold bg-white/20 px-1.5 py-0.5 rounded">{multipleMatchesCode}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMultipleMatchesModalOpen(false);
+                  setMultipleMatchesList([]);
+                }}
+                className="p-1.5 hover:bg-white/20 rounded-lg text-white/80 hover:text-white transition-colors"
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-amber-50 border-b border-amber-200/60 text-xs text-amber-800 flex items-center gap-2">
+              <Info className="w-4 h-4 shrink-0 text-amber-600" />
+              <span>Se encontraron {multipleMatchesList.length} productos con este código. Selecciona el correcto para agregarlo:</span>
+            </div>
+
+            <div className="p-3 overflow-y-auto divide-y divide-slate-100 flex-1">
+              {multipleMatchesList.map(prod => {
+                const effStock = getProductEffectiveStock(prod);
+                return (
+                  <div
+                    key={prod.id}
+                    onClick={() => handleSelectMultipleMatch(prod)}
+                    className="p-3 hover:bg-blue-50/70 rounded-xl cursor-pointer transition-all flex items-center justify-between gap-3 group border border-transparent hover:border-blue-200"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img
+                        src={getProductImage(prod)}
+                        alt={prod.name}
+                        className="w-12 h-12 rounded-lg object-cover bg-slate-100 border border-slate-200 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-800 text-sm truncate group-hover:text-blue-700">
+                          {prod.name}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-slate-500">
+                          <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+                            Cód: {prod.code}
+                          </span>
+                          {prod.barcode && (
+                            <span className="font-mono bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">
+                              CB: {prod.barcode}
+                            </span>
+                          )}
+                          <span className="text-slate-400">•</span>
+                          <span>Stock: <strong className={effStock <= 0 ? 'text-red-600' : 'text-slate-700'}>{effStock}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-slate-900 text-sm">
+                        {currency}{prod.price.toFixed(2)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectMultipleMatch(prod);
+                        }}
+                        className="mt-1 text-xs bg-blue-600 group-hover:bg-blue-700 text-white font-medium px-2.5 py-1 rounded-lg transition-colors shadow-xs"
+                      >
+                        Seleccionar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMultipleMatchesModalOpen(false);
+                  setMultipleMatchesList([]);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

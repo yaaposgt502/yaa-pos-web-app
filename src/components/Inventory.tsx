@@ -3,6 +3,7 @@ import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, AppConfig, Sale, Purchase, Branch, User } from '../types';
 import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
 import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
+import { matchProductsByCode, SUPPORTED_BARCODE_FORMATS, getProductCodes } from '../utils/barcodeHelper';
 import { 
   Plus, 
   PlusCircle,
@@ -570,25 +571,48 @@ export default function Inventory({
         if (field === 'barcode') {
           setFormBarcode(cleanCode);
           setFormCode(prev => (!prev || prev.startsWith('SKU-') ? cleanCode : prev));
+          const { exactMatches } = matchProductsByCode(products, cleanCode);
+          const existing = exactMatches.find(p => !editingProduct || p.id !== editingProduct.id);
+          if (existing) {
+            setProductFormScanFeedback({
+              type: 'warning',
+              message: `Aviso: Este código ya pertenece a "${existing.name}" (SKU: ${existing.code})`
+            });
+          } else {
+            setProductFormScanFeedback({
+              type: 'success',
+              message: `✓ Código de barras capturado: ${cleanCode}`
+            });
+          }
         } else if (field === 'code') {
           setFormCode(cleanCode);
         } else if (field === 'inventory_search') {
           setCodeFilter(cleanCode);
-          setSearchQuery(cleanCode);
-          const cleanCodeLower = cleanCode.toLowerCase();
-          const matched = products.find(p => {
-            const bMatch = p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower;
-            const cMatch = p.code && p.code.trim().toLowerCase() === cleanCodeLower;
-            const idMatch = p.id && p.id.trim().toLowerCase() === cleanCodeLower;
-            return bMatch || cMatch || idMatch;
-          });
-          if (matched) {
+          const { exactMatches, partialMatches } = matchProductsByCode(products, cleanCode);
+          if (exactMatches.length === 1) {
+            const matched = exactMatches[0];
+            setSearchQuery(matched.barcode?.trim() || matched.code?.trim() || cleanCode);
             setInventoryScanFeedback({
               type: 'success',
               message: `Producto identificado: ${matched.name}`,
               sub: `Código: ${cleanCode} | Stock: ${getProductStock(matched)} | Ubicación: ${matched.location || 'Almacén Principal'}`
             });
+          } else if (exactMatches.length > 1) {
+            setSearchQuery(cleanCode);
+            setInventoryScanFeedback({
+              type: 'success',
+              message: `Se encontraron ${exactMatches.length} productos con el código "${cleanCode}"`,
+              sub: exactMatches.map(p => p.name).slice(0, 3).join(', ') + (exactMatches.length > 3 ? '...' : '')
+            });
+          } else if (partialMatches.length > 0) {
+            setSearchQuery(cleanCode);
+            setInventoryScanFeedback({
+              type: 'success',
+              message: `Se encontraron ${partialMatches.length} coincidencia(s) para "${cleanCode}"`,
+              sub: partialMatches.map(p => p.name).slice(0, 3).join(', ')
+            });
           } else {
+            setSearchQuery(cleanCode);
             setInventoryScanFeedback({
               type: 'error',
               message: `Producto no encontrado en inventario`,
@@ -607,7 +631,7 @@ export default function Inventory({
       if ('BarcodeDetector' in window) {
         try {
           const barcodeDetector = new (window as any).BarcodeDetector({
-            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'qr_code', 'itf']
+            formats: SUPPORTED_BARCODE_FORMATS
           });
 
           const detectLoop = async () => {
@@ -697,14 +721,10 @@ export default function Inventory({
     setFormCode(prev => (!prev || prev.startsWith('SKU-') ? cleanCode : prev));
 
     // Check if barcode already belongs to another product
-    const cleanCodeLower = cleanCode.toLowerCase();
-    const existing = products.find(p => 
-      (p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower) ||
-      (p.code && p.code.trim().toLowerCase() === cleanCodeLower) ||
-      (p.id && p.id.trim().toLowerCase() === cleanCodeLower)
-    );
+    const { exactMatches } = matchProductsByCode(products, cleanCode);
+    const existing = exactMatches.find(p => !editingProduct || p.id !== editingProduct.id);
 
-    if (existing && (!editingProduct || existing.id !== editingProduct.id)) {
+    if (existing) {
       setProductFormScanFeedback({
         type: 'warning',
         message: `Aviso: Este código ya pertenece a "${existing.name}" (SKU: ${existing.code})`
@@ -731,24 +751,34 @@ export default function Inventory({
       if (navigator.vibrate) navigator.vibrate(80);
     } catch (e) {}
 
-    setSearchQuery(cleanCode);
     setCodeFilter(cleanCode);
 
-    const cleanCodeLower = cleanCode.toLowerCase();
-    const matched = products.find(p => {
-      const bMatch = p.barcode && p.barcode.trim().toLowerCase() === cleanCodeLower;
-      const cMatch = p.code && p.code.trim().toLowerCase() === cleanCodeLower;
-      const idMatch = p.id && p.id.trim().toLowerCase() === cleanCodeLower;
-      return bMatch || cMatch || idMatch;
-    });
+    const { exactMatches, partialMatches } = matchProductsByCode(products, cleanCode);
 
-    if (matched) {
+    if (exactMatches.length === 1) {
+      const matched = exactMatches[0];
+      setSearchQuery(matched.barcode?.trim() || matched.code?.trim() || cleanCode);
       setInventoryScanFeedback({
         type: 'success',
         message: `Producto identificado: ${matched.name}`,
         sub: `Código: ${cleanCode} | Stock: ${getProductStock(matched)} | Ubicación: ${matched.location || 'Almacén Principal'}`
       });
+    } else if (exactMatches.length > 1) {
+      setSearchQuery(cleanCode);
+      setInventoryScanFeedback({
+        type: 'success',
+        message: `Se encontraron ${exactMatches.length} productos con el código "${cleanCode}"`,
+        sub: exactMatches.map(p => p.name).slice(0, 3).join(', ') + (exactMatches.length > 3 ? '...' : '')
+      });
+    } else if (partialMatches.length > 0) {
+      setSearchQuery(cleanCode);
+      setInventoryScanFeedback({
+        type: 'success',
+        message: `Se encontraron ${partialMatches.length} coincidencia(s) para "${cleanCode}"`,
+        sub: partialMatches.map(p => p.name).slice(0, 3).join(', ')
+      });
     } else {
+      setSearchQuery(cleanCode);
       setInventoryScanFeedback({
         type: 'error',
         message: `Producto no encontrado en inventario`,
@@ -1703,17 +1733,15 @@ export default function Inventory({
       const effStock = getProductStock(p);
       // Name, category, barcode & code search
       const q = searchQuery.toLowerCase().trim();
+      const pCodes = getProductCodes(p);
       const matchesSearch = !q || 
                             p.name.toLowerCase().includes(q) || 
                             p.category.toLowerCase().includes(q) ||
-                            (p.barcode && p.barcode.toLowerCase().includes(q)) ||
-                            (p.code && p.code.toLowerCase().includes(q));
+                            pCodes.some(codeVal => codeVal.toLowerCase().includes(q));
       
       // Code / Barcode filter
       const c = codeFilter.toLowerCase().trim();
-      const matchesCode = !c || 
-                          p.code.toLowerCase().includes(c) ||
-                          (p.barcode && p.barcode.toLowerCase().includes(c));
+      const matchesCode = !c || pCodes.some(codeVal => codeVal.toLowerCase().includes(c));
 
       // Location filter
       const matchesLocation = !locationFilter || (p.location || 'Almacén Principal').toLowerCase().includes(locationFilter.toLowerCase());
@@ -1824,8 +1852,8 @@ export default function Inventory({
       setBarcodeResult(null);
       return;
     }
-    const match = products.find(p => p.code === barcodeSearch || p.code.includes(barcodeSearch));
-    setBarcodeResult(match || null);
+    const { exactMatches, partialMatches } = matchProductsByCode(products, barcodeSearch);
+    setBarcodeResult(exactMatches[0] || partialMatches[0] || null);
   }, [barcodeSearch, products]);
 
   // Special items creation handlers

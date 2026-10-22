@@ -30,6 +30,8 @@ export interface Product {
   // Pharmacy fields
   registrationDate?: string;
   barcode?: string;
+  sku?: string;
+  alternativeCodes?: string[] | string;
   pharmacyType?: string; // e.g. Genérico, Comercial/De Marca
   prescriptionRequired?: string; // e.g. sin receta médica, bajo receta médica
   sanitaryRegister?: string;
