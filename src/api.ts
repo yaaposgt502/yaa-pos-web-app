@@ -127,6 +127,23 @@ export async function getDocumentSnap(docRef: any): Promise<any> {
   return await getDoc(docRef);
 }
 
+export const FIRESTORE_UPGRADE_URL = 'https://console.firebase.google.com/project/gen-lang-client-0858502482/firestore/databases/ai-studio-yaapos-acf1b9d4-de65-4b12-9ecf-bbbe308c617d/data?openUpgradeDialog=true';
+
+export function isQuotaExceededError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = typeof error === 'string' ? error : (error instanceof Error ? error.message : JSON.stringify(error));
+  return (
+    msg.includes('Quota limit exceeded') ||
+    msg.includes('Quota exceeded') ||
+    msg.includes('Free daily read units') ||
+    msg.includes('free tier database') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('quota metric') ||
+    msg.includes('quota checks') ||
+    msg.includes('Quota exceeded for quota metric')
+  );
+}
+
 let apiToken: string | null = localStorage.getItem('yaa_pos_token');
 
 export function setToken(token: string | null) {
@@ -393,7 +410,7 @@ export async function loginUser(email: string, password: string): Promise<{ toke
   // Check if this user is configured as an operator globally
   try {
     const globalRef = doc(db, 'operators', email.toLowerCase());
-    const opSnap = await getDoc(globalRef);
+    const opSnap = await getDocumentSnap(globalRef);
     if (opSnap.exists()) {
       const opData = opSnap.data() as Operator;
       if (opData.status !== 'active') {
@@ -405,12 +422,12 @@ export async function loginUser(email: string, password: string): Promise<{ toke
       if (!ownerId) throw new Error('Operador sin propietario asignado');
       
       // Load the owner's profile info
-      const userDoc = await getDoc(doc(db, 'users', ownerId));
+      const userDoc = await getDocumentSnap(doc(db, 'users', ownerId));
       const baseUser = userDoc.exists() ? (userDoc.data() as User) : { id: ownerId, name: 'Usuario Yaa POS', email: '' };
       
       // Validate the owner's account status and license
       if (ownerId !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
-        const licenseDoc = await getDoc(doc(db, 'licenses', ownerId));
+        const licenseDoc = await getDocumentSnap(doc(db, 'licenses', ownerId));
         const license = licenseDoc.exists() ? licenseDoc.data() as License : null;
         const validation = performValidation(license, baseUser);
         if (validation.isBlocked) {
@@ -437,6 +454,9 @@ export async function loginUser(email: string, password: string): Promise<{ toke
       return { token: ownerId, user: safeUser };
     }
   } catch (err) {
+    if (isQuotaExceededError(err)) {
+      throw err;
+    }
     if (err instanceof Error && (err.message.includes('desactivada') || err.message.includes('suspendida') || err.message.includes('licencia') || err.message.includes('expirado'))) {
       throw err;
     }
@@ -444,13 +464,13 @@ export async function loginUser(email: string, password: string): Promise<{ toke
   }
 
   // Treat as standard user (owner)
-  const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+  const userDoc = await getDocumentSnap(doc(db, 'users', firebaseUser.uid));
   let safeUser: User;
   if (userDoc.exists()) {
     safeUser = userDoc.data() as User;
     if (!safeUser.createdAt) {
       safeUser.createdAt = new Date().toISOString();
-      await setDoc(doc(db, 'users', firebaseUser.uid), safeUser);
+      await setDoc(doc(db, 'users', firebaseUser.uid), safeUser).catch(() => {});
     }
   } else {
     safeUser = {
@@ -459,12 +479,12 @@ export async function loginUser(email: string, password: string): Promise<{ toke
       name: firebaseUser.displayName || 'Usuario Yaa POS',
       createdAt: new Date().toISOString()
     };
-    await setDoc(doc(db, 'users', firebaseUser.uid), safeUser);
+    await setDoc(doc(db, 'users', firebaseUser.uid), safeUser).catch(() => {});
   }
 
   // Validate standard owner profile and license status
   if (firebaseUser.uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
-    const licenseDoc = await getDoc(doc(db, 'licenses', firebaseUser.uid));
+    const licenseDoc = await getDocumentSnap(doc(db, 'licenses', firebaseUser.uid));
     const license = licenseDoc.exists() ? licenseDoc.data() as License : null;
     const validation = performValidation(license, safeUser);
     if (validation.isBlocked) {
@@ -520,19 +540,19 @@ export async function getMe(): Promise<User> {
   if (firebaseUser?.email) {
     try {
       const globalRef = doc(db, 'operators', firebaseUser.email.toLowerCase());
-      const opSnap = await getDoc(globalRef);
+      const opSnap = await getDocumentSnap(globalRef);
       if (opSnap.exists()) {
         const opData = opSnap.data() as Operator;
         if (opData.status !== 'active') {
           throw new Error('Su cuenta de operador ha sido desactivada por el administrador.');
         }
 
-        const userDoc = await getDoc(doc(db, 'users', uid));
+        const userDoc = await getDocumentSnap(doc(db, 'users', uid));
         const baseUser = userDoc.exists() ? (userDoc.data() as User) : { id: uid, name: 'Usuario Yaa POS', email: '' };
         
         // Validate block/suspension for the owner in operator session
         if (uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
-          const licenseDoc = await getDoc(doc(db, 'licenses', uid));
+          const licenseDoc = await getDocumentSnap(doc(db, 'licenses', uid));
           const license = licenseDoc.exists() ? licenseDoc.data() as License : null;
           const validation = performValidation(license, baseUser);
           if (validation.isBlocked) {
@@ -554,6 +574,9 @@ export async function getMe(): Promise<User> {
         };
       }
     } catch (err) {
+      if (isQuotaExceededError(err)) {
+        throw err;
+      }
       if (err instanceof Error && (err.message.includes('desactivada') || err.message.includes('suspendida') || err.message.includes('licencia') || err.message.includes('expirado'))) {
         throw err;
       }
@@ -561,12 +584,12 @@ export async function getMe(): Promise<User> {
     }
   }
 
-  const userDoc = await getDoc(doc(db, 'users', uid));
+  const userDoc = await getDocumentSnap(doc(db, 'users', uid));
   const baseUser = userDoc.exists() ? (userDoc.data() as User) : { id: uid, name: 'Usuario Yaa POS', email: '' };
 
   // Validate standard owner profile and license status
   if (uid !== 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
-    const licenseDoc = await getDoc(doc(db, 'licenses', uid));
+    const licenseDoc = await getDocumentSnap(doc(db, 'licenses', uid));
     const license = licenseDoc.exists() ? licenseDoc.data() as License : null;
     const validation = performValidation(license, baseUser);
     if (validation.isBlocked) {
@@ -867,12 +890,12 @@ export async function deleteAdminUser(userId: string): Promise<void> {
 
 export async function getUserLicense(userId: string): Promise<License | null> {
   try {
-    const docSnap = await getDoc(doc(db, 'licenses', userId));
+    const docSnap = await getDocumentSnap(doc(db, 'licenses', userId));
     if (docSnap.exists()) {
       return docSnap.data() as License;
     }
     // Automatically seed default Básico license if none exists
-    const userSnap = await getDoc(doc(db, 'users', userId));
+    const userSnap = await getDocumentSnap(doc(db, 'users', userId));
     const uData = userSnap.exists() ? userSnap.data() as User : null;
     const defaultLic: License = {
       userId,

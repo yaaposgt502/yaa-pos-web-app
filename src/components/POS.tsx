@@ -1940,33 +1940,6 @@ export default function POS({
             <span>Venta Rápida / Código</span>
           </button>
         </div>
-
-        {/* Operating Branch Tag */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#E2E8F0] rounded-lg text-xs text-[#1F2937] shadow-2xs">
-          <Building2 className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
-          <span className="text-[11px] text-[#64748B] font-medium">Sede:</span>
-          {branches && branches.length > 1 && onSwitchBranch && !userAllowedBranches.length ? (
-            <select
-              value={branches.find(b => b.name.toLowerCase().trim() === currentOperatingBranch.toLowerCase().trim())?.id || ''}
-              onChange={(e) => onSwitchBranch(e.target.value)}
-              className="bg-transparent border-0 text-xs font-semibold text-[#1F2937] focus:outline-hidden cursor-pointer p-0"
-              title="Cambiar sucursal para operar"
-            >
-              {branches.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-          ) : (
-            <span className="font-semibold text-[#1F2937]">{currentOperatingBranch}</span>
-          )}
-          <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium border ml-1 ${
-            currentShift 
-              ? 'bg-emerald-50 text-[#16A34A] border-emerald-200' 
-              : 'bg-amber-50 text-amber-700 border-amber-200'
-          }`}>
-            {currentShift ? 'Caja Abierta' : 'Caja Cerrada'}
-          </span>
-        </div>
       </div>
 
       {/* 3. SALES SESSIONS (Multiple Cart Tabs) */}

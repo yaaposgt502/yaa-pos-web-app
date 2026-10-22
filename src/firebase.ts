@@ -1,8 +1,12 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getFirestore, 
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager,
   doc, 
-  getDocFromServer
+  getDocFromServer,
+  Firestore
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
@@ -10,8 +14,21 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore with clean instance for web preview and iframe stability
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this database ID */
+// Initialize Firestore with single-tab IndexedDB persistent cache.
+// This caches read documents locally in the browser so repeat queries consume 0 cloud reads,
+// while avoiding multi-tab iframe lock issues.
+let firestoreInstance: Firestore;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentSingleTabManager({})
+    })
+  }, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  firestoreInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+
+export const db = firestoreInstance; /* CRITICAL: The app will break without this database ID */
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
@@ -67,11 +84,11 @@ async function testConnection() {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      console.warn('Firebase connection check: the client is offline.');
     }
   }
 }
-testConnection();
+testConnection().catch(() => {});
 
 export { app };
 

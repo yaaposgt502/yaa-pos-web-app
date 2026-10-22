@@ -57,7 +57,8 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  Store
+  Store,
+  ExternalLink
 } from 'lucide-react';
 import { getSystemBranches, getActiveBranch, getOperationalBranches, resolveBranch, isItemInBranch } from './utils/branchHelper';
 
@@ -201,7 +202,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isTabletSidebarCollapsed, setIsTabletSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState<'admin' | 'pos'>('admin');
 
   // Core collections
@@ -293,7 +294,7 @@ export default function App() {
             }
           }
           setUser(profile);
-          loadAllData(profile).catch((err) => console.warn('Background loadAllData warning:', err));
+          // Real-time onSnapshot listeners handle collection population without redundant full-collection fetches
         } catch (err: any) {
           if (isCancelled) return;
           try {
@@ -303,8 +304,9 @@ export default function App() {
             setToken(null);
             setUser(null);
           }
-          // Only show auth error if it's an explicit blocking reason, not normal expired/empty session
-          if (err instanceof Error && (err.message.includes('suspendida') || err.message.includes('desactivada') || err.message.includes('expirado'))) {
+          if (api.isQuotaExceededError(err)) {
+            setAuthError('Límite de cuota gratuita diaria de Firestore alcanzado (50,000 lecturas/día en base de datos secundaria). Puede reactivarla desvinculando la restricción gratuita en Firebase Console.');
+          } else if (err instanceof Error && (err.message.includes('suspendida') || err.message.includes('desactivada') || err.message.includes('expirado'))) {
             setAuthError(err.message);
           }
         }
@@ -718,9 +720,7 @@ export default function App() {
         try {
           const parsed = JSON.parse(e.newValue);
           if (parsed?.branchId) applySyncedBranchId(parsed.branchId);
-          if (parsed?.type === 'data_update') {
-            loadAllData();
-          }
+          // Note: Firestore onSnapshot already handles real-time data sync without redundant collection refetches
         } catch {}
       }
     };
@@ -734,9 +734,7 @@ export default function App() {
           if (data?.branchId) {
             applySyncedBranchId(data.branchId);
           }
-          if (data?.type === 'data_update') {
-            loadAllData();
-          }
+          // Note: Firestore onSnapshot already handles real-time data sync without redundant collection refetches
         };
       } catch {}
     }
@@ -869,7 +867,11 @@ export default function App() {
       setAuthEmail('');
       setAuthName('');
     } catch (err: any) {
-      setAuthError(err.message || 'Error de autenticación');
+      if (api.isQuotaExceededError(err)) {
+        setAuthError('Límite de cuota gratuita diaria de Firestore alcanzado (50,000 lecturas/día en base de datos secundaria). Puede reactivarla desvinculando la restricción gratuita en Firebase Console para permitir facturación en plan Blaze.');
+      } else {
+        setAuthError(err.message || 'Error de autenticación');
+      }
     } finally {
       setIsInitializing(false);
     }
@@ -1522,9 +1524,32 @@ export default function App() {
             )}
 
             {authError && (
-              <div className="bg-red-50 text-red-600 border border-red-200 rounded-xl p-3 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{authError}</span>
+              <div className={`${api.isQuotaExceededError(authError) ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-red-50 text-red-600 border-red-200'} border rounded-xl p-3.5 text-xs space-y-2`}>
+                <div className="flex items-start gap-2">
+                  <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${api.isQuotaExceededError(authError) ? 'text-amber-600' : 'text-red-500'}`} />
+                  <div className="space-y-1">
+                    <p className={`font-bold ${api.isQuotaExceededError(authError) ? 'text-amber-900' : 'text-red-700'}`}>
+                      {api.isQuotaExceededError(authError) ? 'Límite de lecturas de Firestore alcanzado' : 'Aviso de autenticación'}
+                    </p>
+                    <p className="text-slate-700 leading-relaxed">{authError}</p>
+                  </div>
+                </div>
+                {api.isQuotaExceededError(authError) && (
+                  <div className="pt-2 border-t border-amber-200 flex flex-col gap-2">
+                    <p className="text-[11px] text-slate-600">
+                      Su base de datos secundaria está limitada por la cuota gratuita (50,000 lecturas/día). Aunque el proyecto tenga plan Blaze, debe abrir la consola y hacer clic en <strong>Habilitar facturación / Actualizar base de datos</strong>:
+                    </p>
+                    <a
+                      href={api.FIRESTORE_UPGRADE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold text-xs transition-colors shadow-xs"
+                    >
+                      <span>Abrir Firebase Console para actualizar base de datos</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1954,10 +1979,10 @@ export default function App() {
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
-        {/* 1. SIDEBAR (#172B4D) - ADAPTIVE ON TABLET (md to xl), FULL WIDTH ON DESKTOP (xl) */}
+        {/* 1. SIDEBAR (#172B4D) - ADAPTIVE ON TABLET AND DESKTOP */}
         <aside className={`hidden md:flex ${
-          isTabletSidebarCollapsed ? 'md:w-18' : 'md:w-64'
-        } xl:w-64 bg-[#172B4D] text-slate-200 flex-col justify-between shrink-0 border-r border-[#243B61] transition-all duration-200`}>
+          isSidebarCollapsed ? 'w-18' : 'w-64'
+        } bg-[#172B4D] text-slate-200 flex-col justify-between shrink-0 border-r border-[#243B61] transition-all duration-200`}>
           
           {/* Top Header Brand */}
           <div className="px-4 py-4 border-b border-[#243B61] flex items-center justify-between">
@@ -1965,7 +1990,7 @@ export default function App() {
               <div className="w-7 h-7 rounded-md bg-[#2563EB] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
                 Y
               </div>
-              <div className={`min-w-0 ${isTabletSidebarCollapsed ? 'md:hidden xl:block' : 'block'}`}>
+              <div className={`min-w-0 ${isSidebarCollapsed ? 'hidden' : 'block'}`}>
                 <span className="text-sm font-bold text-white tracking-tight block leading-tight">Yaa POS</span>
                 <span className="text-[10px] text-slate-400 font-medium">Sistema POS</span>
               </div>
@@ -1982,12 +2007,12 @@ export default function App() {
                 type="button"
                 onClick={() => setViewMode('admin')}
                 className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer uppercase tracking-wider mb-2 shrink-0 ${
-                  isTabletSidebarCollapsed ? 'md:px-1 xl:px-3' : ''
+                  isSidebarCollapsed ? 'px-1' : ''
                 }`}
                 title="Consola Admin"
               >
                 <Shield className="w-3.5 h-3.5 text-emerald-100 shrink-0" />
-                <span className={isTabletSidebarCollapsed ? 'md:hidden xl:inline' : 'inline'}>Consola Admin</span>
+                <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Consola Admin</span>
               </button>
             )}
 
@@ -2006,27 +2031,23 @@ export default function App() {
                   title={tab.label}
                 >
                   <span className={`flex items-center gap-2.5 min-w-0 truncate ${
-                    isTabletSidebarCollapsed ? 'md:justify-center xl:justify-start w-full' : ''
+                    isSidebarCollapsed ? 'justify-center w-full' : ''
                   }`}>
                     <span className={isActive ? 'text-white' : 'text-slate-400'}>
                       {tab.icon}
                     </span>
-                    <span className={`truncate ${isTabletSidebarCollapsed ? 'md:hidden xl:inline' : 'inline'}`}>{tab.label}</span>
+                    <span className={`truncate ${isSidebarCollapsed ? 'hidden' : 'inline'}`}>{tab.label}</span>
                   </span>
-                  {tab.id === 'sucursales' && activeBranch?.code && (
+                  {tab.id === 'sucursales' && activeBranch?.code && !isSidebarCollapsed && (
                     <span
-                      className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                        isTabletSidebarCollapsed ? 'md:hidden xl:inline-block' : 'inline-block'
-                      } ${isActive ? 'bg-white/20 text-white' : 'bg-black/25 text-blue-300'}`}
+                      className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${isActive ? 'bg-white/20 text-white' : 'bg-black/25 text-blue-300'}`}
                     >
                       {activeBranch.code}
                     </span>
                   )}
-                  {tab.id === 'apertura-cierre' && (
+                  {tab.id === 'apertura-cierre' && !isSidebarCollapsed && (
                     <span
                       className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${
-                        isTabletSidebarCollapsed ? 'md:hidden xl:inline-block' : 'inline-block'
-                      } ${
                         activeBranchOpenShift 
                           ? (isActive ? 'bg-emerald-500/30 text-emerald-100' : 'bg-emerald-500/20 text-emerald-300')
                           : (isActive ? 'bg-amber-500/30 text-amber-100' : 'bg-amber-500/20 text-amber-300')
@@ -2043,12 +2064,12 @@ export default function App() {
           {/* Bottom profile and logout */}
           <div className="border-t border-[#243B61] px-3.5 py-3.5 space-y-2.5 shrink-0 bg-[#112038]">
             <div className={`flex items-center gap-2.5 px-1 ${
-              isTabletSidebarCollapsed ? 'md:justify-center xl:justify-start' : ''
+              isSidebarCollapsed ? 'justify-center' : ''
             }`}>
               <div className="w-7 h-7 bg-white/10 text-blue-300 rounded-md flex items-center justify-center shrink-0 text-xs font-bold font-mono">
                 {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
               </div>
-              <div className={`min-w-0 flex-1 ${isTabletSidebarCollapsed ? 'md:hidden xl:block' : 'block'}`}>
+              <div className={`min-w-0 flex-1 ${isSidebarCollapsed ? 'hidden' : 'block'}`}>
                 <p className="text-xs font-semibold text-white truncate">{user.name}</p>
                 <p className="text-[10px] text-slate-400 font-mono truncate">{user.email}</p>
               </div>
@@ -2059,12 +2080,12 @@ export default function App() {
               type="button"
               onClick={handleLogout}
               className={`w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 border border-red-500/20 cursor-pointer transition-colors ${
-                isTabletSidebarCollapsed ? 'md:px-0 xl:px-2' : ''
+                isSidebarCollapsed ? 'px-0' : 'px-2'
               }`}
               title="Cerrar Sesión"
             >
               <LogOut className="w-3.5 h-3.5 shrink-0" />
-              <span className={isTabletSidebarCollapsed ? 'md:hidden xl:inline' : 'inline'}>Cerrar Sesión</span>
+              <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>Cerrar Sesión</span>
             </button>
           </div>
         </aside>
@@ -2074,12 +2095,12 @@ export default function App() {
           {/* DISCREET TOPBAR (DESKTOP & TABLET) */}
           <header className="hidden md:flex h-14 bg-white border-b border-[#E2E8F0] px-4 lg:px-6 items-center justify-between shrink-0 z-10 shadow-2xs">
             <div className="flex items-center gap-3 min-w-0">
-              {/* Tablet Sidebar Toggle Button (Only on tablet md:flex xl:hidden) */}
+              {/* Sidebar Toggle Button (Desktop & Tablet) */}
               <button
                 type="button"
-                onClick={() => setIsTabletSidebarCollapsed(!isTabletSidebarCollapsed)}
-                className="hidden md:flex xl:hidden p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
-                title={isTabletSidebarCollapsed ? "Expandir menú lateral" : "Contraer menú lateral"}
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="hidden md:flex p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                title={isSidebarCollapsed ? "Expandir menú lateral" : "Contraer menú lateral"}
               >
                 <Menu className="w-4 h-4" />
               </button>
