@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Sale, Expense, AppConfig, Client, Product, User, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
+import { parseSafeDate, isDateInRange, toLocalDateString, formatDisplayDateTime } from '../utils/dateHelper';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -191,21 +192,9 @@ export default function DailyReports({
   // Filter sales dynamically based on all 6 criteria
   const filteredSales = useMemo(() => {
     return sales.filter(s => {
-      // Robust YYYY-MM-DD string extraction in user's local timezone
-      const localDate = new Date(s.date);
-      const yyyy = localDate.getFullYear();
-      const mm = String(localDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(localDate.getDate()).padStart(2, '0');
-      const sLocalDateStr = `${yyyy}-${mm}-${dd}`;
-
-      // 1. Start Date boundary
-      if (startDate) {
-        if (sLocalDateStr < startDate) return false;
-      }
-      
-      // 2. End Date boundary
-      if (endDate) {
-        if (sLocalDateStr > endDate) return false;
+      // Robust Date Range filter using dateHelper (prevents NaN exclusion)
+      if (startDate || endDate) {
+        if (!isDateInRange(s.date, startDate, endDate)) return false;
       }
 
       // 3. User filter
@@ -244,17 +233,8 @@ export default function DailyReports({
   // Filter expenses based on Date Range
   const filteredExpenses = useMemo(() => {
     return branchExpenses.filter(e => {
-      const localDate = new Date(e.date);
-      const yyyy = localDate.getFullYear();
-      const mm = String(localDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(localDate.getDate()).padStart(2, '0');
-      const eLocalDateStr = `${yyyy}-${mm}-${dd}`;
-
-      if (startDate) {
-        if (eLocalDateStr < startDate) return false;
-      }
-      if (endDate) {
-        if (eLocalDateStr > endDate) return false;
+      if (startDate || endDate) {
+        if (!isDateInRange(e.date, startDate, endDate)) return false;
       }
       return true;
     });
@@ -369,13 +349,19 @@ export default function DailyReports({
 
   // Detailed Ledger search filter
   const searchedSales = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
     return filteredSales.filter(sale => {
+      if (!q) return true;
       const clientName = getClientName(sale.clientId).toLowerCase();
-      const matchClient = clientName.includes(searchQuery.toLowerCase());
-      const matchProduct = sale.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchMethod = sale.paymentMethod.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchClient || matchProduct || matchMethod;
-    });
+      const matchClient = clientName.includes(q);
+      const matchProduct = sale.items.some(item => item.name.toLowerCase().includes(q));
+      const matchMethod = sale.paymentMethod.toLowerCase().includes(q);
+      const rawId = sale.id.toLowerCase();
+      const cleanQ = q.replace(/^[#tkt\-]+/, '');
+      const matchId = rawId.includes(q) || (cleanQ.length > 0 && rawId.includes(cleanQ));
+      const matchOperator = (sale.operatorName || '').toLowerCase().includes(q);
+      return matchClient || matchProduct || matchMethod || matchId || matchOperator;
+    }).sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
   }, [filteredSales, searchQuery]);
 
   // Computation helper for the detailed "Resumen detallado de ingresos" Modal
@@ -971,10 +957,10 @@ export default function DailyReports({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {searchedSales.slice().reverse().map((sale) => (
+                  {searchedSales.map((sale) => (
                     <tr key={sale.id} className="text-slate-700 hover:bg-slate-50/50 transition-colors">
                       <td className="py-3 px-3 font-mono">
-                        {new Date(sale.date).toLocaleString('es-ES', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {formatDisplayDateTime(sale.date)}
                       </td>
                       <td className="py-3 px-3 font-semibold text-slate-800">
                         {getClientName(sale.clientId)}

@@ -21,6 +21,7 @@ import Quotations from './components/Quotations';
 import ErrorBoundary from './components/ErrorBoundary';
 import PlanModal from './components/PlanModal';
 import { getPlanDefinition, checkBranchLimit, checkUserLimit } from './utils/planLimits';
+import { parseSafeDate } from './utils/dateHelper';
 
 // Icons
 import { 
@@ -529,22 +530,58 @@ export default function App() {
     });
 
     const unsubSales = api.subscribeSales((sls, meta) => {
-      setSales(sls);
+      setSales(prev => {
+        const slsMap = new Map(sls.map(s => [s.id, s]));
+        const merged = [...sls];
+        for (const p of prev) {
+          if (!slsMap.has(p.id)) {
+            merged.push(p);
+          }
+        }
+        return merged.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+      });
       setPendingWrites(prev => ({ ...prev, sales: !!meta?.hasPendingWrites }));
     });
 
     const unsubPurchases = api.subscribePurchases((purcs, meta) => {
-      setPurchases(purcs);
+      setPurchases(prev => {
+        const purcMap = new Map(purcs.map(p => [p.id, p]));
+        const merged = [...purcs];
+        for (const p of prev) {
+          if (!purcMap.has(p.id)) {
+            merged.push(p);
+          }
+        }
+        return merged.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+      });
       setPendingWrites(prev => ({ ...prev, purchases: !!meta?.hasPendingWrites }));
     });
 
     const unsubExpenses = api.subscribeExpenses((exps, meta) => {
-      setExpenses(exps);
+      setExpenses(prev => {
+        const expMap = new Map(exps.map(e => [e.id, e]));
+        const merged = [...exps];
+        for (const p of prev) {
+          if (!expMap.has(p.id)) {
+            merged.push(p);
+          }
+        }
+        return merged.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+      });
       setPendingWrites(prev => ({ ...prev, expenses: !!meta?.hasPendingWrites }));
     });
 
     const unsubShifts = api.subscribeShifts((sfts, meta) => {
-      setShifts(sfts);
+      setShifts(prev => {
+        const sftMap = new Map(sfts.map(s => [s.id, s]));
+        const merged = [...sfts];
+        for (const p of prev) {
+          if (!sftMap.has(p.id)) {
+            merged.push(p);
+          }
+        }
+        return merged.sort((a, b) => parseSafeDate(b.openedAt).getTime() - parseSafeDate(a.openedAt).getTime());
+      });
       setPendingWrites(prev => ({ ...prev, shifts: !!meta?.hasPendingWrites }));
     });
 
@@ -686,8 +723,27 @@ export default function App() {
     [branchShifts]
   );
 
-  // Broadcast helper for instant cross-tab synchronization
-  const notifyBranchSync = (payload: { type: 'branch_switch' | 'data_update'; branchId?: string; branchName?: string; timestamp: number }) => {
+  // Broadcast helper for instant cross-tab synchronization with zero server reads
+  const notifyBranchSync = (payload: { 
+    type: 'branch_switch' | 'data_update' | 'sync_entity'; 
+    branchId?: string; 
+    branchName?: string; 
+    timestamp: number;
+    entity?: 'products' | 'clients' | 'providers' | 'sales' | 'purchases' | 'expenses' | 'shifts' | 'config';
+    action?: 'save' | 'delete';
+    item?: any;
+    id?: string;
+    multiUpdates?: {
+      products?: Product[];
+      clients?: Client[];
+      providers?: Provider[];
+      sales?: Sale[];
+      purchases?: Purchase[];
+      expenses?: Expense[];
+      shifts?: Shift[];
+      config?: AppConfig;
+    };
+  }) => {
     try {
       if (payload.branchId) {
         localStorage.setItem('yaa_pos_active_branch_id', payload.branchId);
@@ -713,14 +769,57 @@ export default function App() {
       });
     };
 
+    const processCrossTabSync = (data: any) => {
+      if (!data) return;
+      if (data.branchId) applySyncedBranchId(data.branchId);
+
+      // 1. Process batch multi-updates if provided (instant atomic multi-tab sync)
+      if (data.multiUpdates) {
+        if (Array.isArray(data.multiUpdates.products)) setProducts(data.multiUpdates.products);
+        if (Array.isArray(data.multiUpdates.sales)) setSales(data.multiUpdates.sales);
+        if (Array.isArray(data.multiUpdates.clients)) setClients(data.multiUpdates.clients);
+        if (Array.isArray(data.multiUpdates.providers)) setProviders(data.multiUpdates.providers);
+        if (Array.isArray(data.multiUpdates.purchases)) setPurchases(data.multiUpdates.purchases);
+        if (Array.isArray(data.multiUpdates.expenses)) setExpenses(data.multiUpdates.expenses);
+        if (Array.isArray(data.multiUpdates.shifts)) setShifts(data.multiUpdates.shifts);
+        if (data.multiUpdates.config) setConfig(data.multiUpdates.config);
+        return;
+      }
+
+      // 2. Process individual entity sync
+      if (data.type === 'sync_entity' && data.entity) {
+        const { entity, action, item, id } = data;
+        if (entity === 'products') {
+          if (action === 'delete' && id) setProducts(p => p.filter(x => x.id !== id));
+          else if (item) setProducts(p => [item, ...p.filter(x => x.id !== item.id)]);
+        } else if (entity === 'clients') {
+          if (action === 'delete' && id) setClients(c => c.filter(x => x.id !== id));
+          else if (item) setClients(c => [item, ...c.filter(x => x.id !== item.id)]);
+        } else if (entity === 'providers') {
+          if (action === 'delete' && id) setProviders(pr => pr.filter(x => x.id !== id));
+          else if (item) setProviders(pr => [item, ...pr.filter(x => x.id !== item.id)]);
+        } else if (entity === 'sales' && item) {
+          setSales(s => [item, ...s.filter(x => x.id !== item.id)]);
+        } else if (entity === 'purchases' && item) {
+          setPurchases(pu => [item, ...pu.filter(x => x.id !== item.id)]);
+        } else if (entity === 'expenses') {
+          if (action === 'delete' && id) setExpenses(e => e.filter(x => x.id !== id));
+          else if (item) setExpenses(e => [item, ...e.filter(x => x.id !== item.id)]);
+        } else if (entity === 'shifts' && item) {
+          setShifts(sh => [item, ...sh.filter(x => x.id !== item.id)]);
+        } else if (entity === 'config' && item) {
+          setConfig(item);
+        }
+      }
+    };
+
     const handleStorageSync = (e: StorageEvent) => {
       if (e.key === 'yaa_pos_active_branch_id' && e.newValue) {
         applySyncedBranchId(e.newValue);
       } else if (e.key === 'yaa_pos_branch_sync_event' && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
-          if (parsed?.branchId) applySyncedBranchId(parsed.branchId);
-          // Note: Firestore onSnapshot already handles real-time data sync without redundant collection refetches
+          processCrossTabSync(parsed);
         } catch {}
       }
     };
@@ -730,11 +829,7 @@ export default function App() {
       try {
         channel = new BroadcastChannel('yaa_pos_branch_sync');
         channel.onmessage = (event) => {
-          const data = event.data;
-          if (data?.branchId) {
-            applySyncedBranchId(data.branchId);
-          }
-          // Note: Firestore onSnapshot already handles real-time data sync without redundant collection refetches
+          processCrossTabSync(event.data);
         };
       } catch {}
     }
@@ -792,7 +887,16 @@ export default function App() {
       setProducts(prods);
       setClients(clis);
       setProviders(provs);
-      setSales(sls);
+      setSales(prev => {
+        const slsMap = new Map(sls.map(s => [s.id, s]));
+        const merged = [...sls];
+        for (const p of prev) {
+          if (!slsMap.has(p.id)) {
+            merged.push(p);
+          }
+        }
+        return merged.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+      });
       setPurchases(purcs);
       setExpenses(exps);
       setShifts(sfts);
@@ -900,7 +1004,7 @@ export default function App() {
     }
   };
 
-  // --- DELEGATED API CALLS (Isolated & Synchronized per Branch, Optimized for Zero Redundant Reads) ---
+  // --- DELEGATED API CALLS (Isolated & Synchronized per Branch, Fully Integrated with Zero Redundant Server Reads) ---
   const onSaveProduct = async (p: Product) => {
     const branchName = p.branch || activeBranch?.name || '';
     const productWithBranch: Product = {
@@ -908,23 +1012,44 @@ export default function App() {
       ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveProduct(productWithBranch);
+    let nextProducts: Product[] = [];
     setProducts(prev => {
       const idx = prev.findIndex(item => item.id === saved.id);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = saved;
+        nextProducts = copy;
         return copy;
       }
-      return [saved, ...prev];
+      nextProducts = [saved, ...prev];
+      return nextProducts;
     });
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'products',
+      action: 'save',
+      item: saved,
+      multiUpdates: { products: nextProducts },
+      timestamp: Date.now()
+    });
     return saved;
   };
 
   const onDeleteProduct = async (id: string) => {
     const res = await api.deleteProduct(id);
-    setProducts(prev => prev.filter(p => p.id !== id));
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
+    let nextProducts: Product[] = [];
+    setProducts(prev => {
+      nextProducts = prev.filter(p => p.id !== id);
+      return nextProducts;
+    });
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'products',
+      action: 'delete',
+      id,
+      multiUpdates: { products: nextProducts },
+      timestamp: Date.now()
+    });
     return res;
   };
 
@@ -935,23 +1060,44 @@ export default function App() {
       ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveClient(clientWithBranch);
+    let nextClients: Client[] = [];
     setClients(prev => {
       const idx = prev.findIndex(item => item.id === saved.id);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = saved;
+        nextClients = copy;
         return copy;
       }
-      return [saved, ...prev];
+      nextClients = [saved, ...prev];
+      return nextClients;
     });
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'clients',
+      action: 'save',
+      item: saved,
+      multiUpdates: { clients: nextClients },
+      timestamp: Date.now()
+    });
     return saved;
   };
 
   const onDeleteClient = async (id: string) => {
     const res = await api.deleteClient(id);
-    setClients(prev => prev.filter(c => c.id !== id));
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
+    let nextClients: Client[] = [];
+    setClients(prev => {
+      nextClients = prev.filter(c => c.id !== id);
+      return nextClients;
+    });
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'clients',
+      action: 'delete',
+      id,
+      multiUpdates: { clients: nextClients },
+      timestamp: Date.now()
+    });
     return res;
   };
 
@@ -962,24 +1108,157 @@ export default function App() {
       ...(branchName ? { branch: branchName } : {})
     };
     const saved = await api.saveProvider(providerWithBranch);
+    let nextProviders: Provider[] = [];
     setProviders(prev => {
       const idx = prev.findIndex(item => item.id === saved.id);
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = saved;
+        nextProviders = copy;
         return copy;
       }
-      return [saved, ...prev];
+      nextProviders = [saved, ...prev];
+      return nextProviders;
     });
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'providers',
+      action: 'save',
+      item: saved,
+      multiUpdates: { providers: nextProviders },
+      timestamp: Date.now()
+    });
     return saved;
   };
 
   const onDeleteProvider = async (id: string) => {
     const res = await api.deleteProvider(id);
-    setProviders(prev => prev.filter(p => p.id !== id));
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
+    let nextProviders: Provider[] = [];
+    setProviders(prev => {
+      nextProviders = prev.filter(p => p.id !== id);
+      return nextProviders;
+    });
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'providers',
+      action: 'delete',
+      id,
+      multiUpdates: { providers: nextProviders },
+      timestamp: Date.now()
+    });
     return res;
+  };
+
+  // --- CLIENT DEBT PAYMENT (ABONO) INTEGRATION ---
+  const onClientPayment = async (params: { clientId: string; amount: number; paymentMethod: string; reference?: string; notes?: string }) => {
+    const client = clients.find(c => c.id === params.clientId);
+    if (!client) throw new Error('Cliente no encontrado.');
+
+    const nextBalance = Math.max(0, (client.balanceCredit || 0) - params.amount);
+    const updatedClient: Client = {
+      ...client,
+      balanceCredit: nextBalance
+    };
+    await api.saveClient(updatedClient);
+
+    let updatedShift: Shift | undefined;
+    if (params.paymentMethod === 'Efectivo') {
+      const targetBranch = client.branch || activeBranch?.name || '';
+      const activeShift = shifts.find(sh => sh.state === 'open' && isItemInBranch(sh.branch, targetBranch, systemBranches));
+      if (activeShift) {
+        updatedShift = {
+          ...activeShift,
+          salesTotal: (activeShift.salesTotal || 0) + params.amount,
+          cashSales: ((activeShift.cashSales !== undefined ? activeShift.cashSales : activeShift.salesTotal) || 0) + params.amount
+        };
+        await api.saveShift(updatedShift);
+      }
+    }
+
+    const nextClients = clients.map(c => c.id === updatedClient.id ? updatedClient : c);
+    setClients(nextClients);
+
+    let nextShifts = shifts;
+    if (updatedShift) {
+      const us = updatedShift;
+      nextShifts = shifts.map(sh => sh.id === us.id ? us : sh);
+      setShifts(nextShifts);
+    }
+
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'clients',
+      action: 'save',
+      item: updatedClient,
+      multiUpdates: { clients: nextClients, shifts: nextShifts },
+      timestamp: Date.now()
+    });
+  };
+
+  // --- PROVIDER PAYMENT (PAGO A PROVEEDOR) INTEGRATION ---
+  const onProviderPayment = async (params: { providerId: string; amount: number; paymentMethod: string; voucherNumber?: string; notes?: string }) => {
+    const provider = providers.find(p => p.id === params.providerId);
+    if (!provider) throw new Error('Proveedor no encontrado.');
+
+    const nextPending = Math.max(0, (provider.creditPending || 0) - params.amount);
+    const updatedProvider: Provider = {
+      ...provider,
+      creditPending: nextPending
+    };
+    await api.saveProvider(updatedProvider);
+
+    let createdExpense: Expense | undefined;
+    let updatedShift: Shift | undefined;
+
+    if (params.paymentMethod === 'Efectivo') {
+      const targetBranch = provider.branch || activeBranch?.name || '';
+      createdExpense = {
+        id: `exp_prov_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        date: new Date().toISOString(),
+        description: `Pago a Proveedor: ${provider.name} ${params.voucherNumber ? `(Doc: ${params.voucherNumber})` : ''}`,
+        amount: params.amount,
+        category: 'Pago a Proveedores',
+        branch: targetBranch,
+        paymentMethod: 'Efectivo',
+        voucherNumber: params.voucherNumber,
+        observations: params.notes || 'Abono / Pago de cuenta pendiente a proveedor'
+      };
+      await api.saveExpense(createdExpense);
+
+      const activeShift = shifts.find(sh => sh.state === 'open' && isItemInBranch(sh.branch, targetBranch, systemBranches));
+      if (activeShift) {
+        updatedShift = {
+          ...activeShift,
+          expensesTotal: (activeShift.expensesTotal || 0) + params.amount
+        };
+        await api.saveShift(updatedShift);
+      }
+    }
+
+    const nextProviders = providers.map(p => p.id === updatedProvider.id ? updatedProvider : p);
+    setProviders(nextProviders);
+
+    let nextExpenses = expenses;
+    if (createdExpense) {
+      nextExpenses = [createdExpense, ...expenses];
+      setExpenses(nextExpenses);
+    }
+
+    let nextShifts = shifts;
+    if (updatedShift) {
+      const us = updatedShift;
+      nextShifts = shifts.map(sh => sh.id === us.id ? us : sh);
+      setShifts(nextShifts);
+    }
+
+    notifyBranchSync({
+      type: 'sync_entity',
+      entity: 'providers',
+      action: 'save',
+      item: updatedProvider,
+      multiUpdates: { providers: nextProviders, expenses: nextExpenses, shifts: nextShifts },
+      timestamp: Date.now()
+    });
   };
 
   const onSaveSale = async (s: Sale) => {
@@ -1038,7 +1317,7 @@ export default function App() {
             });
           }
 
-          // Eliminar automáticamente los lotes y fechas de vencimiento sin stock (stock <= 0) para no confundir en punto de venta
+          // Eliminar automáticamente los lotes y fechas de vencimiento sin stock (stock <= 0)
           updatedExpirationDates = updatedExpirationDates.filter(r => {
             const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
             return currentLoteStock > 0;
@@ -1073,10 +1352,12 @@ export default function App() {
       sh.state === 'open' && (sh.id === s.shiftId || isItemInBranch(sh.branch, saleBranch, systemBranches))
     );
     if (activeShift) {
+      const extraCash = s.paymentMethod === 'cash' ? s.total : 0;
       shiftUpdate = {
         ...activeShift,
         branch: activeShift.branch || saleBranch,
-        salesTotal: (activeShift.salesTotal || 0) + s.total
+        salesTotal: (activeShift.salesTotal || 0) + s.total,
+        cashSales: ((activeShift.cashSales !== undefined ? activeShift.cashSales : activeShift.salesTotal) || 0) + extraCash
       };
     }
 
@@ -1108,31 +1389,57 @@ export default function App() {
     });
 
     // 5. Actualizar estado local inmediatamente (0 lecturas al servidor, interfaz instantánea sin lag)
-    setSales(prev => [saved, ...prev.filter(x => x.id !== saved.id)]);
+    const nextSales = [saved, ...sales.filter(x => x.id !== saved.id)];
+    setSales(nextSales);
+
+    let nextProducts = products;
     if (productUpdates.length > 0) {
       const updatedIds = new Set(productUpdates.map(p => p.id));
-      setProducts(prev => prev.map(p => {
+      nextProducts = products.map(p => {
         if (updatedIds.has(p.id)) {
           return productUpdates.find(up => up.id === p.id) || p;
         }
         return p;
-      }));
-    }
-    if (shiftUpdate) {
-      const su = shiftUpdate;
-      setShifts(prev => prev.map(sh => sh.id === su.id ? su : sh));
-    }
-    if (clientUpdate) {
-      const cu = clientUpdate;
-      setClients(prev => prev.map(c => c.id === cu.id ? cu : c));
+      });
+      setProducts(nextProducts);
     }
 
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: saleBranch, timestamp: Date.now() });
+    let nextShifts = shifts;
+    if (shiftUpdate) {
+      const su = shiftUpdate;
+      nextShifts = shifts.map(sh => sh.id === su.id ? su : sh);
+      setShifts(nextShifts);
+    }
+
+    let nextClients = clients;
+    if (clientUpdate) {
+      const cu = clientUpdate;
+      nextClients = clients.map(c => c.id === cu.id ? cu : c);
+      setClients(nextClients);
+    }
+
+    notifyBranchSync({ 
+      type: 'sync_entity', 
+      entity: 'sales', 
+      action: 'save',
+      item: saved,
+      multiUpdates: {
+        sales: nextSales,
+        products: nextProducts,
+        shifts: nextShifts,
+        clients: nextClients
+      },
+      branchId: activeBranch?.id, 
+      branchName: saleBranch, 
+      timestamp: Date.now() 
+    });
     return saved;
   };
 
   const onSavePurchase = async (pur: Purchase) => {
     const purchaseBranch = pur.branch || activeBranch?.name || '';
+    const updatedProductsList: Product[] = [];
+
     // 1. Aumentar stock e ingresar costo, lote y vencimiento del producto en ESTA sucursal si la compra está completada
     if (pur.status === 'completed') {
       const updatedProductsMap = new Map<string, Product>();
@@ -1155,7 +1462,6 @@ export default function App() {
         }
 
         if (!product) {
-          // Si el producto existe en otra sucursal pero no en esta, clonar su ficha base con stock 0 para esta sucursal
           const itemNeedle = item.name ? item.name.trim().toLowerCase() : '';
           const templateProd = products.find(
             p => p && (p.id === item.productId || (p.name && itemNeedle && p.name.trim().toLowerCase() === itemNeedle))
@@ -1198,20 +1504,53 @@ export default function App() {
 
       for (const updatedProd of updatedProductsMap.values()) {
         await api.saveProduct(updatedProd);
+        updatedProductsList.push(updatedProd);
       }
     }
 
     // 2. Actualizar métricas del proveedor (compras totales, cuentas por pagar)
+    let updatedProvider: Provider | undefined;
     if (pur.providerId) {
       const provider = providers.find(p => p && p.id === pur.providerId);
       if (provider) {
         const extraCredit = pur.paymentType === 'credit' ? pur.total : 0;
-        await api.saveProvider({
+        updatedProvider = {
           ...provider,
           branch: provider.branch || purchaseBranch,
           totalPurchases: (provider.totalPurchases || 0) + pur.total,
           creditPending: (provider.creditPending || 0) + extraCredit
-        });
+        };
+        await api.saveProvider(updatedProvider);
+      }
+    }
+
+    // 3. Si la compra fue pagada en EFECTIVO, registrar egreso en caja / gastos para cuadre de caja
+    let purchaseExpense: Expense | undefined;
+    let updatedShift: Shift | undefined;
+    if (pur.status === 'completed' && pur.paymentType === 'cash') {
+      const provName = providers.find(p => p.id === pur.providerId)?.name || 'Proveedor';
+      purchaseExpense = {
+        id: `exp_pur_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        date: pur.date || new Date().toISOString(),
+        description: `Pago de compra de mercadería a ${provName} ${pur.voucherNumber ? `(Doc: ${pur.voucherNumber})` : ''}`,
+        amount: pur.total,
+        category: 'Compras/Mercadería',
+        branch: purchaseBranch,
+        paymentMethod: 'Efectivo',
+        voucherNumber: pur.voucherNumber,
+        observations: `Compra al contado (${pur.items.length} artículos)`
+      };
+      await api.saveExpense(purchaseExpense);
+
+      const activeShift = shifts.find(sh => 
+        sh.state === 'open' && isItemInBranch(sh.branch, purchaseBranch, systemBranches)
+      );
+      if (activeShift) {
+        updatedShift = {
+          ...activeShift,
+          expensesTotal: (activeShift.expensesTotal || 0) + pur.total
+        };
+        await api.saveShift(updatedShift);
       }
     }
 
@@ -1221,8 +1560,59 @@ export default function App() {
     };
 
     const saved = await api.savePurchase(purchaseWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: purchaseBranch, timestamp: Date.now() });
-    await loadAllData();
+
+    // 4. Actualizar estados locales de React de manera reactiva instantánea
+    const nextPurchases = [saved, ...purchases.filter(p => p.id !== saved.id)];
+    setPurchases(nextPurchases);
+
+    let nextProducts = products;
+    if (updatedProductsList.length > 0) {
+      const updatedMap = new Map(updatedProductsList.map(p => [p.id, p]));
+      nextProducts = products.map(p => updatedMap.get(p.id) || p);
+      for (const p of updatedProductsList) {
+        if (!nextProducts.some(x => x.id === p.id)) {
+          nextProducts.push(p);
+        }
+      }
+      setProducts(nextProducts);
+    }
+
+    let nextProviders = providers;
+    if (updatedProvider) {
+      const up = updatedProvider;
+      nextProviders = providers.map(p => p.id === up.id ? up : p);
+      setProviders(nextProviders);
+    }
+
+    let nextExpenses = expenses;
+    if (purchaseExpense) {
+      nextExpenses = [purchaseExpense, ...expenses];
+      setExpenses(nextExpenses);
+    }
+
+    let nextShifts = shifts;
+    if (updatedShift) {
+      const us = updatedShift;
+      nextShifts = shifts.map(sh => sh.id === us.id ? us : sh);
+      setShifts(nextShifts);
+    }
+
+    notifyBranchSync({ 
+      type: 'sync_entity', 
+      entity: 'purchases', 
+      action: 'save',
+      item: saved,
+      multiUpdates: {
+        purchases: nextPurchases,
+        products: nextProducts,
+        providers: nextProviders,
+        expenses: nextExpenses,
+        shifts: nextShifts
+      },
+      branchId: activeBranch?.id, 
+      branchName: purchaseBranch, 
+      timestamp: Date.now() 
+    });
     return saved;
   };
 
@@ -1285,6 +1675,7 @@ export default function App() {
           p.name.trim().toLowerCase() === sourceProduct.name.trim().toLowerCase())
     );
 
+    let savedTargetProduct: Product;
     if (existingTargetProduct) {
       const nextTargetStock = (existingTargetProduct.stock || 0) + quantity;
       const targetLotes = existingTargetProduct.expirationDates
@@ -1296,82 +1687,138 @@ export default function App() {
           stock: (Number(targetLotes[0].stock) || 0) + quantity
         };
       }
-      const updatedTargetProduct: Product = {
+      savedTargetProduct = {
         ...existingTargetProduct,
         branch: targetBranchObj.name,
         stock: nextTargetStock
       };
       if (targetLotes.length > 0) {
-        updatedTargetProduct.expirationDates = targetLotes;
+        savedTargetProduct.expirationDates = targetLotes;
       } else if (existingTargetProduct.expirationDates) {
-        updatedTargetProduct.expirationDates = existingTargetProduct.expirationDates;
+        savedTargetProduct.expirationDates = existingTargetProduct.expirationDates;
       } else {
-        delete updatedTargetProduct.expirationDates;
+        delete savedTargetProduct.expirationDates;
       }
-      await api.saveProduct(updatedTargetProduct);
+      await api.saveProduct(savedTargetProduct);
     } else {
-      const newTargetProduct: Product = {
+      savedTargetProduct = {
         ...sourceProduct,
         id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         branch: targetBranchObj.name,
         stock: quantity
       };
       if (sourceProduct.expirationDate) {
-        newTargetProduct.expirationDates = [
+        savedTargetProduct.expirationDates = [
           { date: sourceProduct.expirationDate, stock: quantity, batch: sourceProduct.initialBatch || '00101' }
         ];
       } else if (sourceProduct.expirationDates && sourceProduct.expirationDates.length > 0) {
-        newTargetProduct.expirationDates = [
+        savedTargetProduct.expirationDates = [
           { date: sourceProduct.expirationDates[0].date, stock: quantity, batch: sourceProduct.expirationDates[0].batch || '00101' }
         ];
       } else {
-        delete newTargetProduct.expirationDates;
+        delete savedTargetProduct.expirationDates;
       }
-      await api.saveProduct(newTargetProduct);
+      await api.saveProduct(savedTargetProduct);
     }
 
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
+    const nextProducts = products
+      .map(p => p.id === updatedSourceProduct.id ? updatedSourceProduct : p)
+      .map(p => p.id === savedTargetProduct.id ? savedTargetProduct : p);
+    if (!nextProducts.some(p => p.id === savedTargetProduct.id)) {
+      nextProducts.push(savedTargetProduct);
+    }
+    setProducts(nextProducts);
+
+    notifyBranchSync({ 
+      type: 'sync_entity',
+      entity: 'products',
+      action: 'save',
+      item: updatedSourceProduct,
+      multiUpdates: { products: nextProducts },
+      branchId: activeBranch?.id, 
+      branchName: activeBranch?.name, 
+      timestamp: Date.now() 
+    });
   };
 
   const onSaveExpense = async (e: Expense) => {
     const expenseBranch = e.branch || activeBranch?.name || '';
     const expenseWithBranch: Expense = { ...e, ...(expenseBranch ? { branch: expenseBranch } : {}) };
 
+    let updatedShift: Shift | undefined;
     // Descontar caja / registrar gasto en el turno activo DE ESTA SUCURSAL
     const activeShift = shifts.find(sh => 
       sh.state === 'open' && isItemInBranch(sh.branch, expenseBranch, systemBranches)
     );
     if (activeShift) {
-      await api.saveShift({
+      updatedShift = {
         ...activeShift,
         branch: activeShift.branch || expenseBranch,
         expensesTotal: (activeShift.expensesTotal || 0) + e.amount
-      });
+      };
+      await api.saveShift(updatedShift);
     }
 
     const saved = await api.saveExpense(expenseWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: expenseBranch, timestamp: Date.now() });
-    await loadAllData();
+    const nextExpenses = [saved, ...expenses.filter(x => x.id !== saved.id)];
+    setExpenses(nextExpenses);
+
+    let nextShifts = shifts;
+    if (updatedShift) {
+      const us = updatedShift;
+      nextShifts = shifts.map(sh => sh.id === us.id ? us : sh);
+      setShifts(nextShifts);
+    }
+
+    notifyBranchSync({ 
+      type: 'sync_entity',
+      entity: 'expenses',
+      action: 'save',
+      item: saved,
+      multiUpdates: { expenses: nextExpenses, shifts: nextShifts },
+      branchId: activeBranch?.id, 
+      branchName: expenseBranch, 
+      timestamp: Date.now() 
+    });
     return saved;
   };
 
   const onDeleteExpense = async (id: string) => {
     const expense = expenses.find(e => e.id === id);
+    let updatedShift: Shift | undefined;
     if (expense) {
       const activeShift = shifts.find(sh => 
         sh.state === 'open' && isItemInBranch(sh.branch, expense.branch || activeBranch?.name, systemBranches)
       );
       if (activeShift) {
-        await api.saveShift({
+        updatedShift = {
           ...activeShift,
           expensesTotal: Math.max(0, (activeShift.expensesTotal || 0) - expense.amount)
-        });
+        };
+        await api.saveShift(updatedShift);
       }
     }
     const res = await api.deleteExpense(id);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
+    const nextExpenses = expenses.filter(e => e.id !== id);
+    setExpenses(nextExpenses);
+
+    let nextShifts = shifts;
+    if (updatedShift) {
+      const us = updatedShift;
+      nextShifts = shifts.map(sh => sh.id === us.id ? us : sh);
+      setShifts(nextShifts);
+    }
+
+    notifyBranchSync({ 
+      type: 'sync_entity',
+      entity: 'expenses',
+      action: 'delete',
+      id,
+      multiUpdates: { expenses: nextExpenses, shifts: nextShifts },
+      branchId: activeBranch?.id, 
+      branchName: activeBranch?.name, 
+      timestamp: Date.now() 
+    });
     return res;
   };
 
@@ -1382,8 +1829,19 @@ export default function App() {
       ...(shiftBranch ? { branch: shiftBranch } : {})
     };
     const saved = await api.saveShift(shiftWithBranch);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: shiftWithBranch.branch, timestamp: Date.now() });
-    await loadAllData();
+    const nextShifts = [saved, ...shifts.filter(sh => sh.id !== saved.id)];
+    setShifts(nextShifts);
+
+    notifyBranchSync({ 
+      type: 'sync_entity',
+      entity: 'shifts',
+      action: 'save',
+      item: saved,
+      multiUpdates: { shifts: nextShifts },
+      branchId: activeBranch?.id, 
+      branchName: shiftWithBranch.branch, 
+      timestamp: Date.now() 
+    });
     return saved;
   };
 
@@ -1391,12 +1849,15 @@ export default function App() {
     const saved = await api.saveConfig(cfg);
     setConfig(saved);
     notifyBranchSync({
-      type: 'branch_switch',
+      type: 'sync_entity',
+      entity: 'config',
+      action: 'save',
+      item: saved,
+      multiUpdates: { config: saved },
       branchId: saved.activeBranchId || activeBranch?.id,
       branchName: activeBranch?.name,
       timestamp: Date.now()
     });
-    await loadAllData();
     return saved;
   };
 
@@ -1793,6 +2254,8 @@ export default function App() {
             onDeleteClient={onDeleteClient} 
             onSaveProvider={onSaveProvider} 
             onDeleteProvider={onDeleteProvider} 
+            onClientPayment={onClientPayment}
+            onProviderPayment={onProviderPayment}
             onRefreshData={loadAllData} 
             mode="clients"
             activeBranchName={activeBranch?.name}
@@ -1810,6 +2273,8 @@ export default function App() {
             onDeleteClient={onDeleteClient} 
             onSaveProvider={onSaveProvider} 
             onDeleteProvider={onDeleteProvider} 
+            onClientPayment={onClientPayment}
+            onProviderPayment={onProviderPayment}
             onRefreshData={loadAllData} 
             mode="providers"
             activeBranchName={activeBranch?.name}

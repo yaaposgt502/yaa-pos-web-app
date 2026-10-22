@@ -1,6 +1,7 @@
 import React from 'react';
 import { Product, Sale, Expense, Shift, AppConfig, User, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
+import { parseSafeDate, toLocalDateString, formatDisplayTime, formatDisplayDateTime } from '../utils/dateHelper';
 import { 
   TrendingUp, 
   Package, 
@@ -125,15 +126,19 @@ export default function Dashboard({
   const currency = config.currency || 'Q';
   
   // Today's boundaries
-  const today = new Date();
-  const todayStr = today.toDateString();
+  const today = React.useMemo(() => new Date(), []);
+  const todayDateStr = React.useMemo(() => toLocalDateString(today), [today]);
 
-  const todaySales = sales.filter(s => new Date(s.date).toDateString() === todayStr);
-  const todaySalesTotal = todaySales.reduce((acc, s) => acc + s.total, 0);
-  const todayProfit = todaySales.reduce((acc, s) => acc + s.profit, 0);
+  const todaySales = React.useMemo(() => {
+    return sales.filter(s => toLocalDateString(s.date) === todayDateStr);
+  }, [sales, todayDateStr]);
+  const todaySalesTotal = React.useMemo(() => todaySales.reduce((acc, s) => acc + (Number(s.total) || 0), 0), [todaySales]);
+  const todayProfit = React.useMemo(() => todaySales.reduce((acc, s) => acc + (Number(s.profit) || 0), 0), [todaySales]);
 
-  const todayExpenses = branchExpenses.filter(e => new Date(e.date).toDateString() === todayStr);
-  const todayExpensesTotal = todayExpenses.reduce((acc, e) => acc + e.amount, 0);
+  const todayExpenses = React.useMemo(() => {
+    return branchExpenses.filter(e => toLocalDateString(e.date) === todayDateStr);
+  }, [branchExpenses, todayDateStr]);
+  const todayExpensesTotal = React.useMemo(() => todayExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0), [todayExpenses]);
 
   const lowStock = products.filter(p => p.stock <= p.minStock);
   
@@ -144,7 +149,7 @@ export default function Dashboard({
   
   const expiringSoon = products.filter(p => {
     if (!p.expirationDate) return false;
-    const exp = new Date(p.expirationDate).getTime();
+    const exp = parseSafeDate(p.expirationDate).getTime();
     return exp <= warningLimit && exp > now;
   });
 
@@ -166,10 +171,7 @@ export default function Dashboard({
       d.setDate(d.getDate() - i);
       d.setHours(0, 0, 0, 0);
 
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const dateKey = `${year}-${month}-${day}`;
+      const dateKey = toLocalDateString(d);
 
       // Format label: "Vie 17", "Sáb 18", "Dom 19", etc.
       const rawDayName = d.toLocaleDateString('es-ES', { weekday: 'short' });
@@ -178,13 +180,10 @@ export default function Dashboard({
       const label = `${capitalized} ${d.getDate()}`;
       const fullDate = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-      // Calculate real sales for this specific calendar day
+      // Calculate real sales for this specific calendar day using robust local date comparison
       const daySales = sales.filter(s => {
         if (!s.date) return false;
-        const sDate = new Date(s.date);
-        return sDate.getFullYear() === d.getFullYear() &&
-               sDate.getMonth() === d.getMonth() &&
-               sDate.getDate() === d.getDate();
+        return toLocalDateString(s.date) === dateKey;
       });
 
       const total = daySales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
@@ -238,22 +237,24 @@ export default function Dashboard({
   const [categoryTimeframe, setCategoryTimeframe] = React.useState<'today' | 'week' | 'month' | 'all'>('today');
   const [topProductsTimeframe, setTopProductsTimeframe] = React.useState<'today' | 'week' | 'month' | 'all'>('today');
 
-  // Helper filter by timeframe
+  // Helper filter by timeframe using robust date parsing
   const filterSalesByTimeframe = (tf: 'today' | 'week' | 'month' | 'all') => {
     const n = new Date();
     if (tf === 'today') {
-      const todayStr = n.toDateString();
-      return sales.filter(s => new Date(s.date).toDateString() === todayStr);
+      const todayStr = toLocalDateString(n);
+      return sales.filter(s => toLocalDateString(s.date) === todayStr);
     }
     if (tf === 'week') {
-      const cutoff = new Date(n);
+      const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 7);
-      return sales.filter(s => new Date(s.date) >= cutoff);
+      cutoff.setHours(0, 0, 0, 0);
+      return sales.filter(s => parseSafeDate(s.date).getTime() >= cutoff.getTime());
     }
     if (tf === 'month') {
-      const cutoff = new Date(n);
+      const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 30);
-      return sales.filter(s => new Date(s.date) >= cutoff);
+      cutoff.setHours(0, 0, 0, 0);
+      return sales.filter(s => parseSafeDate(s.date).getTime() >= cutoff.getTime());
     }
     return sales;
   };
@@ -346,10 +347,12 @@ export default function Dashboard({
       return [];
     }
 
-    return sales.slice(-5).reverse().map((sale, idx) => {
-      const saleDate = new Date(sale.date);
-      const timeStr = isNaN(saleDate.getTime()) ? '' : saleDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true });
-      const ticketNum = `#T${sale.id ? sale.id.slice(-5).toUpperCase() : String(sales.length - idx).padStart(6, '0')}`;
+    // Sort descending by date so the newest sales appear at the top
+    const sorted = [...sales].sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+
+    return sorted.slice(0, 5).map((sale, idx) => {
+      const timeStr = formatDisplayTime(sale.date);
+      const ticketNum = `#TKT-${sale.id ? sale.id.slice(-6).toUpperCase() : String(sales.length - idx).padStart(6, '0')}`;
 
       return {
         ticket: ticketNum,

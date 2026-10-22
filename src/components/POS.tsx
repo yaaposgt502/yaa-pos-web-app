@@ -339,11 +339,16 @@ export default function POS({
 
   // Load converted proforma / quotation items into cart if requested
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem('yaa_pos_proforma_to_cart');
-      if (raw) {
-        sessionStorage.removeItem('yaa_pos_proforma_to_cart');
-        const parsed = JSON.parse(raw);
+    const handleLoadProforma = (e?: any) => {
+      try {
+        let parsed = e?.detail;
+        if (!parsed) {
+          const raw = sessionStorage.getItem('yaa_pos_proforma_to_cart');
+          if (raw) {
+            sessionStorage.removeItem('yaa_pos_proforma_to_cart');
+            parsed = JSON.parse(raw);
+          }
+        }
         if (parsed?.items && Array.isArray(parsed.items) && parsed.items.length > 0) {
           const newCartItems = parsed.items.map((it: any) => ({
             product: it.product,
@@ -362,10 +367,14 @@ export default function POS({
           }));
           setActiveSessionId(1);
         }
+      } catch (err) {
+        console.warn('Error loading converted proforma to cart', err);
       }
-    } catch (e) {
-      console.warn('Error loading converted proforma to cart', e);
-    }
+    };
+
+    handleLoadProforma();
+    window.addEventListener('yaa_pos_load_proforma', handleLoadProforma);
+    return () => window.removeEventListener('yaa_pos_load_proforma', handleLoadProforma);
   }, []);
 
   // Success completed state

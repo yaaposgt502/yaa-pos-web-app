@@ -35,6 +35,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License, Quotation, Consignment } from './types';
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
 import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './utils/planLimits';
+import { parseSafeDate, toLocalDateString } from './utils/dateHelper';
 
 // In-memory runtime cache stores to eliminate redundant Firestore queries
 let cachedProducts: Product[] | null = null;
@@ -1185,14 +1186,15 @@ export async function deleteProvider(id: string): Promise<{ success: boolean }> 
 // Sales - Bounded queries to prevent downloading entire historical collections
 export async function getSales(options?: { limitCount?: number; forceServer?: boolean }): Promise<Sale[]> {
   const colRef = getCollectionRef('sales');
-  const limitCount = options?.limitCount || 200; // Safeguard against unbounded lifetime collection download
+  const limitCount = options?.limitCount || 500; // Generous ceiling to prevent truncating business records
   
   if (!options?.forceServer) {
     try {
       const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
       const cacheSnap = await getDocsFromCache(q);
       if (!cacheSnap.empty) {
-        return cacheSnap.docs.map(doc => doc.data() as Sale);
+        const docs = cacheSnap.docs.map(doc => doc.data() as Sale);
+        return docs.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
       }
     } catch {}
   }
@@ -1200,15 +1202,18 @@ export async function getSales(options?: { limitCount?: number; forceServer?: bo
   try {
     const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
     const serverSnap = await getDocs(q);
-    return serverSnap.docs.map(doc => doc.data() as Sale);
+    const docs = serverSnap.docs.map(doc => doc.data() as Sale);
+    return docs.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
   } catch (e) {
-    // Fallback if composite index on date is not yet built
+    // Fallback if index on date is not ready or documents contain mixed date types
     try {
       const qSimple = query(colRef, limit(limitCount));
       const serverSnap = await getDocs(qSimple);
-      return serverSnap.docs.map(doc => doc.data() as Sale);
+      const docs = serverSnap.docs.map(doc => doc.data() as Sale);
+      return docs.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
     } catch (fallbackErr) {
-      return getCollectionDocs<Sale>(colRef);
+      const docs = await getCollectionDocs<Sale>(colRef);
+      return docs.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
     }
   }
 }
@@ -1222,10 +1227,14 @@ export async function saveSale(sale: Sale): Promise<Sale> {
   let docId = sale.id;
   if (!docId) {
     docId = `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    sale = { ...sale, id: docId };
   }
-  await setDoc(getDocRef('sales', docId), cleanDataForFirestore(sale));
-  return sale;
+  const normalizedSale: Sale = {
+    ...sale,
+    id: docId,
+    date: sale.date ? parseSafeDate(sale.date).toISOString() : new Date().toISOString()
+  };
+  await setDoc(getDocRef('sales', docId), cleanDataForFirestore(normalizedSale));
+  return normalizedSale;
 }
 
 // Atomic transaction execution for Sales:
@@ -1242,9 +1251,13 @@ export async function executeSaleTransaction(params: {
 
   const batch = writeBatch(db);
 
-  // 1. Ensure deterministic sale ID to prevent duplicates
+  // 1. Ensure deterministic sale ID and strictly valid ISO date to prevent duplicates and query bugs
   const saleId = params.sale.id || `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  const finalSale: Sale = { ...params.sale, id: saleId };
+  const finalSale: Sale = { 
+    ...params.sale, 
+    id: saleId,
+    date: params.sale.date ? parseSafeDate(params.sale.date).toISOString() : new Date().toISOString()
+  };
   const saleRef = getDocRef('sales', saleId);
   batch.set(saleRef, cleanDataForFirestore(finalSale));
 
@@ -1567,18 +1580,33 @@ export function subscribeProviders(callback: (providers: Provider[], metadata?: 
   }
 }
 
-export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
+export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata) => void, limitCount = 300): () => void {
   try {
     const colRef = getCollectionRef('sales');
-    const q = query(colRef, limit(limitCount));
+    // Order by date descending so the newest sales are always streamed
+    const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Sale);
+      list.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
       });
     }, (error) => {
-      console.error('Error in subscribeSales:', error);
+      console.warn('subscribeSales with orderBy error, trying fallback query:', error);
+      try {
+        const qSimple = query(colRef, limit(limitCount));
+        return onSnapshot(qSimple, (snapshot) => {
+          const list = snapshot.docs.map(doc => doc.data() as Sale);
+          list.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+          callback(list, {
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+            fromCache: snapshot.metadata.fromCache
+          });
+        });
+      } catch (err2) {
+        console.error('Error in subscribeSales fallback:', err2);
+      }
     });
   } catch (err) {
     console.warn('Could not establish sales subscription:', err);
@@ -1586,18 +1614,29 @@ export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata
   }
 }
 
-export function subscribePurchases(callback: (purchases: Purchase[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
+export function subscribePurchases(callback: (purchases: Purchase[], metadata?: SyncMetadata) => void, limitCount = 150): () => void {
   try {
     const colRef = getCollectionRef('purchases');
-    const q = query(colRef, limit(limitCount));
+    const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Purchase);
+      list.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
       });
-    }, (error) => {
-      console.error('Error in subscribePurchases:', error);
+    }, () => {
+      try {
+        const qSimple = query(colRef, limit(limitCount));
+        return onSnapshot(qSimple, (snapshot) => {
+          const list = snapshot.docs.map(doc => doc.data() as Purchase);
+          list.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+          callback(list, {
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+            fromCache: snapshot.metadata.fromCache
+          });
+        });
+      } catch {}
     });
   } catch (err) {
     console.warn('Could not establish purchases subscription:', err);
@@ -1605,18 +1644,29 @@ export function subscribePurchases(callback: (purchases: Purchase[], metadata?: 
   }
 }
 
-export function subscribeExpenses(callback: (expenses: Expense[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
+export function subscribeExpenses(callback: (expenses: Expense[], metadata?: SyncMetadata) => void, limitCount = 150): () => void {
   try {
     const colRef = getCollectionRef('expenses');
-    const q = query(colRef, limit(limitCount));
+    const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Expense);
+      list.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
       });
-    }, (error) => {
-      console.error('Error in subscribeExpenses:', error);
+    }, () => {
+      try {
+        const qSimple = query(colRef, limit(limitCount));
+        return onSnapshot(qSimple, (snapshot) => {
+          const list = snapshot.docs.map(doc => doc.data() as Expense);
+          list.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+          callback(list, {
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+            fromCache: snapshot.metadata.fromCache
+          });
+        });
+      } catch {}
     });
   } catch (err) {
     console.warn('Could not establish expenses subscription:', err);
@@ -1624,18 +1674,29 @@ export function subscribeExpenses(callback: (expenses: Expense[], metadata?: Syn
   }
 }
 
-export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetadata) => void, limitCount = 20): () => void {
+export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
   try {
     const colRef = getCollectionRef('shifts');
-    const q = query(colRef, limit(limitCount));
+    const q = query(colRef, orderBy('openedAt', 'desc'), limit(limitCount));
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Shift);
+      list.sort((a, b) => parseSafeDate(b.openedAt).getTime() - parseSafeDate(a.openedAt).getTime());
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
       });
-    }, (error) => {
-      console.error('Error in subscribeShifts:', error);
+    }, () => {
+      try {
+        const qSimple = query(colRef, limit(limitCount));
+        return onSnapshot(qSimple, (snapshot) => {
+          const list = snapshot.docs.map(doc => doc.data() as Shift);
+          list.sort((a, b) => parseSafeDate(b.openedAt).getTime() - parseSafeDate(a.openedAt).getTime());
+          callback(list, {
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+            fromCache: snapshot.metadata.fromCache
+          });
+        });
+      } catch {}
     });
   } catch (err) {
     console.warn('Could not establish shifts subscription:', err);

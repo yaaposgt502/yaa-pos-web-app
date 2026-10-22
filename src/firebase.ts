@@ -3,7 +3,7 @@ import {
   getFirestore, 
   initializeFirestore,
   persistentLocalCache,
-  persistentSingleTabManager,
+  persistentMultipleTabManager,
   doc, 
   getDocFromServer,
   Firestore
@@ -14,14 +14,14 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore with single-tab IndexedDB persistent cache.
-// This caches read documents locally in the browser so repeat queries consume 0 cloud reads,
-// while avoiding multi-tab iframe lock issues.
+// Initialize Firestore with multi-tab IndexedDB persistent cache.
+// Enables seamless real-time synchronization between different tabs without lock contention
+// while caching documents locally so repeat queries consume 0 cloud reads.
 let firestoreInstance: Firestore;
 try {
   firestoreInstance = initializeFirestore(app, {
     localCache: persistentLocalCache({
-      tabManager: persistentSingleTabManager({})
+      tabManager: persistentMultipleTabManager()
     })
   }, firebaseConfig.firestoreDatabaseId);
 } catch (e) {

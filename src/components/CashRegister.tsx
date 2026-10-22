@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Shift, Sale, Expense, User, AppConfig, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
+import { parseSafeDate, formatDisplayDateTime } from '../utils/dateHelper';
 import { 
   Lock, 
   Unlock, 
@@ -129,14 +130,7 @@ export default function CashRegister({
   // Date and Time formatter matching DD/MM/YYYY HH:mm
   const formatShiftDate = (dateStr?: string) => {
     if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${day}/${month}/${year} ${hours}:${minutes}`;
+    return formatDisplayDateTime(dateStr);
   };
 
   // Helper to calculate cash sales for past shifts
@@ -146,10 +140,10 @@ export default function CashRegister({
     if (byShiftId.length > 0) {
       return byShiftId.reduce((acc, s) => acc + s.total, 0);
     }
-    const start = new Date(sh.openedAt).getTime();
-    const end = sh.closedAt ? new Date(sh.closedAt).getTime() : Date.now();
+    const start = parseSafeDate(sh.openedAt).getTime();
+    const end = sh.closedAt ? parseSafeDate(sh.closedAt).getTime() : Date.now();
     const byDate = sales.filter(s => {
-      const t = new Date(s.date).getTime();
+      const t = parseSafeDate(s.date).getTime();
       return t >= start && t <= end && s.paymentMethod === 'cash';
     });
     if (byDate.length > 0) {
@@ -175,7 +169,7 @@ export default function CashRegister({
     }
 
     // Sort chronologically ascending to assign proper shift numbers (Caja #1, Caja #2, Caja #3)
-    const sortedAsc = [...list].sort((a, b) => new Date(a.openedAt).getTime() - new Date(b.openedAt).getTime());
+    const sortedAsc = [...list].sort((a, b) => parseSafeDate(a.openedAt).getTime() - parseSafeDate(b.openedAt).getTime());
     
     const withNumbers = sortedAsc.map((sh, idx) => ({
       ...sh,
@@ -316,10 +310,10 @@ export default function CashRegister({
     const totalIngresos = contadoSales + transferSales;
 
     // Filter expenses made since shift opening FOR THIS BRANCH ONLY
-    const openingTime = new Date(activeShift.openedAt).getTime();
+    const openingTime = parseSafeDate(activeShift.openedAt).getTime();
     const shiftExpenses = expenses.filter(e => {
       const matchBranch = isItemInBranch(e.branch, targetBranch, availableBranches);
-      return matchBranch && new Date(e.date).getTime() >= openingTime;
+      return matchBranch && parseSafeDate(e.date).getTime() >= openingTime;
     });
     const totalExpenses = shiftExpenses.reduce((acc, e) => acc + e.amount, 0);
 

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Sale, Client, AppConfig, Product, User, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
+import { parseSafeDate, isDateInRange, formatDisplayDateTime, toLocalDateString } from '../utils/dateHelper';
 import { 
   FileSpreadsheet, 
   History,
@@ -156,31 +157,69 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
   // Search and date filtered transactions
   const filteredSales = useMemo(() => {
     return effectiveSales.filter(s => {
-      // Date Range filter (using local date parsing)
-      const localDate = new Date(s.date);
-      const yyyy = localDate.getFullYear();
-      const mm = String(localDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(localDate.getDate()).padStart(2, '0');
-      const sLocalDateStr = `${yyyy}-${mm}-${dd}`;
+      // Date Range filter using robust date normalizer (prevents NaN exclusion)
+      if (startDate || endDate) {
+        if (!isDateInRange(s.date, startDate, endDate)) return false;
+      }
 
-      if (startDate && sLocalDateStr < startDate) return false;
-      if (endDate && sLocalDateStr > endDate) return false;
+      if (selectedUser !== 'Todos') {
+        const seller = (s.operatorName || 'Administrador').toLowerCase();
+        if (seller !== selectedUser.toLowerCase()) return false;
+      }
+
+      if (selectedVoucherType !== 'Todos') {
+        const vt = (s.voucherType || 'ticket').toLowerCase();
+        if (vt !== selectedVoucherType.toLowerCase()) return false;
+      }
+
+      if (selectedSaleType !== 'Todos') {
+        const st = (s.saleType || 'presencial').toLowerCase();
+        if (st !== selectedSaleType.toLowerCase()) return false;
+      }
+
+      if (selectedPaymentMethod !== 'Todos') {
+        const pm = (s.paymentMethod || 'cash').toLowerCase();
+        if (pm !== selectedPaymentMethod.toLowerCase()) return false;
+      }
 
       return true;
     });
-  }, [effectiveSales, startDate, endDate]);
+  }, [effectiveSales, startDate, endDate, selectedUser, selectedVoucherType, selectedSaleType, selectedPaymentMethod]);
 
-  // Search filter across transactions
+  // Search filter across transactions with support for ticket numbers (#TKT-XXXXXX, TKT-XXXXXX, #TXXXXX)
   const searchedSales = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return filteredSales;
+
     return filteredSales.filter(sale => {
       const clientName = getClientName(sale.clientId).toLowerCase();
-      const matchClient = clientName.includes(searchQuery.toLowerCase());
-      const matchProduct = sale.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchMethod = sale.paymentMethod.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchId = sale.id.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchClient || matchProduct || matchMethod || matchId;
+      const matchClient = clientName.includes(q);
+      const matchProduct = (sale.items || []).some(item => (item.name || '').toLowerCase().includes(q));
+      const matchMethod = (sale.paymentMethod || '').toLowerCase().includes(q);
+      const rawId = (sale.id || '').toLowerCase();
+      const matchId = rawId.includes(q);
+      
+      // Match ticket representations as printed on receipts
+      const endSix = sale.id ? sale.id.slice(-6).toLowerCase() : '';
+      const endFive = sale.id ? sale.id.slice(-5).toLowerCase() : '';
+      const ticketFull = `tkt-${endSix}`;
+      const ticketShort = `#tkt-${endSix}`;
+      const miniTicket = `#t${endFive}`;
+      const miniTicketRaw = `t${endFive}`;
+      const matchTicket = ticketFull.includes(q) || ticketShort.includes(q) || miniTicket.includes(q) || miniTicketRaw.includes(q) || endSix.includes(q);
+
+      const matchOperator = (sale.operatorName || '').toLowerCase().includes(q);
+      const matchBranch = (sale.branch || '').toLowerCase().includes(q);
+      const matchTotal = (Number(sale.total) || 0).toFixed(2).includes(q);
+
+      return matchClient || matchProduct || matchMethod || matchId || matchTicket || matchOperator || matchBranch || matchTotal;
     });
-  }, [filteredSales, searchQuery]);
+  }, [filteredSales, searchQuery, clients]);
+
+  // Guarantee chronological descending order: NEWEST SALES ALWAYS AT THE TOP
+  const sortedSales = useMemo(() => {
+    return [...searchedSales].sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+  }, [searchedSales]);
 
   return (
     <div id="sales-ledger-view" className="space-y-6 animate-in fade-in duration-200">
@@ -342,16 +381,35 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
           </div>
         </div>
 
-        {searchedSales.length === 0 ? (
-          <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center space-y-2">
-            <Inbox className="w-10 h-10 text-slate-200" />
-            <p className="text-xs font-medium">No se encontraron ventas para esta búsqueda o rango de fechas.</p>
+        {sortedSales.length === 0 ? (
+          <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
+            <Inbox className="w-10 h-10 text-slate-300" />
+            <p className="text-xs font-semibold text-slate-600">No se encontraron ventas para esta búsqueda o rango de fechas.</p>
+            {(startDate || endDate || searchQuery || selectedBranch !== 'Todas' || selectedUser !== 'Todos' || selectedPaymentMethod !== 'Todos') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDatePreset('all');
+                  setStartDate('');
+                  setEndDate('');
+                  setSearchQuery('');
+                  setSelectedUser('Todos');
+                  setSelectedVoucherType('Todos');
+                  setSelectedSaleType('Todos');
+                  setSelectedPaymentMethod('Todos');
+                  setSelectedBranch('Todas');
+                }}
+                className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl border border-blue-200 transition-all cursor-pointer shadow-2xs"
+              >
+                Mostrar Todas las Ventas del Sistema ({sales.length})
+              </button>
+            )}
           </div>
         ) : (
           <>
             {/* Mobile Cards View (< sm screens) */}
             <div className="sm:hidden divide-y divide-slate-100 max-h-[550px] overflow-y-auto">
-              {searchedSales.slice().reverse().map((sale) => (
+              {sortedSales.map((sale) => (
                 <div key={`mob-sale-${sale.id}`} className="p-3.5 space-y-2.5 bg-white hover:bg-slate-50/60 transition-colors">
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -362,13 +420,13 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                        {new Date(sale.date).toLocaleString('es-ES', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} • Op: {sale.operatorName || 'Admin'}
+                        {formatDisplayDateTime(sale.date)} • Op: {sale.operatorName || 'Admin'}
                       </p>
                     </div>
 
                     <div className="text-right shrink-0">
                       <span className="font-mono font-bold text-sm text-slate-900 block">
-                        {currency} {sale.total.toFixed(2)}
+                        {currency} {(Number(sale.total) || 0).toFixed(2)}
                       </span>
                       <span className={`inline-block px-1.5 py-0.2 rounded font-bold text-[9px] mt-0.5 ${
                         sale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
@@ -409,7 +467,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
               ))}
             </div>
 
-            {/* Desktop Table (sm and above, unchanged) */}
+            {/* Desktop Table (sm and above) */}
             <div className="hidden sm:block overflow-x-auto max-h-[500px] overflow-y-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
@@ -426,10 +484,10 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {searchedSales.slice().reverse().map((sale) => (
+                  {sortedSales.map((sale) => (
                     <tr key={sale.id} className="text-slate-700 hover:bg-slate-50/70 transition-colors">
                       <td className="py-2.5 px-3 font-mono text-[10px]">
-                        {new Date(sale.date).toLocaleString('es-ES', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {formatDisplayDateTime(sale.date)}
                       </td>
                       <td className="py-2.5 px-3">
                         <span className="px-2 py-0.5 rounded-md font-bold text-[10px] bg-slate-100 text-slate-700 border border-slate-200">
@@ -513,7 +571,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                   Documento de Venta #{documentModalSale.id.slice(-6).toUpperCase()}
                 </h3>
                 <p className="text-[11px] text-slate-400 font-medium">
-                  Fecha: {new Date(documentModalSale.date).toLocaleString('es-ES')} | Cliente: {getClientName(documentModalSale.clientId)}
+                  Fecha: {formatDisplayDateTime(documentModalSale.date)} | Cliente: {getClientName(documentModalSale.clientId)}
                 </p>
               </div>
 
@@ -592,7 +650,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                     </div>
                     <div className="flex justify-between">
                       <span>Fecha/Hora:</span>
-                      <span>{new Date(documentModalSale.date).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                      <span>{formatDisplayDateTime(documentModalSale.date)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Cliente:</span>
@@ -711,7 +769,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                     </div>
                     <div className="text-right">
                       <span className="block text-[10px] font-bold text-slate-400 uppercase">FECHA DE EMISIÓN</span>
-                      <span className="font-bold text-slate-800 font-mono text-xs">{new Date(documentModalSale.date).toLocaleString('es-ES')}</span>
+                      <span className="font-bold text-slate-800 font-mono text-xs">{formatDisplayDateTime(documentModalSale.date)}</span>
                       <span className="block text-slate-500 text-[11px]">Moneda: GTQ / {currency}</span>
                     </div>
                   </div>
@@ -805,7 +863,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
                         COMPROBANTE DE PAGO
                       </span>
                       <span className="block font-mono font-bold text-slate-700 text-xs">#CMP-{documentModalSale.id.slice(-6).toUpperCase()}</span>
-                      <span className="block text-[10px] text-slate-400 font-mono">{new Date(documentModalSale.date).toLocaleString('es-ES')}</span>
+                      <span className="block text-[10px] text-slate-400 font-mono">{formatDisplayDateTime(documentModalSale.date)}</span>
                     </div>
                   </div>
 

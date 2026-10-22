@@ -12,7 +12,9 @@ import {
   MapPin, 
   DollarSign,
   AlertCircle,
-  Eye
+  Eye,
+  CheckCircle2,
+  X
 } from 'lucide-react';
 
 interface ClientsProvidersProps {
@@ -23,6 +25,8 @@ interface ClientsProvidersProps {
   onDeleteClient: (id: string) => Promise<{ success: boolean }>;
   onSaveProvider: (provider: Provider) => Promise<Provider>;
   onDeleteProvider: (id: string) => Promise<{ success: boolean }>;
+  onClientPayment?: (params: { clientId: string; amount: number; paymentMethod: string; reference?: string; notes?: string }) => Promise<void>;
+  onProviderPayment?: (params: { providerId: string; amount: number; paymentMethod: string; voucherNumber?: string; notes?: string }) => Promise<void>;
   onRefreshData: () => void;
   mode?: 'clients' | 'providers';
   activeBranchName?: string;
@@ -38,6 +42,8 @@ export default function ClientsProviders({
   onDeleteClient, 
   onSaveProvider, 
   onDeleteProvider, 
+  onClientPayment,
+  onProviderPayment,
   onRefreshData,
   mode
 }: ClientsProvidersProps) {
@@ -72,6 +78,114 @@ export default function ClientsProviders({
   // View detailed provider modal state
   const [selectedProviderForView, setSelectedProviderForView] = useState<Provider | null>(null);
   const [isProviderViewOpen, setIsProviderViewOpen] = useState(false);
+
+  // --- CLIENT ABONO (DEBT PAYMENT) MODAL ---
+  const [isAbonoModalOpen, setIsAbonoModalOpen] = useState(false);
+  const [selectedClientForAbono, setSelectedClientForAbono] = useState<Client | null>(null);
+  const [abonoAmount, setAbonoAmount] = useState('');
+  const [abonoPaymentMethod, setAbonoPaymentMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia'>('Efectivo');
+  const [abonoReference, setAbonoReference] = useState('');
+  const [abonoNotes, setAbonoNotes] = useState('');
+  const [isSubmittingAbono, setIsSubmittingAbono] = useState(false);
+
+  // --- PROVIDER DEBT PAYMENT MODAL ---
+  const [isPayProviderModalOpen, setIsPayProviderModalOpen] = useState(false);
+  const [selectedProviderForPay, setSelectedProviderForPay] = useState<Provider | null>(null);
+  const [payProviderAmount, setPayProviderAmount] = useState('');
+  const [payProviderMethod, setPayProviderMethod] = useState<'Efectivo' | 'Transferencia' | 'Cheque'>('Efectivo');
+  const [payProviderVoucher, setPayProviderVoucher] = useState('');
+  const [payProviderNotes, setPayProviderNotes] = useState('');
+  const [isSubmittingProviderPay, setIsSubmittingProviderPay] = useState(false);
+
+  const openClientAbono = (c: Client) => {
+    setSelectedClientForAbono(c);
+    setAbonoAmount(c.balanceCredit > 0 ? c.balanceCredit.toString() : '');
+    setAbonoPaymentMethod('Efectivo');
+    setAbonoReference('');
+    setAbonoNotes('');
+    setIsAbonoModalOpen(true);
+  };
+
+  const handleAbonoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClientForAbono) return;
+    const amount = parseFloat(abonoAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Por favor ingrese un monto válido para el abono.');
+      return;
+    }
+
+    setIsSubmittingAbono(true);
+    try {
+      if (onClientPayment) {
+        await onClientPayment({
+          clientId: selectedClientForAbono.id,
+          amount,
+          paymentMethod: abonoPaymentMethod,
+          reference: abonoReference,
+          notes: abonoNotes
+        });
+      } else {
+        const nextBalance = Math.max(0, (selectedClientForAbono.balanceCredit || 0) - amount);
+        await onSaveClient({
+          ...selectedClientForAbono,
+          balanceCredit: nextBalance
+        });
+      }
+      setIsAbonoModalOpen(false);
+      onRefreshData();
+      alert(`✓ Abono de ${currency}${amount.toFixed(2)} registrado exitosamente para ${selectedClientForAbono.name}.`);
+    } catch (err: any) {
+      alert(err.message || 'Error al registrar el abono');
+    } finally {
+      setIsSubmittingAbono(false);
+    }
+  };
+
+  const openProviderPay = (p: Provider) => {
+    setSelectedProviderForPay(p);
+    setPayProviderAmount((p.creditPending ?? 0) > 0 ? (p.creditPending ?? 0).toString() : '');
+    setPayProviderMethod('Efectivo');
+    setPayProviderVoucher('');
+    setPayProviderNotes('');
+    setIsPayProviderModalOpen(true);
+  };
+
+  const handleProviderPaySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProviderForPay) return;
+    const amount = parseFloat(payProviderAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Por favor ingrese un monto válido para el pago al proveedor.');
+      return;
+    }
+
+    setIsSubmittingProviderPay(true);
+    try {
+      if (onProviderPayment) {
+        await onProviderPayment({
+          providerId: selectedProviderForPay.id,
+          amount,
+          paymentMethod: payProviderMethod,
+          voucherNumber: payProviderVoucher,
+          notes: payProviderNotes
+        });
+      } else {
+        const nextPending = Math.max(0, (selectedProviderForPay.creditPending || 0) - amount);
+        await onSaveProvider({
+          ...selectedProviderForPay,
+          creditPending: nextPending
+        });
+      }
+      setIsPayProviderModalOpen(false);
+      onRefreshData();
+      alert(`✓ Pago de ${currency}${amount.toFixed(2)} registrado exitosamente al proveedor ${selectedProviderForPay.name}.`);
+    } catch (err: any) {
+      alert(err.message || 'Error al registrar el pago al proveedor');
+    } finally {
+      setIsSubmittingProviderPay(false);
+    }
+  };
 
   // --- CLIENT MODAL OPEN ---
   const openClientAdd = () => {
@@ -319,6 +433,17 @@ export default function ClientsProviders({
                         Límite: <strong className="font-mono text-slate-800">{currency}{c.limitCredit.toFixed(2)}</strong>
                       </span>
                       <div className="flex items-center gap-1.5">
+                        {c.balanceCredit > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => openClientAbono(c)}
+                            className="px-2 py-1 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-md flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Registrar Abono"
+                          >
+                            <DollarSign className="w-3 h-3" />
+                            <span>Abonar</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openClientEdit(c)}
@@ -374,6 +499,16 @@ export default function ClientsProviders({
                         </td>
                         <td className="py-3.5 px-5 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            {c.balanceCredit > 0 && (
+                              <button
+                                onClick={() => openClientAbono(c)}
+                                className="px-2.5 py-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-md flex items-center gap-1 shadow-xs transition-colors cursor-pointer mr-1"
+                                title="Registrar Abono a Cuenta Corriente"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>Abonar</span>
+                              </button>
+                            )}
                             <button
                               onClick={() => openClientEdit(c)}
                               className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
@@ -430,6 +565,17 @@ export default function ClientsProviders({
                         Total compras: <strong className="font-mono text-slate-800">{currency}{(p.totalPurchases ?? 0).toFixed(2)}</strong>
                       </span>
                       <div className="flex items-center gap-1.5">
+                        {(p.creditPending ?? 0) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => openProviderPay(p)}
+                            className="px-2 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Registrar Pago a Proveedor"
+                          >
+                            <DollarSign className="w-3 h-3" />
+                            <span>Pagar</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openProviderView(p)}
@@ -495,6 +641,16 @@ export default function ClientsProviders({
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            {(p.creditPending ?? 0) > 0 && (
+                              <button
+                                onClick={() => openProviderPay(p)}
+                                className="px-2.5 py-1 text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-1 shadow-xs transition-colors cursor-pointer mr-1"
+                                title="Registrar Pago a Proveedor"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>Pagar</span>
+                              </button>
+                            )}
                             <button
                               onClick={() => openProviderView(p)}
                               className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-slate-100 rounded-md border border-[#E2E8F0] transition-colors cursor-pointer"
@@ -778,6 +934,288 @@ export default function ClientsProviders({
                 Cerrar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLIENT ABONO / DEBT PAYMENT MODAL */}
+      {isAbonoModalOpen && selectedClientForAbono && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-scale-up">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Registrar Abono a Cuenta Corriente</h3>
+                  <p className="text-[11px] text-slate-500">Amortización de saldo deudor de cliente</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsAbonoModalOpen(false)} 
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Client summary badge */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-slate-700">{selectedClientForAbono.name}</span>
+                <span className="font-mono text-slate-500 text-[11px]">{selectedClientForAbono.phone}</span>
+              </div>
+              <div className="flex justify-between items-center pt-1 border-t border-slate-200 text-xs">
+                <span className="text-slate-500 font-medium">Saldo Deudor Actual:</span>
+                <span className="font-bold font-mono text-amber-700">
+                  {currency}{selectedClientForAbono.balanceCredit.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleAbonoSubmit} className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Monto a Abonar ({currency}) <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">{currency}</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={selectedClientForAbono.balanceCredit > 0 ? selectedClientForAbono.balanceCredit : undefined}
+                    required
+                    value={abonoAmount}
+                    onChange={(e) => setAbonoAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full pl-8 pr-3 py-2 text-sm font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+                {/* Quick amount shortcuts */}
+                {selectedClientForAbono.balanceCredit > 0 && (
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setAbonoAmount(selectedClientForAbono.balanceCredit.toString())}
+                      className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-200 cursor-pointer"
+                    >
+                      Pagar Total ({currency}{selectedClientForAbono.balanceCredit.toFixed(2)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAbonoAmount((selectedClientForAbono.balanceCredit / 2).toFixed(2))}
+                      className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-md cursor-pointer"
+                    >
+                      50% ({currency}{(selectedClientForAbono.balanceCredit / 2).toFixed(2)})
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700">Método de Pago</label>
+                  <select
+                    value={abonoPaymentMethod}
+                    onChange={(e: any) => setAbonoPaymentMethod(e.target.value)}
+                    className="w-full text-xs font-medium border border-slate-300 rounded-xl px-2.5 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden bg-white"
+                  >
+                    <option value="Efectivo">Efectivo (Entrada a Caja)</option>
+                    <option value="Tarjeta">Tarjeta / POS</option>
+                    <option value="Transferencia">Transferencia Bancaria</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700">No. Recibo / Doc</label>
+                  <input
+                    type="text"
+                    value={abonoReference}
+                    onChange={(e) => setAbonoReference(e.target.value)}
+                    placeholder="REC-001"
+                    className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">Notas / Observaciones</label>
+                <input
+                  type="text"
+                  value={abonoNotes}
+                  onChange={(e) => setAbonoNotes(e.target.value)}
+                  placeholder="Ej: Pago parcial semanal"
+                  className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                />
+              </div>
+
+              {abonoPaymentMethod === 'Efectivo' && (
+                <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <span>El dinero ingresará automáticamente al turno de caja abierto de esta sucursal.</span>
+                </div>
+              )}
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAbonoModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAbono}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-98 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingAbono ? 'Registrando...' : 'Confirmar Abono'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PROVIDER DEBT PAYMENT MODAL */}
+      {isPayProviderModalOpen && selectedProviderForPay && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-scale-up">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Registrar Pago a Proveedor</h3>
+                  <p className="text-[11px] text-slate-500">Amortización de compras al crédito pendientes</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsPayProviderModalOpen(false)} 
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Provider summary card */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-slate-700">{selectedProviderForPay.name}</span>
+                <span className="font-mono text-slate-500 text-[11px]">{selectedProviderForPay.phone}</span>
+              </div>
+              <div className="flex justify-between items-center pt-1 border-t border-slate-200 text-xs">
+                <span className="text-slate-500 font-medium">Crédito Pendiente por Pagar:</span>
+                <span className="font-bold font-mono text-rose-700">
+                  {currency}{(selectedProviderForPay.creditPending ?? 0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleProviderPaySubmit} className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Monto a Pagar ({currency}) <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">{currency}</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={(selectedProviderForPay.creditPending ?? 0) > 0 ? (selectedProviderForPay.creditPending ?? 0) : undefined}
+                    required
+                    value={payProviderAmount}
+                    onChange={(e) => setPayProviderAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full pl-8 pr-3 py-2 text-sm font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+                {/* Quick amount shortcuts */}
+                {(selectedProviderForPay.creditPending ?? 0) > 0 && (
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPayProviderAmount((selectedProviderForPay.creditPending ?? 0).toString())}
+                      className="px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md border border-blue-200 cursor-pointer"
+                    >
+                      Pagar Total ({currency}{(selectedProviderForPay.creditPending ?? 0).toFixed(2)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayProviderAmount(((selectedProviderForPay.creditPending ?? 0) / 2).toFixed(2))}
+                      className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-md cursor-pointer"
+                    >
+                      50% ({currency}{((selectedProviderForPay.creditPending ?? 0) / 2).toFixed(2)})
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700">Método de Pago</label>
+                  <select
+                    value={payProviderMethod}
+                    onChange={(e: any) => setPayProviderMethod(e.target.value)}
+                    className="w-full text-xs font-medium border border-slate-300 rounded-xl px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white"
+                  >
+                    <option value="Efectivo">Efectivo (Salida de Caja)</option>
+                    <option value="Transferencia">Transferencia Bancaria</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-slate-700">No. Recibo / Cheque</label>
+                  <input
+                    type="text"
+                    value={payProviderVoucher}
+                    onChange={(e) => setPayProviderVoucher(e.target.value)}
+                    placeholder="CHEQ-4521"
+                    className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 font-mono focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700">Notas / Concepto</label>
+                <input
+                  type="text"
+                  value={payProviderNotes}
+                  onChange={(e) => setPayProviderNotes(e.target.value)}
+                  placeholder="Ej: Pago de factura de medicamentos"
+                  className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                />
+              </div>
+
+              {payProviderMethod === 'Efectivo' && (
+                <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                  <span>Se registrará un egreso en Gastos y se descontará del saldo en efectivo de la caja abierta.</span>
+                </div>
+              )}
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPayProviderModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingProviderPay}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-98 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingProviderPay ? 'Registrando...' : 'Confirmar Pago'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
