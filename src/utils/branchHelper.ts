@@ -82,30 +82,31 @@ export function getActiveBranch(config?: AppConfig, user?: User | null): Branch 
 
 /**
  * Checks whether a movement (sale, shift, expense, purchase) belongs to a branch.
- * If item has no branch recorded (legacy), it maps to the primary/central branch.
+ * If item has no branch recorded (legacy), it is never hidden.
+ * If the business only has 0 or 1 branch, all movements belong to it.
  */
 export function isItemInBranch(
   itemBranch?: string, 
   targetBranchNameOrCode?: string, 
   allBranches?: Branch[]
 ): boolean {
-  if (!targetBranchNameOrCode || targetBranchNameOrCode === 'Todas' || !allBranches || allBranches.length === 0) return true;
+  if (!targetBranchNameOrCode || targetBranchNameOrCode === 'Todas' || !allBranches || allBranches.length <= 1) {
+    return true;
+  }
   
-  const target = targetBranchNameOrCode.toLowerCase().trim();
-
-  // If item has no branch set (legacy item before multi-branch setup)
+  // If item has no branch set (legacy item before multi-branch setup or default register)
   if (!itemBranch || !itemBranch.trim()) {
-    const mainBranch = allBranches?.find(b => b.isMain) || allBranches?.[0];
-    if (!mainBranch) return true;
-    const mainName = (mainBranch.name || '').toLowerCase().trim();
-    const mainCode = (mainBranch.code || '').toLowerCase().trim();
-    return target === mainName || target === mainCode || (mainName && (target.includes(mainName) || mainName.includes(target)));
+    return true;
   }
 
+  const target = targetBranchNameOrCode.toLowerCase().trim();
   const itemLower = itemBranch.toLowerCase().trim();
 
   // Direct exact match
   if (itemLower === target) return true;
+
+  // Flexible name inclusion (e.g., "Sucursal Central" vs "Central")
+  if (target.includes(itemLower) || itemLower.includes(target)) return true;
 
   // Check if matching code or name via allBranches lookup
   if (allBranches && allBranches.length > 0) {

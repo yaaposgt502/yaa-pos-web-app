@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Sale, Client, AppConfig, Product, User, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
-import { parseSafeDate, isDateInRange, formatDisplayDateTime, toLocalDateString } from '../utils/dateHelper';
+import { parseSafeDate, isDateInRange, formatDisplayDateTime, toLocalDateString, getTodayDateString, isToday } from '../utils/dateHelper';
 import { 
   FileSpreadsheet, 
   History,
@@ -69,8 +69,12 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
       const b = availableBranches.find(br => br.id === config.activeBranchId);
       if (b) return b.name;
     }
-    return availableBranches[0]?.name || '';
-  }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches]);
+    // For admins when there are no branches or just 1, show all
+    if (!user?.isOperator && availableBranches.length <= 1) {
+      return 'Todas';
+    }
+    return availableBranches[0]?.name || 'Todas';
+  }, [activeBranchName, allowedBranches, config.activeBranchId, availableBranches, user]);
 
   const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch);
 
@@ -90,22 +94,22 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
       });
     }
 
-    if (selectedBranch && selectedBranch !== 'Todas') {
+    if (selectedBranch && selectedBranch !== 'Todas' && availableBranches.length > 1) {
       return sales.filter(s => isItemInBranch(s.branch, selectedBranch, availableBranches));
     }
 
     return sales;
   }, [sales, user, allowedBranches, selectedBranch, availableBranches]);
 
-  // Date filtering state - Defaults to full month
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  // Date filtering state - Robust local / Guatemala calendar date handling
+  const todayStr = useMemo(() => getTodayDateString(), []);
   const [datePreset, setDatePreset] = useState<'today' | 'month' | '30days' | 'all' | 'custom'>('month');
   
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   });
-  const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState<string>(() => getTodayDateString());
 
   // Secondary filters
   const [selectedUser, setSelectedUser] = useState<string>('Todos');
@@ -133,20 +137,20 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
   // Apply Quick Date Range Preset
   const applyPreset = (preset: 'today' | 'month' | '30days' | 'all') => {
     setDatePreset(preset);
-    const today = new Date();
-    const todayFormatted = today.toISOString().split('T')[0];
+    const todayFormatted = getTodayDateString();
 
     if (preset === 'today') {
       setStartDate(todayFormatted);
       setEndDate(todayFormatted);
     } else if (preset === 'month') {
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      const now = new Date();
+      const firstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
       setStartDate(firstDay);
       setEndDate(todayFormatted);
     } else if (preset === '30days') {
       const past30 = new Date();
-      past30.setDate(today.getDate() - 30);
-      setStartDate(past30.toISOString().split('T')[0]);
+      past30.setDate(past30.getDate() - 30);
+      setStartDate(toLocalDateString(past30));
       setEndDate(todayFormatted);
     } else if (preset === 'all') {
       setStartDate('');
@@ -157,8 +161,10 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
   // Search and date filtered transactions
   const filteredSales = useMemo(() => {
     return effectiveSales.filter(s => {
-      // Date Range filter using robust date normalizer (prevents NaN exclusion)
-      if (startDate || endDate) {
+      // Date Range filter using robust date normalizer (prevents UTC/local day-jump exclusion)
+      if (datePreset === 'today') {
+        if (!isToday(s.date) && !isDateInRange(s.date, startDate, endDate)) return false;
+      } else if (startDate || endDate) {
         if (!isDateInRange(s.date, startDate, endDate)) return false;
       }
 
