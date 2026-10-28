@@ -878,11 +878,14 @@ export default function Inventory({
   const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
-    if (formManageBatchAndExpiration && formExpirationRows.length > 0) {
-      const sum = formExpirationRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0);
-      setFormStock(sum.toString());
+    if (config.businessType === 'pharmacy' && formManageBatchAndExpiration && formExpirationRows.length > 0) {
+      const hasAnyStockEntered = formExpirationRows.some(r => String(r.stock).trim() !== '');
+      if (hasAnyStockEntered) {
+        const sum = formExpirationRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0);
+        setFormStock(sum.toString());
+      }
     }
-  }, [formExpirationRows, formManageBatchAndExpiration]);
+  }, [formExpirationRows, formManageBatchAndExpiration, config.businessType]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1222,11 +1225,12 @@ export default function Inventory({
       return;
     }
 
-    let newStock = selectedKardexProduct.stock;
+    const currentStock = getProductStock(selectedKardexProduct);
+    let newStock = currentStock;
     if (newAdjustmentType === 'entrada') {
       newStock += qty;
     } else {
-      if (qty > selectedKardexProduct.stock) {
+      if (qty > currentStock) {
         alert('No puedes retirar más de lo que hay en stock actual.');
         return;
       }
@@ -1248,9 +1252,28 @@ export default function Inventory({
     adjustments.push(newAdj);
     localStorage.setItem(savedAdjustmentsKey, JSON.stringify(adjustments));
 
-    const updatedProduct = {
+    let updatedExpirationDates = selectedKardexProduct.expirationDates;
+    if (updatedExpirationDates && updatedExpirationDates.length > 0) {
+      if (newAdjustmentType === 'entrada') {
+        updatedExpirationDates = updatedExpirationDates.map((r, i) =>
+          i === 0 ? { ...r, stock: (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) + qty } : r
+        );
+      } else {
+        let rem = qty;
+        updatedExpirationDates = updatedExpirationDates.map(r => {
+          if (rem <= 0) return r;
+          const s = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
+          const deduct = Math.min(s, rem);
+          rem -= deduct;
+          return { ...r, stock: s - deduct };
+        });
+      }
+    }
+
+    const updatedProduct: Product = {
       ...selectedKardexProduct,
-      stock: newStock
+      stock: newStock,
+      expirationDates: updatedExpirationDates
     };
 
     try {
@@ -1478,17 +1501,22 @@ export default function Inventory({
     setFormLaboratory(p.laboratory || 'Bayer');
     setFormSymptoms(p.symptoms || '');
     setFormStatus(p.status || 'Activo');
-    setFormManageBatchAndExpiration(p.manageBatchAndExpiration ?? true);
+    setFormManageBatchAndExpiration(p.manageBatchAndExpiration ?? (config.businessType === 'pharmacy'));
     setFormExpirationAlertDays((p.expirationAlertDays ?? 15).toString());
     setFormInitialBatch(p.initialBatch || '00101');
 
     const validRows = (p.expirationDates || []).filter(r => (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) > 0);
     if (validRows.length > 0) {
-      setFormExpirationRows(validRows.map(r => ({
+      const mappedRows = validRows.map(r => ({
         date: r.date,
         stock: r.stock.toString(),
         batch: r.batch || ''
-      })));
+      }));
+      const rowsSum = mappedRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0);
+      if (effStock > rowsSum && mappedRows.length > 0) {
+        mappedRows[0].stock = ((parseInt(mappedRows[0].stock) || 0) + (effStock - rowsSum)).toString();
+      }
+      setFormExpirationRows(mappedRows);
     } else {
       setFormExpirationRows([
         { date: p.expirationDate || '', stock: effStock.toString(), batch: p.initialBatch || '00101' }
@@ -1504,15 +1532,15 @@ export default function Inventory({
     
     const actualPrice = config.businessType === 'pharmacy' ? (formPricePerUnit || formPrice) : formPrice;
     
-    if (!formName || !formCode || !actualPrice || !formCost || !formStock) {
+    if (!formName || !formCode || actualPrice === '' || formCost === '' || formStock === '') {
       alert('Por favor complete todos los campos obligatorios.');
       return;
     }
 
     const priceNum = parseFloat(actualPrice);
     const costNum = parseFloat(formCost);
-    const stockNum = parseInt(formStock);
-    const minStockNum = parseInt(formMinStock) || 0;
+    const stockNum = parseInt(formStock, 10);
+    const minStockNum = parseInt(formMinStock, 10) || 0;
 
     if (isNaN(priceNum) || isNaN(costNum) || isNaN(stockNum)) {
       alert('Valores de precio, costo y stock deben ser numéricos.');
@@ -1528,39 +1556,56 @@ export default function Inventory({
       }
     }
 
+    const useBatchManagement = config.businessType === 'pharmacy'
+      ? formManageBatchAndExpiration
+      : Boolean(editingProduct?.manageBatchAndExpiration && editingProduct?.expirationDates && editingProduct.expirationDates.length > 0);
+
     let preparedRows = [...formExpirationRows];
-    if (formManageBatchAndExpiration) {
+    if (useBatchManagement) {
       if (preparedRows.length === 0) {
         preparedRows = [{ date: formExpirationDate || '', stock: stockNum.toString(), batch: formInitialBatch || '00101' }];
       } else if (preparedRows.length === 1) {
-        preparedRows[0].stock = stockNum.toString();
-        if (!preparedRows[0].batch) {
-          preparedRows[0].batch = formInitialBatch || '00101';
-        }
-        if (!preparedRows[0].date && formExpirationDate) {
-          preparedRows[0].date = formExpirationDate;
-        }
+        preparedRows[0] = {
+          ...preparedRows[0],
+          stock: stockNum.toString(),
+          batch: preparedRows[0].batch || formInitialBatch || '00101',
+          date: preparedRows[0].date || formExpirationDate || ''
+        };
       } else {
-        const lotesSum = preparedRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0);
+        const lotesSum = preparedRows.reduce((acc, r) => acc + (parseInt(r.stock, 10) || 0), 0);
         if (lotesSum === 0 && stockNum > 0) {
-          preparedRows[0].stock = stockNum.toString();
-        } else if (stockNum !== lotesSum && stockNum > 0) {
-          const diff = stockNum - lotesSum;
-          const currentFirstStock = parseInt(preparedRows[0].stock) || 0;
-          preparedRows[0].stock = Math.max(0, currentFirstStock + diff).toString();
+          preparedRows[0] = { ...preparedRows[0], stock: stockNum.toString() };
+        } else if (stockNum !== lotesSum) {
+          if (config.businessType !== 'pharmacy') {
+            // In standard mode, the single Stock input is authoritative; scale/adjust rows to match stockNum
+            let rem = stockNum;
+            preparedRows = preparedRows.map((r, idx) => {
+              if (idx === preparedRows.length - 1) {
+                return { ...r, stock: Math.max(0, rem).toString() };
+              }
+              const s = Math.min(rem, parseInt(r.stock, 10) || 0);
+              rem = Math.max(0, rem - s);
+              return { ...r, stock: s.toString() };
+            });
+          } else if (stockNum > 0) {
+            const diff = stockNum - lotesSum;
+            const currentFirstStock = parseInt(preparedRows[0].stock, 10) || 0;
+            preparedRows[0] = { ...preparedRows[0], stock: Math.max(0, currentFirstStock + diff).toString() };
+          }
         }
       }
     }
 
-    const validPreparedRows = formManageBatchAndExpiration 
-      ? preparedRows.filter(r => (parseInt(r.stock) || 0) > 0)
+    const validPreparedRows = useBatchManagement 
+      ? preparedRows.filter(r => (parseInt(r.stock, 10) || 0) > 0)
       : [];
 
-    const computedStock = (formManageBatchAndExpiration && preparedRows.length > 0)
-      ? validPreparedRows.reduce((acc, r) => acc + (parseInt(r.stock) || 0), 0)
+    const computedStock = (config.businessType === 'pharmacy' && useBatchManagement && validPreparedRows.length > 0)
+      ? validPreparedRows.reduce((acc, r) => acc + (parseInt(r.stock, 10) || 0), 0)
       : stockNum;
 
     const productData: Product = {
+      ...(editingProduct || {}),
       id: editingProduct?.id || '', 
       name: formName,
       code: formCode,
@@ -1570,22 +1615,23 @@ export default function Inventory({
       stock: computedStock,
       minStock: minStockNum,
       unit: formUnit || 'Pza',
-      expirationDate: formManageBatchAndExpiration && validPreparedRows.length > 0 
+      expirationDate: useBatchManagement && validPreparedRows.length > 0 
         ? (validPreparedRows.find(r => r.date)?.date || formExpirationDate || undefined) 
         : (formExpirationDate || undefined),
       location: formLocation || 'Almacén Principal',
       detail: formDetail || '',
       imageUrl: finalImageUrl,
+      branch: editingProduct?.branch || activeBranchName || undefined,
       
       // Pharmacy fields
       registrationDate: formRegistrationDate,
-      barcode: formBarcode,
+      barcode: formBarcode || formCode,
       pharmacyType: formPharmacyType,
       prescriptionRequired: formPrescriptionRequired,
       sanitaryRegister: formSanitaryRegister,
       discount: parseFloat(formDiscount) || 0,
-      unitsPerBox: parseInt(formUnitsPerBox) || 0,
-      unitsPerBlister: isBlisterHidden ? 0 : (parseInt(formUnitsPerBlister) || 0),
+      unitsPerBox: parseInt(formUnitsPerBox, 10) || 0,
+      unitsPerBlister: isBlisterHidden ? 0 : (parseInt(formUnitsPerBlister, 10) || 0),
       marginPercent: parseFloat(formMarginPercent) || 0,
       pricePerUnit: parseFloat(formPricePerUnit) || priceNum,
       pricePerBlister: isBlisterHidden ? 0 : (parseFloat(formPricePerBlister) || 0),
@@ -1593,23 +1639,25 @@ export default function Inventory({
       laboratory: formLaboratory,
       symptoms: formSymptoms,
       status: formStatus,
-      manageBatchAndExpiration: formManageBatchAndExpiration,
-      expirationAlertDays: parseInt(formExpirationAlertDays) || 0,
-      initialBatch: formManageBatchAndExpiration && validPreparedRows.length > 0
+      manageBatchAndExpiration: useBatchManagement,
+      expirationAlertDays: parseInt(formExpirationAlertDays, 10) || 0,
+      initialBatch: useBatchManagement && validPreparedRows.length > 0
         ? (validPreparedRows.find(r => r.batch)?.batch || formInitialBatch || '00101')
         : formInitialBatch,
-      expirationDates: formManageBatchAndExpiration && validPreparedRows.length > 0
+      expirationDates: useBatchManagement && validPreparedRows.length > 0
         ? validPreparedRows.map(r => ({
             date: r.date,
-            stock: parseInt(r.stock) || 0,
+            stock: parseInt(r.stock, 10) || 0,
             batch: r.batch || formInitialBatch || '00101'
           }))
-        : undefined
+        : []
     };
 
     try {
-      await onSaveProduct(productData);
-      setDetailProduct(productData);
+      const savedProd = await onSaveProduct(productData);
+      if (detailProduct && detailProduct.id === savedProd.id) {
+        setDetailProduct(savedProd);
+      }
       setIsModalOpen(false);
       onRefreshData();
     } catch (err: any) {
@@ -4030,7 +4078,18 @@ export default function Inventory({
                       min="0"
                       placeholder="0"
                       value={formStock}
-                      onChange={(e) => setFormStock(e.target.value)}
+                      onChange={(e) => {
+                        const newVal = e.target.value;
+                        setFormStock(newVal);
+                        if (formExpirationRows.length <= 1) {
+                          setFormExpirationRows(prev => {
+                            if (prev.length === 0) {
+                              return [{ date: formExpirationDate || '', stock: newVal, batch: formInitialBatch || '00101' }];
+                            }
+                            return [{ ...prev[0], stock: newVal }];
+                          });
+                        }
+                      }}
                       className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#005e63] font-mono bg-white text-slate-800"
                     />
                   </div>

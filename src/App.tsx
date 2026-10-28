@@ -912,9 +912,48 @@ export default function App() {
         api.getConfig()
       ]);
 
-      setProducts(prods);
-      setClients(clis);
-      setProviders(provs);
+      setProducts(prev => {
+        if (!prods || prods.length === 0) return prev;
+        if (prev.length > prods.length) {
+          const prodMap = new Map(prods.map(p => [p.id, p]));
+          const merged = [...prods];
+          for (const p of prev) {
+            if (!prodMap.has(p.id)) {
+              merged.push(p);
+            }
+          }
+          return merged;
+        }
+        return prods;
+      });
+      setClients(prev => {
+        if (!clis || clis.length === 0) return prev;
+        if (prev.length > clis.length) {
+          const cliMap = new Map(clis.map(c => [c.id, c]));
+          const merged = [...clis];
+          for (const c of prev) {
+            if (!cliMap.has(c.id)) {
+              merged.push(c);
+            }
+          }
+          return merged;
+        }
+        return clis;
+      });
+      setProviders(prev => {
+        if (!provs || provs.length === 0) return prev;
+        if (prev.length > provs.length) {
+          const provMap = new Map(provs.map(p => [p.id, p]));
+          const merged = [...provs];
+          for (const p of prev) {
+            if (!provMap.has(p.id)) {
+              merged.push(p);
+            }
+          }
+          return merged;
+        }
+        return provs;
+      });
       setSales(prev => {
         const slsMap = new Map(sls.map(s => [s.id, s]));
         const merged = [...sls];

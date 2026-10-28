@@ -1270,15 +1270,13 @@ export async function saveProduct(product: Product): Promise<Product> {
   await setDoc(getDocRef('products', docId), cleanDoc);
 
   // Update in-memory cache directly (0 additional reads)
-  if (cachedProducts) {
+  if (cachedProducts && cachedProducts.length > 0) {
     const idx = cachedProducts.findIndex(p => p.id === docId);
     if (idx >= 0) {
-      cachedProducts[idx] = product;
+      cachedProducts = cachedProducts.map((item, i) => (i === idx ? product : item));
     } else {
-      cachedProducts.push(product);
+      cachedProducts = [...cachedProducts, product];
     }
-  } else {
-    cachedProducts = [product];
   }
 
   return product;
@@ -1320,12 +1318,10 @@ export async function saveClient(client: Client): Promise<Client> {
     client = { ...client, id: docId };
   }
   await setDoc(getDocRef('clients', docId), cleanDataForFirestore(client));
-  if (cachedClients) {
+  if (cachedClients && cachedClients.length > 0) {
     const idx = cachedClients.findIndex(c => c.id === docId);
-    if (idx >= 0) cachedClients[idx] = client;
-    else cachedClients.push(client);
-  } else {
-    cachedClients = [client];
+    if (idx >= 0) cachedClients = cachedClients.map((item, i) => (i === idx ? client : item));
+    else cachedClients = [...cachedClients, client];
   }
   return client;
 }
@@ -1366,12 +1362,10 @@ export async function saveProvider(provider: Provider): Promise<Provider> {
     provider = { ...provider, id: docId };
   }
   await setDoc(getDocRef('providers', docId), cleanDataForFirestore(provider));
-  if (cachedProviders) {
+  if (cachedProviders && cachedProviders.length > 0) {
     const idx = cachedProviders.findIndex(p => p.id === docId);
-    if (idx >= 0) cachedProviders[idx] = provider;
-    else cachedProviders.push(provider);
-  } else {
-    cachedProviders = [provider];
+    if (idx >= 0) cachedProviders = cachedProviders.map((item, i) => (i === idx ? provider : item));
+    else cachedProviders = [...cachedProviders, provider];
   }
   return provider;
 }
@@ -1577,12 +1571,10 @@ export async function saveShift(shift: Shift): Promise<Shift> {
     shift = { ...shift, id: docId };
   }
   await setDoc(getDocRef('shifts', docId), shift);
-  if (cachedShifts) {
+  if (cachedShifts && cachedShifts.length > 0) {
     const idx = cachedShifts.findIndex(s => s.id === docId);
-    if (idx >= 0) cachedShifts[idx] = shift;
-    else cachedShifts.push(shift);
-  } else {
-    cachedShifts = [shift];
+    if (idx >= 0) cachedShifts = cachedShifts.map((item, i) => (i === idx ? shift : item));
+    else cachedShifts = [...cachedShifts, shift];
   }
   return shift;
 }
@@ -1732,6 +1724,7 @@ export function subscribeProducts(callback: (products: Product[], metadata?: Syn
     const colRef = getCollectionRef('products');
     return onSnapshot(colRef, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Product);
+      cachedProducts = list;
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
@@ -1750,6 +1743,7 @@ export function subscribeClients(callback: (clients: Client[], metadata?: SyncMe
     const colRef = getCollectionRef('clients');
     return onSnapshot(colRef, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Client);
+      cachedClients = list;
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
@@ -1768,6 +1762,7 @@ export function subscribeProviders(callback: (providers: Provider[], metadata?: 
     const colRef = getCollectionRef('providers');
     return onSnapshot(colRef, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Provider);
+      cachedProviders = list;
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
@@ -1882,6 +1877,7 @@ export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetad
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => doc.data() as Shift);
       list.sort((a, b) => parseSafeDate(b.openedAt).getTime() - parseSafeDate(a.openedAt).getTime());
+      cachedShifts = list;
       callback(list, {
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         fromCache: snapshot.metadata.fromCache
@@ -1892,6 +1888,7 @@ export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetad
         return onSnapshot(qSimple, (snapshot) => {
           const list = snapshot.docs.map(doc => doc.data() as Shift);
           list.sort((a, b) => parseSafeDate(b.openedAt).getTime() - parseSafeDate(a.openedAt).getTime());
+          cachedShifts = list;
           callback(list, {
             hasPendingWrites: snapshot.metadata.hasPendingWrites,
             fromCache: snapshot.metadata.fromCache
@@ -1930,7 +1927,9 @@ export function subscribeConfig(callback: (config: AppConfig, metadata?: SyncMet
     const docRef = doc(db, 'users', uid, 'configs', 'storeConfig');
     return onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        callback(docSnap.data() as AppConfig, {
+        const cfg = docSnap.data() as AppConfig;
+        cachedConfig = cfg;
+        callback(cfg, {
           hasPendingWrites: docSnap.metadata.hasPendingWrites,
           fromCache: docSnap.metadata.fromCache
         });
