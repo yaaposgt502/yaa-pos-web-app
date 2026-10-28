@@ -2748,7 +2748,7 @@ export default function App() {
           <span className={`text-[10px] sm:text-[11px] mt-0.5 block truncate tracking-tight ${
             activeTab === 'dashboard' ? 'font-bold text-white' : 'font-medium'
           }`}>
-            Dashboard
+            Inicio
           </span>
         </button>
 
