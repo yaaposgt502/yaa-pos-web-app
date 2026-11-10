@@ -9,6 +9,8 @@ export interface User {
   branch?: string;
   branches?: string[];
   accountStatus?: 'Activa' | 'Suspendida' | 'Desactivada';
+  plan?: string;
+  licenseExpiresAt?: string;
   disabledTabs?: string[];
 }
 

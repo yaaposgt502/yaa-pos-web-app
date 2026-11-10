@@ -99,7 +99,12 @@ const calculateDaysRemaining = (expirationDate: string): number => {
   if (!expirationDate) return 0;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const exp = new Date(expirationDate);
+  const cleanDate = expirationDate.trim().split('T')[0];
+  const parts = cleanDate.split('-');
+  const exp =
+    parts.length === 3
+      ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+      : new Date(expirationDate);
   exp.setHours(0, 0, 0, 0);
   const diffTime = exp.getTime() - today.getTime();
   return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
@@ -307,7 +312,15 @@ export default function App() {
           }
           if (api.isQuotaExceededError(err)) {
             setAuthError('Límite de cuota gratuita diaria de Firestore alcanzado (50,000 lecturas/día en base de datos secundaria). Puede reactivarla desvinculando la restricción gratuita en Firebase Console.');
-          } else if (err instanceof Error && (err.message.includes('suspendida') || err.message.includes('desactivada') || err.message.includes('expirado'))) {
+          } else if (
+            err instanceof Error &&
+            (err.message.includes('suspendida') ||
+              err.message.includes('desactivada') ||
+              err.message.includes('expirado') ||
+              err.message.includes('expirada') ||
+              err.message.includes('autorizada') ||
+              err.message.includes('licencia'))
+          ) {
             setAuthError(err.message);
           }
         }
@@ -352,8 +365,17 @@ export default function App() {
       const userId = user.id;
       let latestLicense: any = null;
       let latestUser: any = user;
+      let hasReceivedLicenseSnapshot = false;
 
       const runValidation = async () => {
+        // Avoid false-negative "missing license" block before the license listener emits its first snapshot,
+        // unless the user profile itself already indicates suspension/expiration.
+        if (!hasReceivedLicenseSnapshot && !latestLicense) {
+          const userState = api.resolveCompanyLicenseState(null, latestUser);
+          if (userState !== 'Suspendida' && userState !== 'Desactivada' && userState !== 'Expirada') {
+            return;
+          }
+        }
         const val = api.performValidation(latestLicense, latestUser);
         setIsSuspended(val.isBlocked);
         setSuspensionReason(val.reason);
@@ -372,6 +394,7 @@ export default function App() {
 
       // Subscribe to user license
       const unsubscribeLicense = api.subscribeUserLicense(userId, (cloudLicense) => {
+        hasReceivedLicenseSnapshot = true;
         if (cloudLicense) {
           setUserLicense(cloudLicense);
           latestLicense = cloudLicense;
@@ -391,6 +414,9 @@ export default function App() {
           }
           localStorage.setItem('yaa_pos_licenses', JSON.stringify(currentList));
           window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
+        } else {
+          latestLicense = null;
+          runValidation();
         }
       });
 
@@ -2113,21 +2139,7 @@ export default function App() {
   }
 
   const getLicenseStatus = () => {
-    if (!userLicense) return 'Activa';
-    
-    if (userLicense.expirationDate) {
-      const daysLeft = calculateDaysRemaining(userLicense.expirationDate);
-      if (daysLeft <= 2 && daysLeft > 0) {
-        return 'Por vencer';
-      }
-      if (daysLeft <= 0) {
-        return 'Expirada';
-      }
-      return 'Activa';
-    }
-
-    if (userLicense.status === 'Por vencer' || userLicense.status === 'Por Vencer') return 'Por vencer';
-    return userLicense.status || 'Activa';
+    return api.resolveCompanyLicenseState(userLicense, user);
   };
 
   // --- FULL LAYOUT (SIDEBAR + CONTENT PANELS) ---

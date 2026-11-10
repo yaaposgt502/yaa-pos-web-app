@@ -53,6 +53,7 @@ import {
   Menu
 } from 'lucide-react';
 import { PlanDefinition, getAllPlans, getPlanDefinition, savePlans } from '../utils/planLimits';
+import { toLocalDateString } from '../utils/dateHelper';
 import PlanModal from './PlanModal';
 
 interface AdminPanelProps {
@@ -94,7 +95,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   const [formClientEmail, setFormClientEmail] = useState('');
   const [formPlanType, setFormPlanType] = useState('Básico');
   const [formExpirationDate, setFormExpirationDate] = useState('');
-  const [formStatus, setFormStatus] = useState<License['status']>('Activo');
+  const [formStatus, setFormStatus] = useState<License['status']>('Activa');
 
   // Synchronized Plans catalog state
   const [plans, setPlans] = useState<PlanDefinition[]>(() => getAllPlans());
@@ -152,116 +153,161 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   const [storageLimit, setStorageLimit] = useState(() => localStorage.getItem('yaa_pos_admin_storage') || '250 MB');
   const [showConfigSuccess, setShowConfigSuccess] = useState(false);
 
-  // Fetch users from firestore on mount
+  const [rawCloudLicenses, setRawCloudLicenses] = useState<License[]>([]);
+  const [hasLoadedCloudLicenses, setHasLoadedCloudLicenses] = useState(false);
+
+  // Real-time synchronization of users and licenses from Firestore across all devices (desktop, tablet, mobile)
   useEffect(() => {
-    async function loadUsers() {
-      setIsUsersLoading(true);
-      setError(null);
-      try {
-        const list = await api.getAdminUsers();
-        // De-duplicate list by ID just in case
-        const uniqueList: User[] = [];
-        const seenIds = new Set<string>();
-        for (const u of list) {
-          if (u.id && !seenIds.has(u.id)) {
-            seenIds.add(u.id);
-            uniqueList.push(u);
-          }
+    let isMounted = true;
+    setIsUsersLoading(true);
+    setError(null);
+
+    const deduplicateAndSortUsers = (list: User[]): User[] => {
+      const uniqueList: User[] = [];
+      const seenIds = new Set<string>();
+      for (const u of list) {
+        if (u.id && !seenIds.has(u.id)) {
+          seenIds.add(u.id);
+          uniqueList.push(u);
         }
-        const sorted = uniqueList.sort((a, b) => {
-          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return dateB - dateA;
-        });
-        setUsers(sorted);
-      } catch (err: any) {
+      }
+      return uniqueList.sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      });
+    };
+
+    api.getAdminUsers()
+      .then((list) => {
+        if (!isMounted) return;
+        setUsers(deduplicateAndSortUsers(list));
+      })
+      .catch((err: any) => {
+        if (!isMounted) return;
         console.error('Error fetching admin users:', err);
         setError(err.message || 'Error al cargar los usuarios de Firestore');
-      } finally {
-        setIsUsersLoading(false);
-      }
-    }
-    loadUsers();
+      })
+      .finally(() => {
+        if (isMounted) setIsUsersLoading(false);
+      });
+
+    api.getAdminLicenses()
+      .then((list) => {
+        if (!isMounted) return;
+        setRawCloudLicenses(list);
+        setHasLoadedCloudLicenses(true);
+      })
+      .catch((err) => {
+        console.error('Error loading initial licenses from Firestore:', err);
+        if (isMounted) setHasLoadedCloudLicenses(true);
+      });
+
+    const unsubUsers = api.subscribeAdminUsers((liveUsers) => {
+      if (!isMounted) return;
+      setUsers(deduplicateAndSortUsers(liveUsers));
+      setIsUsersLoading(false);
+    });
+
+    const unsubLicenses = api.subscribeAdminLicenses((liveLicenses) => {
+      if (!isMounted) return;
+      setRawCloudLicenses(liveLicenses);
+      setHasLoadedCloudLicenses(true);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubUsers();
+      unsubLicenses();
+    };
   }, []);
 
-  // Initialize and synchronize licenses with users list
+  // Reconcile users and cloud licenses so every device displays the exact same status
   useEffect(() => {
-    if (users.length > 0) {
-      async function syncLicenses() {
-        let firebaseLicenses: License[] = [];
-        try {
-          firebaseLicenses = await api.getAdminLicenses();
-        } catch (err) {
-          console.error("Error loading licenses from Firestore", err);
-        }
+    if (!hasLoadedCloudLicenses && users.length === 0) return;
 
-        const saved = localStorage.getItem('yaa_pos_licenses');
-        let localParsed: License[] = [];
-        if (saved) {
-          try {
-            localParsed = JSON.parse(saved) as License[];
-          } catch {}
-        }
+    const mergedMap = new Map<string, License>();
+    const usersById = new Map<string, User>();
+    users.forEach((u) => {
+      if (u.id) usersById.set(u.id, u);
+    });
 
-        const mergedMap = new Map<string, License>();
-        
-        // 1. Populate with local first
-        localParsed.forEach(l => {
-          if (l.userId) mergedMap.set(l.userId, l);
-        });
+    // 1. Populate with live Firestore licenses (authoritative source of truth across all devices)
+    rawCloudLicenses.forEach((l) => {
+      if (!l.userId) return;
+      const targetUser = usersById.get(l.userId);
+      const resolved = api.resolveCompanyLicenseState(l, targetUser);
+      const normalizedLic: License = {
+        ...l,
+        status: resolved
+      };
+      mergedMap.set(l.userId, normalizedLic);
 
-        // 2. Override/add with Firestore licenses (cloud is source of truth)
-        firebaseLicenses.forEach(l => {
-          if (l.userId) mergedMap.set(l.userId, l);
-        });
-
-        // 3. Ensure all registered users have a license. Generate default if missing.
-        users.forEach((u, index) => {
-          if (!mergedMap.has(u.id)) {
-            let plan = 'Mensual Básico';
-            let status: 'Activo' | 'Por Vencer' | 'Suspendida' | 'Expirada' = 'Activo';
-            
-            if (index === 0) {
-              plan = 'Premium Anual';
-              status = 'Activo';
-            } else if (index === 1) {
-              plan = 'Mensual Básico';
-              status = 'Activo';
-            } else if (index === 2) {
-              plan = 'Demo 15 días';
-              status = 'Por Vencer';
-            }
-
-            const regDate = u.createdAt ? new Date(u.createdAt) : new Date();
-            let expDate = new Date();
-            if (plan === 'Premium Anual') expDate.setFullYear(regDate.getFullYear() + 1);
-            else if (plan === 'Mensual Básico') expDate.setMonth(regDate.getMonth() + 1);
-            else expDate.setDate(regDate.getDate() + 15);
-
-            const newLic: License = {
-              userId: u.id,
-              clientName: u.name,
-              clientEmail: u.email,
-              application: 'Yaa POS',
-              planType: plan,
-              expirationDate: expDate.toISOString().split('T')[0],
-              status: status
-            };
-            mergedMap.set(u.id, newLic);
-
-            // Save new default to Firestore immediately
-            api.saveAdminLicense(newLic).catch(err => console.error("Error saving auto-generated license to Firestore:", err));
-          }
-        });
-
-        const updated = Array.from(mergedMap.values());
-        setLicenses(updated);
-        localStorage.setItem('yaa_pos_licenses', JSON.stringify(updated));
+      // Auto-heal Firestore license document if its stored status differs from the resolved state (e.g., expired by date)
+      if (l.status !== resolved && user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
+        api.saveAdminLicense(normalizedLic).catch((err) =>
+          console.error('Error auto-syncing resolved license status to Firestore:', err)
+        );
       }
-      
-      syncLicenses();
-    }
-  }, [users]);
+
+      // Auto-heal user accountStatus if out of sync with license status
+      if (targetUser && user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
+        const expectedAccountStatus =
+          resolved === 'Suspendida'
+            ? 'Suspendida'
+            : resolved === 'Desactivada'
+            ? 'Desactivada'
+            : 'Activa';
+        if ((targetUser.accountStatus || 'Activa') !== expectedAccountStatus) {
+          api.saveAdminUser({
+            ...targetUser,
+            accountStatus: expectedAccountStatus
+          }).catch((err) =>
+            console.error('Error auto-syncing user accountStatus to Firestore:', err)
+          );
+        }
+      }
+    });
+
+    // 2. Ensure all registered users have a consistent license entry derived from their user profile
+    users.forEach((u) => {
+      if (!mergedMap.has(u.id)) {
+        const defaultExp =
+          (u as any).licenseExpiresAt ||
+          toLocalDateString(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+        const initialStatus =
+          u.accountStatus === 'Suspendida'
+            ? 'Suspendida'
+            : u.accountStatus === 'Desactivada'
+            ? 'Desactivada'
+            : api.isLicenseDateExpired(defaultExp)
+            ? 'Expirada'
+            : 'Activa';
+
+        const newLic: License = {
+          userId: u.id,
+          clientName: u.name || 'Empresa',
+          clientEmail: u.email || '',
+          application: 'Yaa POS',
+          planType: (u as any).plan || 'Básico',
+          licenseStartDate: u.createdAt ? u.createdAt.split('T')[0] : toLocalDateString(),
+          expirationDate: defaultExp,
+          status: initialStatus
+        };
+        mergedMap.set(u.id, newLic);
+
+        if (hasLoadedCloudLicenses && user.id === 'uSEwpR9zZPWvekBQKdx1SMsrs7n1') {
+          api.saveAdminLicense(newLic).catch((err) =>
+            console.error('Error saving default user license to Firestore:', err)
+          );
+        }
+      }
+    });
+
+    const updated = Array.from(mergedMap.values());
+    setLicenses(updated);
+    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updated));
+  }, [users, rawCloudLicenses, hasLoadedCloudLicenses, user.id]);
 
   // Load files for selected user
   const handleSelectUser = async (targetUser: User) => {
@@ -291,6 +337,93 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     setIsFilesDrawerOpen(true);
   };
 
+  // Helper to persist both license and user accountStatus atomically so all devices stay in sync
+  const persistLicenseAndUserSync = async (targetLicense: License) => {
+    const rawStatus = String(targetLicense.status || '').trim();
+    let normalizedStatus: License['status'] =
+      rawStatus === 'Activo' || rawStatus === 'Activa' || rawStatus === 'Por Vencer' || rawStatus === 'Por vencer'
+        ? 'Activa'
+        : rawStatus === 'Vencida' || rawStatus === 'Expirada'
+        ? 'Expirada'
+        : rawStatus === 'Suspendida'
+        ? 'Suspendida'
+        : rawStatus === 'Desactivada'
+        ? 'Desactivada'
+        : rawStatus === 'Pendiente'
+        ? 'Pendiente'
+        : 'Activa';
+
+    let finalExpirationDate = targetLicense.expirationDate;
+    const todayStr = toLocalDateString();
+
+    if (normalizedStatus === 'Activa') {
+      // Ensure an explicitly activated license has a valid non-expired date so it does not immediately resolve to Expirada
+      if (!finalExpirationDate || api.isLicenseDateExpired(finalExpirationDate)) {
+        const nextMonth = new Date();
+        nextMonth.setDate(nextMonth.getDate() + 30);
+        finalExpirationDate = toLocalDateString(nextMonth);
+      }
+    } else if (normalizedStatus === 'Expirada') {
+      // If admin explicitly marks license as Expirada and date was in the future, adjust expirationDate to yesterday
+      if (!finalExpirationDate || !api.isLicenseDateExpired(finalExpirationDate)) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        finalExpirationDate = toLocalDateString(yesterday);
+      }
+    }
+
+    const syncedLicense: License = {
+      ...targetLicense,
+      expirationDate: finalExpirationDate,
+      licenseStartDate: targetLicense.licenseStartDate || todayStr,
+      status: normalizedStatus
+    };
+
+    const expectedAccountStatus: User['accountStatus'] =
+      normalizedStatus === 'Suspendida'
+        ? 'Suspendida'
+        : normalizedStatus === 'Desactivada'
+        ? 'Desactivada'
+        : 'Activa';
+
+    setRawCloudLicenses((prev) => {
+      const exists = prev.some((l) => l.userId === syncedLicense.userId);
+      return exists
+        ? prev.map((l) => (l.userId === syncedLicense.userId ? syncedLicense : l))
+        : [syncedLicense, ...prev];
+    });
+
+    setLicenses((prev) => {
+      const exists = prev.some((l) => l.userId === syncedLicense.userId);
+      const next = exists
+        ? prev.map((l) => (l.userId === syncedLicense.userId ? syncedLicense : l))
+        : [syncedLicense, ...prev];
+      localStorage.setItem('yaa_pos_licenses', JSON.stringify(next));
+      return next;
+    });
+
+    const targetUser = users.find(
+      (u) => u.id === syncedLicense.userId || (syncedLicense.clientEmail && u.email === syncedLicense.clientEmail)
+    );
+    let updatedUser: User | null = null;
+    if (targetUser) {
+      updatedUser = {
+        ...targetUser,
+        accountStatus: expectedAccountStatus,
+        plan: syncedLicense.planType,
+        licenseExpiresAt: syncedLicense.expirationDate
+      };
+      setUsers((prev) => prev.map((u) => (u.id === targetUser.id ? updatedUser! : u)));
+    }
+
+    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
+
+    await api.saveAdminLicense(syncedLicense);
+    if (updatedUser) {
+      await api.saveAdminUser(updatedUser);
+    }
+  };
+
   // Create new license submit handler
   const handleCreateLicense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -303,24 +436,24 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       return;
     }
 
-    const newId = formUserId || 'usr_' + Math.random().toString(36).substr(2, 9);
+    const matchedUser = users.find(
+      (u) => u.id === formUserId || u.email.toLowerCase() === formClientEmail.trim().toLowerCase()
+    );
+    const newId = matchedUser?.id || formUserId || 'usr_' + Math.random().toString(36).substr(2, 9);
+    const defaultExp = toLocalDateString(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
     const newLic: License = {
       userId: newId,
-      clientName: formClientName,
-      clientEmail: formClientEmail,
+      clientName: formClientName.trim(),
+      clientEmail: formClientEmail.trim(),
       application: 'Yaa POS',
       planType: formPlanType,
-      expirationDate: formExpirationDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      licenseStartDate: toLocalDateString(),
+      expirationDate: formExpirationDate || defaultExp,
       status: formStatus
     };
 
-    const updated = [newLic, ...licenses];
-    setLicenses(updated);
-    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updated));
-    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
-    
     try {
-      await api.saveAdminLicense(newLic);
+      await persistLicenseAndUserSync(newLic);
     } catch (err: any) {
       console.error('Error saving new license to Firestore:', err);
     }
@@ -332,15 +465,23 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     setFormClientEmail('');
     setFormPlanType('Básico');
     setFormExpirationDate('');
-    setFormStatus('Activo');
+    setFormStatus('Activa');
   };
 
   // Edit license triggers
   const handleEditLicenseClick = (lic: License) => {
+    const targetUser = users.find((u) => u.id === lic.userId || u.email === lic.clientEmail);
+    const currentResolved = resolveFullLicenseState(lic, targetUser);
     setEditingLicense(lic);
-    setFormPlanType(lic.planType);
-    setFormExpirationDate(lic.expirationDate);
-    setFormStatus(lic.status);
+    setFormPlanType(lic.planType || 'Básico');
+    setFormExpirationDate(lic.expirationDate || toLocalDateString(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)));
+    setFormStatus(
+      currentResolved === 'Suspendida'
+        ? 'Suspendida'
+        : currentResolved === 'Expirada'
+        ? 'Expirada'
+        : 'Activa'
+    );
     setIsEditLicenseModalOpen(true);
   };
 
@@ -360,21 +501,11 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       status: formStatus
     };
 
-    const updated = licenses.map(l => {
-      if (l.userId === editingLicense.userId) {
-        return targetLicense;
-      }
-      return l;
-    });
-
-    setLicenses(updated);
-    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updated));
-    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
     setIsEditLicenseModalOpen(false);
     setEditingLicense(null);
 
     try {
-      await api.saveAdminLicense(targetLicense);
+      await persistLicenseAndUserSync(targetLicense);
     } catch (err: any) {
       console.error('Error saving edited license to Firestore:', err);
       alert('Error al guardar cambio en la nube, pero se actualizó localmente: ' + err.message);
@@ -387,28 +518,24 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       alert('Acceso Denegado: Su usuario no tiene permisos para realizar esta acción. ID de administrador requerido: uSEwpR9zZPWvekBQKdx1SMsrs7n1');
       return;
     }
-    let updatedLicense: License | null = null;
-    const updated = licenses.map(l => {
-      if (l.userId === lic.userId) {
-        const nextStatus: 'Activo' | 'Suspendida' = l.status === 'Suspendida' ? 'Activo' : 'Suspendida';
-        updatedLicense = {
-          ...l,
-          status: nextStatus
-        };
-        return updatedLicense;
-      }
-      return l;
-    });
-    setLicenses(updated);
-    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updated));
-    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
+    const targetUser = users.find((u) => u.id === lic.userId || u.email === lic.clientEmail);
+    const currentState = resolveFullLicenseState(lic, targetUser);
+    const nextStatus: License['status'] =
+      currentState === 'Suspendida'
+        ? api.isLicenseDateExpired(lic.expirationDate)
+          ? 'Expirada'
+          : 'Activa'
+        : 'Suspendida';
 
-    if (updatedLicense) {
-      try {
-        await api.saveAdminLicense(updatedLicense);
-      } catch (err: any) {
-        console.error('Error toggling license status in Firestore:', err);
-      }
+    const updatedLicense: License = {
+      ...lic,
+      status: nextStatus
+    };
+
+    try {
+      await persistLicenseAndUserSync(updatedLicense);
+    } catch (err: any) {
+      console.error('Error toggling license status in Firestore:', err);
     }
   };
 
@@ -418,99 +545,70 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       alert('Acceso Denegado: Su usuario no tiene permisos para realizar esta acción. ID de administrador requerido: uSEwpR9zZPWvekBQKdx1SMsrs7n1');
       return;
     }
-    let updatedLicense: License | null = null;
-    const updated = licenses.map(l => {
-      if (l.userId === userId) {
-        updatedLicense = {
-          ...l,
-          [field]: value
-        } as License;
-        return updatedLicense;
-      }
-      return l;
-    });
-    
-    setLicenses(updated);
-    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updated));
-    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
-    
-    if (updatedLicense) {
-      try {
-        await api.saveAdminLicense(updatedLicense);
-      } catch (err: any) {
-        console.error('Error saving inline license field update to Firestore:', err);
-        alert('Error al guardar cambio en la nube, pero se actualizó localmente: ' + err.message);
-      }
+    const existing = licenses.find((l) => l.userId === userId);
+    if (!existing) return;
+
+    const updatedLicense: License = {
+      ...existing,
+      [field]: value
+    } as License;
+
+    try {
+      await persistLicenseAndUserSync(updatedLicense);
+    } catch (err: any) {
+      console.error('Error saving inline license field update to Firestore:', err);
+      alert('Error al guardar cambio en la nube, pero se actualizó localmente: ' + err.message);
     }
   };
 
-  // Resolve license state into 6 possible states: Pendiente, Activa, Por vencer, Expirada, Suspendida, Desactivada
-  const resolveFullLicenseState = (lic: License, targetUser: User): 'Pendiente' | 'Activa' | 'Por vencer' | 'Expirada' | 'Suspendida' | 'Desactivada' => {
-    const accountStatus = targetUser?.accountStatus || 'Activa';
-
-    if (accountStatus === 'Suspendida' || lic?.status === 'Suspendida') {
-      return 'Suspendida';
-    }
-    if ((accountStatus as any) === 'Desactivada' || (lic?.status as any) === 'Desactivada') {
-      return 'Desactivada';
-    }
-    if (lic?.status === 'Pendiente') {
-      return 'Pendiente';
-    }
-
-    if (lic?.expirationDate) {
-      const todayStr = new Date().toISOString().split('T')[0];
-      if (lic.expirationDate < todayStr) {
-        return 'Expirada';
-      }
-      const daysRemaining = calculateDaysRemaining(lic.expirationDate);
-      if (daysRemaining <= 7) {
-        return 'Por vencer';
-      }
-    }
-    return 'Activa';
+  // Resolve license state consistently across all devices: Suspendida, Expirada, Activa, Desactivada, Pendiente
+  const resolveFullLicenseState = (
+    lic?: Partial<License> | null,
+    targetUser?: Partial<User> | null
+  ): 'Pendiente' | 'Activa' | 'Por vencer' | 'Expirada' | 'Suspendida' | 'Desactivada' => {
+    return api.resolveCompanyLicenseState(lic, targetUser);
   };
 
   const getBadge = (status: 'Pendiente' | 'Activa' | 'Por vencer' | 'Expirada' | 'Suspendida' | 'Desactivada') => {
     switch (status) {
       case 'Activa':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-3xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-3xs">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
             Activa
           </span>
         );
       case 'Por vencer':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200 shadow-3xs animate-pulse">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap bg-amber-50 text-amber-800 border border-amber-200 shadow-3xs animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
             Por vencer
           </span>
         );
       case 'Expirada':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-800 border border-red-200 shadow-3xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap bg-red-50 text-red-800 border border-red-200 shadow-3xs">
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
             Expirada
           </span>
         );
       case 'Suspendida':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-800 border border-rose-200 shadow-3xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap bg-rose-50 text-rose-800 border border-rose-200 shadow-3xs">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-600 shrink-0" />
             Suspendida
           </span>
         );
       case 'Pendiente':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-slate-50 text-slate-500 border border-slate-200 shadow-3xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap bg-slate-50 text-slate-500 border border-slate-200 shadow-3xs">
             <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
             Pendiente
           </span>
         );
       case 'Desactivada':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-slate-900/10 text-slate-800 border border-slate-400 shadow-3xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap bg-slate-900/10 text-slate-800 border border-slate-400 shadow-3xs">
             <span className="w-1.5 h-1.5 rounded-full bg-slate-900 shrink-0" />
             Desactivada
           </span>
@@ -522,18 +620,25 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
   // Helper to normalize legacy and new Spanish statuses
   const normalizeLicenseStatus = (status: string): 'Pendiente' | 'Activa' | 'Vencida' | 'Suspendida' => {
-    if (status === 'Activo' || status === 'Activa') return 'Activa';
-    if (status === 'Por Vencer' || status === 'Pendiente') return 'Pendiente';
+    if (status === 'Activo' || status === 'Activa' || status === 'Por Vencer' || status === 'Por vencer') return 'Activa';
+    if (status === 'Pendiente') return 'Pendiente';
     if (status === 'Expirada' || status === 'Vencida') return 'Vencida';
     return 'Suspendida';
   };
 
-  // Helper to calculate days remaining
+  // Helper to calculate days remaining using local timezone dates so all devices compute identical days
   const calculateDaysRemaining = (expirationDate: string): number => {
     if (!expirationDate) return 0;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const exp = new Date(expirationDate);
+    const cleanDate = expirationDate.trim().split('T')[0];
+    const parts = cleanDate.split('-');
+    let exp: Date;
+    if (parts.length === 3) {
+      exp = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    } else {
+      exp = new Date(expirationDate);
+    }
     exp.setHours(0, 0, 0, 0);
     const diffTime = exp.getTime() - today.getTime();
     return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
@@ -545,41 +650,19 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       alert('No autorizado');
       return;
     }
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = toLocalDateString();
     const updated: License = {
       ...lic,
       status: 'Activa',
       licenseStartDate: lic.licenseStartDate || todayStr
     };
-    
-    // Save locally
-    const updatedLicenses = licenses.map(l => l.userId === lic.userId ? updated : l);
-    setLicenses(updatedLicenses);
-    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updatedLicenses));
-    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
-    
-    // Save to Firestore
-    try {
-      await api.saveAdminLicense(updated);
-    } catch (err) {
-      console.error('Error saving license in Firestore:', err);
-    }
 
-    // Activate user account too
-    const targetUser = users.find(u => u.id === lic.userId);
-    if (targetUser && targetUser.accountStatus !== 'Activa') {
-      const updatedUser: User = {
-        ...targetUser,
-        accountStatus: 'Activa'
-      };
-      setUsers(users.map(u => u.id === targetUser.id ? updatedUser : u));
-      try {
-        await api.saveAdminUser(updatedUser);
-      } catch (err) {
-        console.error('Error saving user in Firestore:', err);
-      }
+    try {
+      await persistLicenseAndUserSync(updated);
+      alert('Licencia activada correctamente.');
+    } catch (err) {
+      console.error('Error activating license in Firestore:', err);
     }
-    alert('Licencia activada correctamente.');
   };
 
   const handleDeactivateLicense = async (lic: License) => {
@@ -589,35 +672,15 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     }
     const updated: License = {
       ...lic,
-      status: 'Desactivada' as any
+      status: 'Desactivada'
     };
-    
-    const updatedLicenses = licenses.map(l => l.userId === lic.userId ? updated : l);
-    setLicenses(updatedLicenses);
-    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updatedLicenses));
-    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
 
     try {
-      await api.saveAdminLicense(updated);
+      await persistLicenseAndUserSync(updated);
+      alert('Licencia desactivada correctamente.');
     } catch (err) {
-      console.error('Error saving license in Firestore:', err);
+      console.error('Error deactivating license in Firestore:', err);
     }
-
-    // Deactivate user account too
-    const targetUser = users.find(u => u.id === lic.userId);
-    if (targetUser && targetUser.accountStatus !== 'Desactivada') {
-      const updatedUser: User = {
-        ...targetUser,
-        accountStatus: 'Desactivada'
-      };
-      setUsers(users.map(u => u.id === targetUser.id ? updatedUser : u));
-      try {
-        await api.saveAdminUser(updatedUser);
-      } catch (err) {
-        console.error('Error saving user in Firestore:', err);
-      }
-    }
-    alert('Licencia desactivada correctamente.');
   };
 
   const handleSuspendUser = async (userId: string) => {
@@ -625,39 +688,26 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       alert('No autorizado');
       return;
     }
-    const targetUser = users.find(u => u.id === userId);
-    if (!targetUser) return;
-
-    const updatedUser: User = {
-      ...targetUser,
-      accountStatus: 'Suspendida'
+    const targetUser = users.find((u) => u.id === userId);
+    const targetLic = licenses.find((l) => l.userId === userId) || {
+      userId,
+      clientName: targetUser?.name || 'Empresa',
+      clientEmail: targetUser?.email || '',
+      application: 'Yaa POS',
+      planType: (targetUser as any)?.plan || 'Básico',
+      expirationDate: (targetUser as any)?.licenseExpiresAt || toLocalDateString(),
+      status: 'Suspendida' as const
     };
 
-    setUsers(users.map(u => u.id === userId ? updatedUser : u));
     try {
-      await api.saveAdminUser(updatedUser);
-    } catch (err) {
-      console.error('Error saving user in Firestore:', err);
-    }
-
-    // Also set license as suspended
-    const targetLic = licenses.find(l => l.userId === userId);
-    if (targetLic) {
-      const updatedLic: License = {
+      await persistLicenseAndUserSync({
         ...targetLic,
         status: 'Suspendida'
-      };
-      const updatedLicenses = licenses.map(l => l.userId === userId ? updatedLic : l);
-      setLicenses(updatedLicenses);
-      localStorage.setItem('yaa_pos_licenses', JSON.stringify(updatedLicenses));
-      window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
-      try {
-        await api.saveAdminLicense(updatedLic);
-      } catch (err) {
-        console.error('Error saving license in Firestore:', err);
-      }
+      });
+      alert('Usuario y licencia suspendidos.');
+    } catch (err) {
+      console.error('Error suspending user and license in Firestore:', err);
     }
-    alert('Usuario y licencia suspendidos.');
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -672,6 +722,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
       await api.deleteAdminUser(userId);
       setUsers(users.filter(u => u.id !== userId));
       setLicenses(licenses.filter(l => l.userId !== userId));
+      setRawCloudLicenses(rawCloudLicenses.filter(l => l.userId !== userId));
       
       const saved = localStorage.getItem('yaa_pos_licenses');
       if (saved) {
@@ -701,34 +752,14 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     const updatedLicense: License = {
       ...renewingLicenseUser,
       status: 'Activa',
-      licenseStartDate: today.toISOString().split('T')[0],
-      expirationDate: expDate.toISOString().split('T')[0]
+      licenseStartDate: toLocalDateString(today),
+      expirationDate: toLocalDateString(expDate)
     };
 
-    const updatedLicenses = licenses.map(l => l.userId === renewingLicenseUser.userId ? updatedLicense : l);
-    setLicenses(updatedLicenses);
-    localStorage.setItem('yaa_pos_licenses', JSON.stringify(updatedLicenses));
-    window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
-
     try {
-      await api.saveAdminLicense(updatedLicense);
+      await persistLicenseAndUserSync(updatedLicense);
     } catch (err) {
       console.error('Error saving renewed license:', err);
-    }
-
-    // Ensure account is Active too
-    const targetUser = users.find(u => u.id === renewingLicenseUser.userId);
-    if (targetUser && targetUser.accountStatus !== 'Activa') {
-      const updatedUser: User = {
-        ...targetUser,
-        accountStatus: 'Activa'
-      };
-      setUsers(users.map(u => u.id === targetUser.id ? updatedUser : u));
-      try {
-        await api.saveAdminUser(updatedUser);
-      } catch (err) {
-        console.error('Error saving active user status:', err);
-      }
     }
 
     setIsRenewModalOpen(false);
@@ -740,11 +771,10 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   const stats = useMemo(() => {
     const totalUsers = users.length;
     
-    // License status counts
+    // License status counts using unified resolver
     const activeLic = licenses.filter(l => {
-      const norm = normalizeLicenseStatus(l.status);
-      const days = calculateDaysRemaining(l.expirationDate);
-      return norm === 'Activa' && days > 0;
+      const targetUser = users.find(u => u.id === l.userId || u.email === l.clientEmail);
+      return resolveFullLicenseState(l, targetUser) === 'Activa';
     }).length;
 
     const enPrueba = licenses.filter(l => {
@@ -753,23 +783,27 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
     }).length;
 
     const proximasAVencer = licenses.filter(l => {
-      const norm = normalizeLicenseStatus(l.status);
+      const targetUser = users.find(u => u.id === l.userId || u.email === l.clientEmail);
+      const resolved = resolveFullLicenseState(l, targetUser);
       const days = calculateDaysRemaining(l.expirationDate);
-      return norm === 'Activa' && days > 0 && days <= 7;
+      return resolved === 'Activa' && days > 0 && days <= 7;
     }).length;
 
     const vencidas = licenses.filter(l => {
-      const norm = normalizeLicenseStatus(l.status);
-      const days = calculateDaysRemaining(l.expirationDate);
-      return norm === 'Vencida' || days === 0;
+      const targetUser = users.find(u => u.id === l.userId || u.email === l.clientEmail);
+      return resolveFullLicenseState(l, targetUser) === 'Expirada';
     }).length;
 
-    const suspendidos = users.filter(u => u.accountStatus === 'Suspendida').length;
+    const suspendidos = licenses.filter(l => {
+      const targetUser = users.find(u => u.id === l.userId || u.email === l.clientEmail);
+      return resolveFullLicenseState(l, targetUser) === 'Suspendida';
+    }).length;
 
     // Monthly Recurring Revenue (MRR)
     let mrr = 0;
     licenses.forEach(l => {
-      if (normalizeLicenseStatus(l.status) === 'Activa') {
+      const targetUser = users.find(u => u.id === l.userId || u.email === l.clientEmail);
+      if (resolveFullLicenseState(l, targetUser) === 'Activa') {
         if (l.planType?.includes('Básico') || l.planType?.includes('Mensual')) {
           mrr += 250;
         } else if (l.planType?.includes('Anual') || l.planType?.includes('Premium')) {
@@ -926,7 +960,12 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
   const formatDate = (isoString?: string) => {
     if (!isoString) return 'No registrada';
     try {
-      const d = new Date(isoString);
+      const clean = isoString.trim().split('T')[0];
+      const parts = clean.split('-');
+      const d =
+        parts.length === 3
+          ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+          : new Date(isoString);
       return d.toLocaleDateString('es-GT', {
         year: 'numeric',
         month: 'short',
@@ -1583,13 +1622,13 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                                   type="button"
                                   onClick={() => handleToggleLock(lic)}
                                   className={`p-1.5 rounded-lg transition-all border shadow-3xs cursor-pointer ${
-                                    lic.status === 'Suspendida' 
+                                    resolvedState === 'Suspendida' 
                                       ? 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
                                       : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
                                   }`}
-                                  title={lic.status === 'Suspendida' ? 'Reactivar Licencia' : 'Suspender Licencia'}
+                                  title={resolvedState === 'Suspendida' ? 'Reactivar Licencia' : 'Suspender Licencia'}
                                 >
-                                  {lic.status === 'Suspendida' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                                  {resolvedState === 'Suspendida' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                                 </button>
                                 <button
                                   type="button"
@@ -1668,7 +1707,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                 </div>
 
                 {/* 2. MAIN CARD CONTAINER */}
-                <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-6 shadow-xs space-y-6">
                   
                   {/* Top Search Input */}
                   <div className="relative w-full max-w-xs">
@@ -1682,17 +1721,17 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                   </div>
 
                   {/* Table with columns: Empresa | NIT | Plan | Usuarios | Vencimiento | Estado | Acciones */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
+                  <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+                    <table className="w-full min-w-[680px] text-left text-xs border-collapse">
                       <thead>
                         <tr className="text-slate-500 font-semibold border-b border-slate-100 text-xs">
-                          <th className="pb-3 px-4 font-semibold text-slate-600">Empresa</th>
-                          <th className="pb-3 px-4 font-semibold text-slate-600">NIT</th>
-                          <th className="pb-3 px-4 font-semibold text-slate-600">Plan</th>
-                          <th className="pb-3 px-4 font-semibold text-slate-600">Usuarios</th>
-                          <th className="pb-3 px-4 font-semibold text-slate-600">Vencimiento</th>
-                          <th className="pb-3 px-4 font-semibold text-center text-slate-600">Estado</th>
-                          <th className="pb-3 px-4 font-semibold text-right text-slate-600">Acciones</th>
+                          <th className="pb-3 px-3 sm:px-4 font-semibold text-slate-600 whitespace-nowrap">Empresa</th>
+                          <th className="pb-3 px-3 sm:px-4 font-semibold text-slate-600 whitespace-nowrap">NIT</th>
+                          <th className="pb-3 px-3 sm:px-4 font-semibold text-slate-600 whitespace-nowrap">Plan</th>
+                          <th className="pb-3 px-3 sm:px-4 font-semibold text-slate-600 whitespace-nowrap">Usuarios</th>
+                          <th className="pb-3 px-3 sm:px-4 font-semibold text-slate-600 whitespace-nowrap">Vencimiento</th>
+                          <th className="pb-3 px-3 sm:px-4 font-semibold text-center text-slate-600 whitespace-nowrap">Estado</th>
+                          <th className="pb-3 px-3 sm:px-4 font-semibold text-right text-slate-600 whitespace-nowrap">Acciones</th>
                         </tr>
                       </thead>
                       {filteredEmpresas.length > 0 && (
@@ -1707,49 +1746,49 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                               <tr key={emp.userId || emp.id} className="hover:bg-slate-50/60 transition-colors">
                                 
                                 {/* Empresa */}
-                                <td className="py-4 px-4">
+                                <td className="py-3.5 sm:py-4 px-3 sm:px-4">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-emerald-50 text-[#00a86b] font-bold text-xs flex items-center justify-center uppercase">
+                                    <div className="w-8 h-8 rounded-full bg-emerald-50 text-[#00a86b] font-bold text-xs flex items-center justify-center uppercase shrink-0">
                                       {emp.clientName ? emp.clientName[0] : 'E'}
                                     </div>
                                     <div className="min-w-0">
-                                      <p className="font-bold text-slate-900 truncate">{emp.clientName}</p>
-                                      <p className="text-[11px] text-slate-400 font-mono truncate">{emp.clientEmail}</p>
+                                      <p className="font-bold text-slate-900 truncate max-w-[160px] sm:max-w-[220px]">{emp.clientName}</p>
+                                      <p className="text-[11px] text-slate-400 font-mono truncate max-w-[160px] sm:max-w-[220px]">{emp.clientEmail}</p>
                                     </div>
                                   </div>
                                 </td>
 
                                 {/* NIT */}
-                                <td className="py-4 px-4 font-mono text-slate-600">
+                                <td className="py-3.5 sm:py-4 px-3 sm:px-4 font-mono text-slate-600 whitespace-nowrap">
                                   {rucValue}
                                 </td>
 
                                 {/* Plan */}
-                                <td className="py-4 px-4">
-                                  <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-medium">
+                                <td className="py-3.5 sm:py-4 px-3 sm:px-4 whitespace-nowrap">
+                                  <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[11px] font-medium whitespace-nowrap">
                                     {emp.planType || 'Básico'}
                                   </span>
                                 </td>
 
                                 {/* Usuarios */}
-                                <td className="py-4 px-4 font-mono text-slate-600">
+                                <td className="py-3.5 sm:py-4 px-3 sm:px-4 font-mono text-slate-600 whitespace-nowrap">
                                   {userCount}
                                 </td>
 
                                 {/* Vencimiento */}
-                                <td className="py-4 px-4 font-mono text-slate-600 text-[11px]">
+                                <td className="py-3.5 sm:py-4 px-3 sm:px-4 font-mono text-slate-600 text-[11px] whitespace-nowrap">
                                   {formatDate(emp.expirationDate)}
                                 </td>
 
                                 {/* Estado */}
-                                <td className="py-4 px-4 text-center">
+                                <td className="py-3.5 sm:py-4 px-3 sm:px-4 text-center whitespace-nowrap">
                                   <div className="flex justify-center">
                                     {getBadge(resolvedState)}
                                   </div>
                                 </td>
 
                                 {/* Acciones */}
-                                <td className="py-4 px-4 text-right">
+                                <td className="py-3.5 sm:py-4 px-3 sm:px-4 text-right whitespace-nowrap">
                                   <div className="flex items-center justify-end gap-1.5">
                                     <button
                                       type="button"
@@ -1766,13 +1805,13 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                                       type="button"
                                       onClick={() => handleToggleLock(emp)}
                                       className={`p-1.5 rounded-lg transition-all border shadow-3xs cursor-pointer ${
-                                        emp.status === 'Suspendida' 
+                                        resolvedState === 'Suspendida' 
                                           ? 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
                                           : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
                                       }`}
-                                      title={emp.status === 'Suspendida' ? 'Reactivar Licencia' : 'Suspender Licencia'}
+                                      title={resolvedState === 'Suspendida' ? 'Reactivar Licencia' : 'Suspender Licencia'}
                                     >
-                                      {emp.status === 'Suspendida' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                                      {resolvedState === 'Suspendida' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                                     </button>
                                     <button
                                       type="button"
@@ -2598,14 +2637,59 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
               {/* Initial Status */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Estado de Acceso</label>
+                <label className="block text-xs font-bold text-slate-600">Estado de Licencia</label>
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  {(['Activa', 'Suspendida', 'Expirada'] as const).map((st) => {
+                    const isSelected = (formStatus === 'Activo' ? 'Activa' : formStatus) === st;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => {
+                          setFormStatus(st);
+                          if (st === 'Activa' && (!formExpirationDate || api.isLicenseDateExpired(formExpirationDate))) {
+                            const nextMonth = new Date();
+                            nextMonth.setDate(nextMonth.getDate() + 30);
+                            setFormExpirationDate(toLocalDateString(nextMonth));
+                          } else if (st === 'Expirada' && (!formExpirationDate || !api.isLicenseDateExpired(formExpirationDate))) {
+                            const yesterday = new Date();
+                            yesterday.setDate(yesterday.getDate() - 1);
+                            setFormExpirationDate(toLocalDateString(yesterday));
+                          }
+                        }}
+                        className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                          isSelected
+                            ? st === 'Activa'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-400 ring-2 ring-emerald-500/20'
+                              : st === 'Suspendida'
+                              ? 'bg-rose-50 text-rose-800 border-rose-400 ring-2 ring-rose-500/20'
+                              : 'bg-red-50 text-red-800 border-red-400 ring-2 ring-red-500/20'
+                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    );
+                  })}
+                </div>
                 <select
-                  value={formStatus}
-                  onChange={(e) => setFormStatus(e.target.value as any)}
+                  value={formStatus === 'Activo' ? 'Activa' : formStatus}
+                  onChange={(e) => {
+                    const nextSt = e.target.value as License['status'];
+                    setFormStatus(nextSt);
+                    if (nextSt === 'Activa' && (!formExpirationDate || api.isLicenseDateExpired(formExpirationDate))) {
+                      const nextMonth = new Date();
+                      nextMonth.setDate(nextMonth.getDate() + 30);
+                      setFormExpirationDate(toLocalDateString(nextMonth));
+                    } else if (nextSt === 'Expirada' && (!formExpirationDate || !api.isLicenseDateExpired(formExpirationDate))) {
+                      const yesterday = new Date();
+                      yesterday.setDate(yesterday.getDate() - 1);
+                      setFormExpirationDate(toLocalDateString(yesterday));
+                    }
+                  }}
                   className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-700 font-medium focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option value="Activo">Activo</option>
-                  <option value="Por Vencer">Por Vencer</option>
+                  <option value="Activa">Activa</option>
                   <option value="Suspendida">Suspendida</option>
                   <option value="Expirada">Expirada</option>
                 </select>
@@ -2692,14 +2776,59 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
 
               {/* Status */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-600">Estado de Acceso *</label>
+                <label className="block text-xs font-bold text-slate-600">Estado de Licencia *</label>
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  {(['Activa', 'Suspendida', 'Expirada'] as const).map((st) => {
+                    const isSelected = (formStatus === 'Activo' ? 'Activa' : formStatus) === st;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => {
+                          setFormStatus(st);
+                          if (st === 'Activa' && (!formExpirationDate || api.isLicenseDateExpired(formExpirationDate))) {
+                            const nextMonth = new Date();
+                            nextMonth.setDate(nextMonth.getDate() + 30);
+                            setFormExpirationDate(toLocalDateString(nextMonth));
+                          } else if (st === 'Expirada' && (!formExpirationDate || !api.isLicenseDateExpired(formExpirationDate))) {
+                            const yesterday = new Date();
+                            yesterday.setDate(yesterday.getDate() - 1);
+                            setFormExpirationDate(toLocalDateString(yesterday));
+                          }
+                        }}
+                        className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                          isSelected
+                            ? st === 'Activa'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-400 ring-2 ring-emerald-500/20'
+                              : st === 'Suspendida'
+                              ? 'bg-rose-50 text-rose-800 border-rose-400 ring-2 ring-rose-500/20'
+                              : 'bg-red-50 text-red-800 border-red-400 ring-2 ring-red-500/20'
+                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    );
+                  })}
+                </div>
                 <select
-                  value={formStatus}
-                  onChange={(e) => setFormStatus(e.target.value as any)}
+                  value={formStatus === 'Activo' ? 'Activa' : formStatus}
+                  onChange={(e) => {
+                    const nextSt = e.target.value as License['status'];
+                    setFormStatus(nextSt);
+                    if (nextSt === 'Activa' && (!formExpirationDate || api.isLicenseDateExpired(formExpirationDate))) {
+                      const nextMonth = new Date();
+                      nextMonth.setDate(nextMonth.getDate() + 30);
+                      setFormExpirationDate(toLocalDateString(nextMonth));
+                    } else if (nextSt === 'Expirada' && (!formExpirationDate || !api.isLicenseDateExpired(formExpirationDate))) {
+                      const yesterday = new Date();
+                      yesterday.setDate(yesterday.getDate() - 1);
+                      setFormExpirationDate(toLocalDateString(yesterday));
+                    }
+                  }}
                   className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white text-slate-700 font-medium focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="Activo">Activo</option>
-                  <option value="Por Vencer">Por Vencer</option>
+                  <option value="Activa">Activa</option>
                   <option value="Suspendida">Suspendida</option>
                   <option value="Expirada">Expirada</option>
                 </select>

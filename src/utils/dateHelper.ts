@@ -113,7 +113,7 @@ export function getTodayDateString(): string {
  * Returns a guaranteed "YYYY-MM-DD" string in the user's local / Guatemala timezone.
  * Never returns "NaN-NaN-NaN" and never loses a day when parsing date strings.
  */
-export function toLocalDateString(val: any): string {
+export function toLocalDateString(val?: any): string {
   if (!val) {
     return getTodayDateString();
   }
