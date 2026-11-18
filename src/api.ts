@@ -901,10 +901,6 @@ export async function getOperators(): Promise<Operator[]> {
       return [ownerOp];
     }
 
-    const sessionOwnerPassword = typeof window !== 'undefined' 
-      ? (sessionStorage.getItem('yaa_pos_session_password') || localStorage.getItem('yaa_pos_owner_password') || '') 
-      : '';
-
     // Dynamic retroactive correction and real password security assurance
     const correctedList = await Promise.all(cleanedList.map(async (op) => {
       const isOwner = op.role === 'Propietario / Administrador' || op.email === 'juancastr19.14@gmail.com' || op.id === '1';
@@ -1312,12 +1308,16 @@ export async function changeUserPlan(userId: string, newPlanType: string): Promi
   localStorage.setItem('yaa_pos_licenses', JSON.stringify(list));
   window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
 
-  // Notify backend API if running
-  fetch('/api/license/change-plan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
-    body: JSON.stringify({ planType: planDef.name })
-  }).catch(() => {});
+  // Notify backend API if running using real Firebase ID token
+  getBackendAuthHeaders()
+    .then((headers) =>
+      fetch('/api/license/change-plan', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ planType: planDef.name })
+      })
+    )
+    .catch(() => {});
 
   return updatedLicense;
 }
@@ -1882,6 +1882,26 @@ export async function uploadFile(file: File): Promise<UserFile> {
 
 // --- GEMINI AI ASSISTANT PROXIED AGENT ---
 
+async function getBackendAuthHeaders(): Promise<Headers> {
+  const headers = new Headers();
+  headers.set('Content-Type', 'application/json');
+  const tenantId = getToken();
+  if (auth.currentUser) {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      if (idToken) {
+        headers.set('Authorization', `Bearer ${idToken}`);
+      }
+      if (tenantId && auth.currentUser.uid !== tenantId) {
+        headers.set('x-tenant-id', tenantId);
+      }
+    } catch (e) {
+      console.warn('Could not obtain Firebase ID token for backend request:', e);
+    }
+  }
+  return headers;
+}
+
 export async function askAI(
   prompt: string, 
   products: Product[] = [], 
@@ -1889,12 +1909,7 @@ export async function askAI(
   expenses: Expense[] = [], 
   config?: AppConfig
 ): Promise<{ reply: string }> {
-  const headers = new Headers();
-  headers.set('Content-Type', 'application/json');
-  const token = getToken();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
+  const headers = await getBackendAuthHeaders();
   
   const res = await fetch('/api/ai/chat', {
     method: 'POST',

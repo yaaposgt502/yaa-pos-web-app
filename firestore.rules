@@ -121,6 +121,22 @@ service cloud.firestore {
               isOperatorAllowedBranch(userId, incoming().branch));
     }
 
+    function canUpdateBranchScopedDoc(userId) {
+      return canWriteBranchScopedDoc(userId) &&
+             (isAdmin() ||
+              request.auth.uid == userId ||
+              !('branch' in existing()) ||
+              isOperatorAllowedBranch(userId, existing().branch));
+    }
+
+    function canDeleteBranchScopedDoc(userId) {
+      return canWriteTenant(userId) &&
+             (isAdmin() ||
+              request.auth.uid == userId ||
+              !('branch' in existing()) ||
+              isOperatorAllowedBranch(userId, existing().branch));
+    }
+
     // =========================================================================
     // ENTITY VALIDATION HELPERS
     // =========================================================================
@@ -190,9 +206,25 @@ service cloud.firestore {
       return data.email is string && data.email.size() <= 256 &&
              data.name is string && data.name.size() <= 200 &&
              data.status in ['active', 'inactive'] &&
+             (!('password' in data) || data.password == null) &&
              isValidOptionalBranch(data) &&
              (!('branches' in data) || (data.branches is list && data.branches.size() <= 100)) &&
              (!('disabledTabs' in data) || (data.disabledTabs is list && data.disabledTabs.size() <= 50));
+    }
+
+    function isValidQuotation(data) {
+      return data.clientName is string && data.clientName.size() <= 200 &&
+             (data.total is number) &&
+             data.items is list && data.items.size() <= 500 &&
+             data.status in ['borrador', 'vigente', 'vencida', 'aceptada', 'convertida'] &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidConsignment(data) {
+      return data.clientName is string && data.clientName.size() <= 200 &&
+             data.items is list && data.items.size() <= 500 &&
+             data.status in ['activa', 'liquidada_parcial', 'liquidada_total', 'devuelta_total'] &&
+             isValidOptionalBranch(data);
     }
 
     // =========================================================================
@@ -222,18 +254,25 @@ service cloud.firestore {
                   );
                       
       allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
-                       isAdmin() || 
-                       request.auth.uid == userId
+                       isAdmin() ||
+                       (request.auth.uid == userId &&
+                        !('accountStatus' in incoming()) &&
+                        !('plan' in incoming()) &&
+                        !('licenseExpiresAt' in incoming()) &&
+                        !('isOperator' in incoming()) &&
+                        !('ownerId' in incoming()))
                     );
 
       allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
-                       isAdmin() || 
-                       (request.auth.uid == userId && 
-                        isAccountActive(userId) && 
+                       isAdmin() ||
+                       (request.auth.uid == userId &&
+                        isAccountActive(userId) &&
                         isLicenseActive(userId) &&
-                        (!('accountStatus' in incoming()) || 
-                         !('accountStatus' in existing()) || 
-                         incoming().accountStatus == existing().accountStatus))
+                        (!('id' in incoming()) || incoming().id == userId) &&
+                        ((!('accountStatus' in incoming()) && !('accountStatus' in existing())) || incoming().accountStatus == existing().accountStatus) &&
+                        ((!('plan' in incoming()) && !('plan' in existing())) || incoming().plan == existing().plan) &&
+                        ((!('licenseExpiresAt' in incoming()) && !('licenseExpiresAt' in existing())) || incoming().licenseExpiresAt == existing().licenseExpiresAt) &&
+                        ((!('role' in incoming()) && !('role' in existing())) || incoming().role == existing().role))
                     );
 
       allow delete: if isAdmin();
@@ -243,50 +282,58 @@ service cloud.firestore {
       // =======================================================================
       match /products/{productId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(productId) && canWriteBranchScopedDoc(userId) && isValidProduct(incoming());
-        allow delete: if isValidId(productId) && canWriteTenant(userId);
+        allow create: if isValidId(productId) && canWriteBranchScopedDoc(userId) && isValidProduct(incoming());
+        allow update: if isValidId(productId) && canUpdateBranchScopedDoc(userId) && isValidProduct(incoming());
+        allow delete: if isValidId(productId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /clients/{clientId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(clientId) && canWriteBranchScopedDoc(userId) && isValidClient(incoming());
-        allow delete: if isValidId(clientId) && canWriteTenant(userId);
+        allow create: if isValidId(clientId) && canWriteBranchScopedDoc(userId) && isValidClient(incoming());
+        allow update: if isValidId(clientId) && canUpdateBranchScopedDoc(userId) && isValidClient(incoming());
+        allow delete: if isValidId(clientId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /providers/{providerId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(providerId) && canWriteBranchScopedDoc(userId) && isValidProvider(incoming());
-        allow delete: if isValidId(providerId) && canWriteTenant(userId);
+        allow create: if isValidId(providerId) && canWriteBranchScopedDoc(userId) && isValidProvider(incoming());
+        allow update: if isValidId(providerId) && canUpdateBranchScopedDoc(userId) && isValidProvider(incoming());
+        allow delete: if isValidId(providerId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /sales/{saleId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(saleId) && canWriteBranchScopedDoc(userId) && isValidSale(incoming());
-        allow delete: if isValidId(saleId) && canWriteTenant(userId);
+        allow create: if isValidId(saleId) && canWriteBranchScopedDoc(userId) && isValidSale(incoming());
+        allow update: if isValidId(saleId) && canUpdateBranchScopedDoc(userId) && isValidSale(incoming());
+        allow delete: if isValidId(saleId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /purchases/{purchaseId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(purchaseId) && canWriteBranchScopedDoc(userId) && isValidPurchase(incoming());
-        allow delete: if isValidId(purchaseId) && canWriteTenant(userId);
+        allow create: if isValidId(purchaseId) && canWriteBranchScopedDoc(userId) && isValidPurchase(incoming());
+        allow update: if isValidId(purchaseId) && canUpdateBranchScopedDoc(userId) && isValidPurchase(incoming());
+        allow delete: if isValidId(purchaseId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /expenses/{expenseId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(expenseId) && canWriteBranchScopedDoc(userId) && isValidExpense(incoming());
-        allow delete: if isValidId(expenseId) && canWriteTenant(userId);
+        allow create: if isValidId(expenseId) && canWriteBranchScopedDoc(userId) && isValidExpense(incoming());
+        allow update: if isValidId(expenseId) && canUpdateBranchScopedDoc(userId) && isValidExpense(incoming());
+        allow delete: if isValidId(expenseId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /shifts/{shiftId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(shiftId) && canWriteBranchScopedDoc(userId) && isValidShift(incoming());
-        allow delete: if isValidId(shiftId) && canWriteTenant(userId);
+        allow create: if isValidId(shiftId) && canWriteBranchScopedDoc(userId) && isValidShift(incoming());
+        allow update: if isValidId(shiftId) && canUpdateBranchScopedDoc(userId) && isValidShift(incoming());
+        allow delete: if isValidId(shiftId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /files/{fileId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(fileId) && canWriteBranchScopedDoc(userId) && isValidUserFile(incoming());
-        allow delete: if isValidId(fileId) && canWriteTenant(userId);
+        allow create: if isValidId(fileId) && canWriteBranchScopedDoc(userId) && isValidUserFile(incoming());
+        allow update: if isValidId(fileId) && canUpdateBranchScopedDoc(userId) && isValidUserFile(incoming());
+        allow delete: if isValidId(fileId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /configs/{configId} {
@@ -302,31 +349,29 @@ service cloud.firestore {
                        request.auth.token.email != null &&
                        request.auth.token.email.lower() == operatorEmail.lower()
                     );
-        allow create, update: if isSignedIn() && (
+        allow create, update: if isSignedIn() && isValidOperator(incoming()) && (
                                  isAdmin() ||
                                  (request.auth.uid == userId &&
                                   isAccountActive(userId) &&
                                   isLicenseActive(userId) &&
-                                  isValidOperator(incoming()))
+                                  incoming().email.lower() == operatorEmail.lower() &&
+                                  (!('ownerId' in incoming()) || incoming().ownerId == userId))
                               );
         allow delete: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
       }
 
       match /quotations/{quotationId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(quotationId) && canWriteBranchScopedDoc(userId);
-        allow delete: if isValidId(quotationId) && canWriteTenant(userId);
+        allow create: if isValidId(quotationId) && canWriteBranchScopedDoc(userId) && isValidQuotation(incoming());
+        allow update: if isValidId(quotationId) && canUpdateBranchScopedDoc(userId) && isValidQuotation(incoming());
+        allow delete: if isValidId(quotationId) && canDeleteBranchScopedDoc(userId);
       }
 
       match /consignments/{consignmentId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(consignmentId) && canWriteBranchScopedDoc(userId);
-        allow delete: if isValidId(consignmentId) && canWriteTenant(userId);
-      }
-
-      // Fallback for any additional subcollections inside tenant space
-      match /{subcollection}/{docId} {
-        allow read, write: if canWriteTenant(userId);
+        allow create: if isValidId(consignmentId) && canWriteBranchScopedDoc(userId) && isValidConsignment(incoming());
+        allow update: if isValidId(consignmentId) && canUpdateBranchScopedDoc(userId) && isValidConsignment(incoming());
+        allow delete: if isValidId(consignmentId) && canDeleteBranchScopedDoc(userId);
       }
     }
 
@@ -353,12 +398,12 @@ service cloud.firestore {
                      (resource != null && resource.data.ownerId == request.auth.uid) ||
                      isAdmin()
                   );
-      allow create, update: if isSignedIn() && (
+      allow create, update: if isSignedIn() && isValidOperator(incoming()) && (
                                isAdmin() ||
                                (incoming().ownerId == request.auth.uid &&
+                                incoming().email.lower() == operatorEmail.lower() &&
                                 isAccountActive(request.auth.uid) &&
-                                isLicenseActive(request.auth.uid) &&
-                                isValidOperator(incoming()))
+                                isLicenseActive(request.auth.uid))
                             );
       allow delete: if isSignedIn() && (
                        isAdmin() ||

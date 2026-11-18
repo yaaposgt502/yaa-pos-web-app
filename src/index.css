@@ -177,5 +177,159 @@ div#root aside nav::-webkit-scrollbar-thumb {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ==========================================================================
+   YAA POS — Sistema Visual de Botones y Controles Táctiles
+   EXCLUSIVO PARA MÓVILES Y TABLETAS (iOS & Android: < 1024px)
+   Mantiene intacto el diseño de escritorio (>= 1024px) y conserva la paleta
+   de colores oficial de Yaa POS.
+   ========================================================================== */
+@media (max-width: 1023.98px) {
+  /* 1. Botones base en todos los módulos dentro de main:
+        Formas redondeadas suaves, alineación de icono + texto y micro-interacciones */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button:not([role="switch"]),
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) label.cursor-pointer {
+    border-radius: 0.875rem; /* 14px: esquinas suaves estilo referencia */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    transition: transform 0.14s cubic-bezier(0.2, 0.8, 0.2, 1),
+                box-shadow 0.18s ease,
+                background-color 0.16s ease,
+                border-color 0.16s ease,
+                color 0.16s ease;
+    touch-action: manipulation;
+    user-select: none;
+  }
 
+  /* Respetar botones con alineación específica en listas, menús desplegables o acordeones */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.justify-between {
+    justify-content: space-between;
+  }
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.justify-start,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.text-left {
+    justify-content: flex-start;
+  }
 
+  /* Iconos dentro de botones siempre centrados y proporcionados */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button svg,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) label.cursor-pointer svg {
+    flex-shrink: 0;
+  }
+
+  /* Efecto táctil sutil al presionar y pasar el cursor */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button:not(:disabled):active,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) label.cursor-pointer:active {
+    transform: scale(0.97);
+  }
+
+  /* 2. Botones principales con apariencia ligeramente elevada (conservando colores Yaa POS) */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-\[\#2563EB\],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-blue-600,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-\[\#1E74BD\],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-\[\#0084FF\],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-\[\#0086F0\],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.from-blue-600 {
+    box-shadow: 0 3px 10px -2px rgba(37, 99, 235, 0.32), 0 2px 4px -1px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-emerald-600,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-\[\#16A34A\],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-\[\#10B981\],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-\[\#005e63\] {
+    box-shadow: 0 3px 10px -2px rgba(22, 163, 74, 0.28), 0 2px 4px -1px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-slate-800,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-slate-900,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-rose-600,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-amber-600 {
+    box-shadow: 0 3px 10px -2px rgba(15, 23, 42, 0.22), 0 2px 4px -1px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  /* 3. Botones secundarios con diseño limpio y compacto */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-white.border,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-slate-50.border,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.bg-slate-100.border,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) label.cursor-pointer.bg-white.border,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) label.cursor-pointer.bg-slate-100 {
+    box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  }
+
+  /* 4. Botones de categorías, pestañas y filtros rápidos en formato Píldora (Pill) */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) .yaa-category-pill,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.rounded-full,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.overflow-x-auto > button,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.bg-slate-100.p-1 > button,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.bg-slate-200\/70 > button,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.inline-flex.rounded-lg > button,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.inline-flex.rounded-xl > button {
+    border-radius: 9999px !important;
+    padding-left: 0.875rem;
+    padding-right: 0.875rem;
+    white-space: nowrap;
+  }
+
+  /* Contenedores de selectores segmentados en formato cápsula */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.bg-slate-100.p-1,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.bg-slate-200\/70.p-1,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) div.inline-flex.bg-slate-100 {
+    border-radius: 9999px !important;
+  }
+
+  /* 5. Botones de iconos cuadrados suaves o circulares (acciones en tablas, tarjetas y cabeceras) */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) td button:not(:has(span)),
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.p-1,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.p-1\.5,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.p-2:not(:has(span)) {
+    border-radius: 0.75rem; /* 12px cuadrado con esquinas suaves */
+    min-width: 2rem;
+    min-height: 2rem;
+  }
+
+  /* 6. Campos de búsqueda y selectores con bordes redondeados suaves alineados con Escanear */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) input[type="text"],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) input[type="search"],
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) select {
+    border-radius: 0.875rem; /* 14px */
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+}
+
+/* ==========================================================================
+   Adaptación específica para Tabletas (640px – 1023.98px)
+   Aprovecha el espacio disponible con botones bien proporcionados
+   ========================================================================== */
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button:not([role="switch"]):not(.p-1):not(.p-1\.5):not(.w-6):not(.w-7):not(.w-8) {
+    min-height: 2.25rem; /* 36px */
+  }
+}
+
+/* ==========================================================================
+   Adaptación específica para Móviles iOS y Android (< 640px)
+   Evita botones demasiado grandes o de ancho completo innecesario en cabeceras
+   ========================================================================== */
+@media (max-width: 639.98px) {
+  /* Evitar que los botones de acción en encabezados de módulo ocupen todo el ancho de la pantalla */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button.w-full.sm\:w-auto,
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) > div > div:first-child button.w-full {
+    width: auto !important;
+    align-self: flex-start;
+  }
+
+  /* Proporciones compactas y cómodas para pantallas táctiles móviles */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) button:not([role="switch"]):not(.p-1):not(.p-1\.5):not(.w-5):not(.w-6):not(.w-7):not(.w-8):not(.h-6):not(.h-7) {
+    padding-top: 0.425rem;
+    padding-bottom: 0.425rem;
+    font-size: 0.75rem; /* 12px */
+  }
+
+  /* Píldoras de categorías compactas en móvil */
+  div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > main:nth-of-type(1) .yaa-category-pill {
+    padding: 0.375rem 0.85rem;
+    font-size: 0.75rem;
+  }
+}

@@ -400,15 +400,31 @@ export async function getFiles(userId: string) {
   return getCollection<UserFile>('files', userId);
 }
 
+function assertSafeSegment(segment: string, label: string): string {
+  const clean = path.basename(String(segment || '').trim());
+  if (!clean || clean === '.' || clean === '..' || clean !== segment.trim() || !/^[a-zA-Z0-9_.\-@ ]+$/.test(clean)) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return clean;
+}
+
 export async function saveFile(userId: string, fileName: string, mimeType: string, base64Content: string) {
   if (!dbCache) await initDb();
-  
-  const userUploadsDir = path.join(UPLOADS_DIR, userId);
+
+  const safeUserId = assertSafeSegment(userId, 'userId');
+  const safeBaseName = path.basename(String(fileName || 'file')).replace(/[^a-zA-Z0-9_.\- ]/g, '_');
+  const userUploadsDir = path.resolve(UPLOADS_DIR, safeUserId);
+  if (!userUploadsDir.startsWith(path.resolve(UPLOADS_DIR) + path.sep)) {
+    throw new Error('Invalid upload directory');
+  }
   await fs.mkdir(userUploadsDir, { recursive: true });
 
   const fileId = crypto.randomUUID();
-  const diskFileName = `${fileId}_${path.basename(fileName)}`;
-  const diskFilePath = path.join(userUploadsDir, diskFileName);
+  const diskFileName = `${fileId}_${safeBaseName}`;
+  const diskFilePath = path.resolve(userUploadsDir, diskFileName);
+  if (!diskFilePath.startsWith(userUploadsDir + path.sep)) {
+    throw new Error('Invalid file path');
+  }
 
   // Decode and write to disk
   const buffer = Buffer.from(base64Content, 'base64');
@@ -416,26 +432,31 @@ export async function saveFile(userId: string, fileName: string, mimeType: strin
 
   const fileMetadata: UserFile = {
     id: fileId,
-    name: fileName,
+    name: safeBaseName,
     mimeType,
     size: buffer.length,
-    path: `/api/files/download/${userId}/${diskFileName}`,
+    path: `/api/files/download/${safeUserId}/${diskFileName}`,
     uploadedAt: new Date().toISOString()
   };
 
-  const saved = await saveCollection<UserFile>('files', userId, fileMetadata);
+  const saved = await saveCollection<UserFile>('files', safeUserId, fileMetadata);
   return saved;
 }
 
 export async function deleteFile(userId: string, fileId: string) {
   if (!dbCache) await initDb();
-  
-  const filesList = dbCache!.files[userId] || [];
+
+  const safeUserId = assertSafeSegment(userId, 'userId');
+  const filesList = dbCache!.files[safeUserId] || [];
   const fileMeta = filesList.find(f => f.id === fileId);
   if (!fileMeta) return false;
 
+  const userUploadsDir = path.resolve(UPLOADS_DIR, safeUserId);
   const diskFileName = path.basename(fileMeta.path);
-  const diskFilePath = path.join(UPLOADS_DIR, userId, diskFileName);
+  const diskFilePath = path.resolve(userUploadsDir, diskFileName);
+  if (!diskFilePath.startsWith(userUploadsDir + path.sep)) {
+    return false;
+  }
 
   // Delete physical file
   try {
@@ -446,7 +467,7 @@ export async function deleteFile(userId: string, fileId: string) {
   }
 
   // Delete metadata
-  return deleteFromCollection('files', userId, fileId);
+  return deleteFromCollection('files', safeUserId, fileId);
 }
 
 // --- LICENSES & PLAN REPOSITORIES ---
