@@ -238,7 +238,20 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
   const availableBranches = branchOptions;
 
   // Sync state with config prop when it changes
+  // The form is reloaded from Firestore only when a form field changed on
+  // the server. Lists saved instantly (categories, units, combos...) do not
+  // reload it, so text being typed in other fields is not lost.
+  const lastFormConfigRef = React.useRef<string>('');
   useEffect(() => {
+    if (!config) return;
+    const { categories: _c, units: _u, combos: _co, services: _s, promos: _p, laboratories: _l, ...formPart } = config as any;
+    const formJson = JSON.stringify(formPart);
+    if (formJson === lastFormConfigRef.current) {
+      if (config.categories && config.categories.length > 0) setCategories(config.categories);
+      if (config.units && config.units.length > 0) setUnits(config.units);
+      return;
+    }
+    lastFormConfigRef.current = formJson;
     if (config) {
       setNit(config.nit || '');
       setRazonSocial(config.razonSocial || '');
@@ -315,7 +328,22 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
   });
   const [newUnit, setNewUnit] = useState('');
 
-  // Categorías y unidades se guardan en la configuración de la empresa (Guardar).
+  // Categorías y unidades se guardan en Firestore en cuanto se editan (no
+  // dependen del botón Guardar), así no se pierden al navegar o recargar.
+  const saveCategories = (next: string[]) => {
+    setCategories(next);
+    api.updateConfigFields({ categories: next }).catch(err => {
+      console.error('[Yaa POS] Error al guardar categorías:', err);
+      alert('No se pudieron guardar las categorías. Intente de nuevo.');
+    });
+  };
+  const saveUnits = (next: string[]) => {
+    setUnits(next);
+    api.updateConfigFields({ units: next }).catch(err => {
+      console.error('[Yaa POS] Error al guardar unidades:', err);
+      alert('No se pudieron guardar las unidades. Intente de nuevo.');
+    });
+  };
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -658,7 +686,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
     e.preventDefault();
     if (!newCategory.trim()) return;
     if (categories.includes(newCategory.trim())) return;
-    setCategories([...categories, newCategory.trim()]);
+    saveCategories([...categories, newCategory.trim()]);
     setNewCategory('');
   };
 
@@ -666,7 +694,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
     e.preventDefault();
     if (!newUnit.trim()) return;
     if (units.includes(newUnit.trim())) return;
-    setUnits([...units, newUnit.trim()]);
+    saveUnits([...units, newUnit.trim()]);
     setNewUnit('');
   };
 
@@ -1272,8 +1300,8 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                         type="button"
                         onClick={() => {
                           setBusinessType(rubro.id as any);
-                          setCategories(rubro.cats);
-                          setUnits(rubro.unts);
+                          saveCategories(rubro.cats);
+                          saveUnits(rubro.unts);
                         }}
                         className={`p-4 rounded-xl border text-left transition-all duration-150 flex flex-col justify-between h-28 cursor-pointer relative group ${
                           isSelected ? rubro.activeColor : 'border-slate-200 hover:border-slate-300 hover:shadow-xs'
@@ -1315,7 +1343,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                         {cat}
                         <button 
                           type="button" 
-                          onClick={() => setCategories(categories.filter(c => c !== cat))}
+                          onClick={() => saveCategories(categories.filter(c => c !== cat))}
                           className="text-slate-400 hover:text-red-500 transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -1363,7 +1391,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                         {unit}
                         <button 
                           type="button" 
-                          onClick={() => setUnits(units.filter(u => u !== unit))}
+                          onClick={() => saveUnits(units.filter(u => u !== unit))}
                           className="text-blue-400 hover:text-red-500 transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -2068,7 +2096,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                   </div>
 
                   {/* Danger Zone / Reset Database (account owner only) */}
-                  {!user?.isOperator && (
+                  {api.isAccountOwner() && (
                   <div className="border border-rose-100 bg-rose-50/10 rounded-xl p-5 space-y-4 mt-6">
                     <div className="flex items-start gap-3">
                       <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">

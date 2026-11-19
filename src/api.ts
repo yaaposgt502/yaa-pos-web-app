@@ -28,8 +28,6 @@ import {
   runTransaction,
   increment,
   deleteField,
-  terminate,
-  clearIndexedDbPersistence,
   type WriteBatch,
   type Transaction,
   type DocumentReference
@@ -40,7 +38,7 @@ import {
   getDownloadURL, 
   deleteObject 
 } from 'firebase/storage';
-import { auth, db, storage } from './firebase';
+import { auth, db, storage, wipeLocalFirestoreCache, PENDING_CACHE_CLEAR_KEY } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License, Quotation, Consignment, StockMovement } from './types';
 import { applySaleItemToProduct, applySaleToShift, applySaleToClient, applyPurchaseItemToProduct, applyTransferOut, applyTransferIn, applyStockAdjustment, toNum } from './utils/inventoryMath';
@@ -686,6 +684,9 @@ export async function logoutUser(): Promise<void> {
     localStorage.removeItem('yaa_pos_branch_sync_event');
     localStorage.removeItem('yaa_pos_active_branch_id');
     localStorage.removeItem('yaa_pos_licenses');
+    // If this sign-out does not wipe the cache right away (automatic sign-out
+    // of a blocked account), the next page load does it before reading data.
+    localStorage.setItem(PENDING_CACHE_CLEAR_KEY, String(Date.now()));
   } catch {}
   window.dispatchEvent(new Event('yaa_pos_logout'));
 }
@@ -706,6 +707,20 @@ export async function updateConfigFields(fields: Partial<AppConfig>): Promise<vo
   await write;
 }
 
+// Reads one list of the store configuration directly from the server.
+// Returns 'unknown' when the server cannot be reached.
+export async function getConfigListFromServer(field: keyof AppConfig): Promise<unknown[] | null | 'unknown'> {
+  const uid = getToken();
+  if (!uid || isLikelyOffline()) return 'unknown';
+  try {
+    const snap = await getDocFromServer(doc(db, 'users', uid, 'configs', 'storeConfig'));
+    const value = snap.exists() ? (snap.data() as any)[field] : undefined;
+    return Array.isArray(value) ? value : null;
+  } catch {
+    return 'unknown';
+  }
+}
+
 // One-time import of a list that older versions kept only in this browser
 // (combos, services, promotions, laboratories). It is written only if the
 // company's configuration does not have that list yet, checked on the server.
@@ -721,21 +736,21 @@ export async function importLegacyConfigList(field: keyof AppConfig, items: unkn
   });
 }
 
+// True only for the company owner: the signed-in Firebase account IS the
+// company (operators sign in with their own account, whose UID differs from
+// the company UID). Does not rely on the cached isOperator flag, which is also
+// true for owners that have an operator record of themselves.
+export function isAccountOwner(): boolean {
+  const companyId = getToken();
+  return !!companyId && auth.currentUser?.uid === companyId;
+}
+
 // Deletes the company data Firestore keeps in this browser (IndexedDB cache)
-// so the next person who uses this computer cannot read it. Firestore stops
-// working afterwards, so the caller must reload the page.
-// If other tabs of the app are still open the cache cannot be cleared; it is
-// cleared on the next sign-out with a single tab.
+// in this tab and every other open tab (see wipeLocalFirestoreCache). The
+// caller must reload the page afterwards.
 export async function clearLocalCompanyCache(): Promise<boolean> {
   clearMemoryCache();
-  try {
-    await terminate(db);
-    await clearIndexedDbPersistence(db);
-    return true;
-  } catch (err) {
-    console.warn('[Yaa POS] No se pudo borrar la caché local (¿hay otra pestaña abierta?):', err);
-    return false;
-  }
+  return wipeLocalFirestoreCache();
 }
 
 export async function getMe(): Promise<User> {

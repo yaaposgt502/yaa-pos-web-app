@@ -423,7 +423,8 @@ export default function Inventory({
   const [formPricePerBox, setFormPricePerBox] = useState('0');
   const [laboratoriesList, setLaboratoriesList] = useConfigList<string>(
     config, 'laboratories', 'pharmacy_laboratories',
-    ['Bayer', 'Genfar', 'Pfizer', 'Roche', 'Abbott', 'Sandoz', 'Laboratorios Ramos', 'Otros']
+    ['Bayer', 'Genfar', 'Pfizer', 'Roche', 'Abbott', 'Sandoz', 'Laboratorios Ramos', 'Otros'],
+    { canImport: !!user && api.isAccountOwner() }
   );
   const [isAddLabModalOpen, setIsAddLabModalOpen] = useState(false);
   const [newLabName, setNewLabName] = useState('');
@@ -1276,9 +1277,9 @@ export default function Inventory({
 
   // Combos, servicios y promociones: guardados en la configuración de la
   // empresa en Firestore (antes solo en este navegador y con datos de ejemplo).
-  const [combos, setCombos] = useConfigList<Combo>(config, 'combos', 'inventory_combos');
-  const [services, setServices] = useConfigList<Service>(config, 'services', 'inventory_services');
-  const [promos, setPromos] = useConfigList<Promo>(config, 'promos', 'inventory_promos');
+  const [combos, setCombos] = useConfigList<Combo>(config, 'combos', 'inventory_combos', [], { canImport: !!user && api.isAccountOwner() });
+  const [services, setServices] = useConfigList<Service>(config, 'services', 'inventory_services', [], { canImport: !!user && api.isAccountOwner() });
+  const [promos, setPromos] = useConfigList<Promo>(config, 'promos', 'inventory_promos', [], { canImport: !!user && api.isAccountOwner() });
 
   // Barcode search simulator state
   const [barcodeSearch, setBarcodeSearch] = useState('');

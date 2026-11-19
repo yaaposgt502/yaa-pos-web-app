@@ -1,6 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import { firestoreReady } from './firebase';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import './index.css';
 
@@ -66,12 +67,16 @@ if ('serviceWorker' in navigator) {
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
-  createRoot(rootElement).render(
-    <StrictMode>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </StrictMode>,
-  );
+  // Finish deleting the previous session's local cache (if a sign-out could
+  // not complete it) before any screen reads from Firestore.
+  firestoreReady.finally(() => {
+    createRoot(rootElement).render(
+      <StrictMode>
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
+      </StrictMode>,
+    );
+  });
 }
 
