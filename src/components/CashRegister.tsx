@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { esc } from '../utils/escapeHtml';
 import { Shift, Sale, Expense, User, AppConfig, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
 import { parseSafeDate, formatDisplayDateTime } from '../utils/dateHelper';
@@ -183,29 +184,29 @@ export default function CashRegister({
           </style>
         </head>
         <body>
-          <div class="text-center bold" style="font-size: 13px;">${store}</div>
+          <div class="text-center bold" style="font-size: 13px;">${esc(store)}</div>
           <div class="text-center" style="font-size: 10px;">CORTE DE CAJA / ARQUEO</div>
           <div class="text-center bold" style="font-size: 12px; margin: 4px 0;">CAJA #${sh.shiftNumber || 1}</div>
           
           <div class="border-top border-bottom" style="font-size: 10px;">
-            <div class="row"><span>Cajero:</span><span class="bold">${cashier}</span></div>
+            <div class="row"><span>Cajero:</span><span class="bold">${esc(cashier)}</span></div>
             <div class="row"><span>Apertura:</span><span>${formatShiftDate(sh.openedAt)}</span></div>
             <div class="row"><span>Cierre:</span><span>${formatShiftDate(sh.closedAt)}</span></div>
             <div class="row"><span>Estado:</span><span class="bold">${sh.state === 'open' ? 'ABIERTA' : 'CERRADA'}</span></div>
           </div>
 
           <div class="border-bottom">
-            <div class="row"><span>(+) Fondo Inicial:</span><span class="bold">${currency} ${sh.initialCash.toFixed(2)}</span></div>
-            <div class="row"><span>(+) Ventas Efectivo:</span><span class="bold">${currency} ${cashSales.toFixed(2)}</span></div>
-            <div class="row"><span>(-) Gastos Turno:</span><span class="bold">${currency} ${(sh.expensesTotal || 0).toFixed(2)}</span></div>
+            <div class="row"><span>(+) Fondo Inicial:</span><span class="bold">${esc(currency)} ${sh.initialCash.toFixed(2)}</span></div>
+            <div class="row"><span>(+) Ventas Efectivo:</span><span class="bold">${esc(currency)} ${cashSales.toFixed(2)}</span></div>
+            <div class="row"><span>(-) Gastos Turno:</span><span class="bold">${esc(currency)} ${(sh.expensesTotal || 0).toFixed(2)}</span></div>
           </div>
 
           <div class="border-bottom">
-            <div class="row"><span>Efectivo Esperado:</span><span class="bold">${currency} ${expected.toFixed(2)}</span></div>
-            <div class="row bold" style="font-size: 12px;"><span>Efectivo Contado:</span><span>${currency} ${counted.toFixed(2)}</span></div>
+            <div class="row"><span>Efectivo Esperado:</span><span class="bold">${esc(currency)} ${expected.toFixed(2)}</span></div>
+            <div class="row bold" style="font-size: 12px;"><span>Efectivo Contado:</span><span>${esc(currency)} ${counted.toFixed(2)}</span></div>
             <div class="row bold">
               <span>Diferencia:</span>
-              <span>${isExact ? 'Exacto (0.00)' : (diff > 0 ? `+${currency}${diff.toFixed(2)} (Sobrante)` : `-${currency}${Math.abs(diff).toFixed(2)} (Faltante)`)}</span>
+              <span>${isExact ? 'Exacto (0.00)' : (diff > 0 ? `+${esc(currency)}${diff.toFixed(2)} (Sobrante)` : `-${esc(currency)}${Math.abs(diff).toFixed(2)} (Faltante)`)}</span>
             </div>
           </div>
 

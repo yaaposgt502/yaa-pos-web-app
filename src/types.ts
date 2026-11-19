@@ -139,7 +139,8 @@ export interface StockMovement {
   id: string;
   productId: string;
   productName: string;
-  type: 'venta' | 'devolucion' | 'compra' | 'transferencia_salida' | 'transferencia_entrada';
+  type: 'venta' | 'devolucion' | 'compra' | 'transferencia_salida' | 'transferencia_entrada' | 'ajuste';
+  reason?: string;
   quantity: number;
   refId: string;
   branch?: string;
@@ -266,6 +267,11 @@ export interface AppConfig {
   // Master lists
   categories?: string[];
   units?: string[];
+  // Lists that older versions kept only in the browser (now per company).
+  combos?: any[];
+  services?: any[];
+  promos?: any[];
+  laboratories?: string[];
   operators?: { id: string; name: string; email?: string; role?: string; active?: boolean }[];
   branches?: Branch[];
   activeBranchId?: string;

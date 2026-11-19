@@ -711,21 +711,23 @@ export default function App() {
       if (payload.branchId) {
         localStorage.setItem('yaa_pos_active_branch_id', payload.branchId);
       }
-      // Only a small signal goes to localStorage (no business records): full data
-      // arrays exceeded the storage quota and left customer data on disk.
-      // Tabs already receive real data from Firestore and the BroadcastChannel.
-      localStorage.setItem('yaa_pos_branch_sync_event', JSON.stringify({
+      // Only a small signal crosses tabs, never business records: Firestore's
+      // multi-tab cache already delivers the real data to every tab, and old
+      // copies sent here could overwrite newer data from the server.
+      const signal = {
         type: payload.type,
+        tenant: api.getToken(),
         branchId: payload.branchId,
         branchName: payload.branchName,
         entity: payload.entity,
         action: payload.action,
         id: payload.id,
         timestamp: payload.timestamp
-      }));
+      };
+      localStorage.setItem('yaa_pos_branch_sync_event', JSON.stringify(signal));
       if (typeof BroadcastChannel !== 'undefined') {
         const channel = new BroadcastChannel('yaa_pos_branch_sync');
-        channel.postMessage(payload);
+        channel.postMessage(signal);
         channel.close();
       }
     } catch (e) {
@@ -745,45 +747,18 @@ export default function App() {
 
     const processCrossTabSync = (data: any) => {
       if (!data) return;
+      // Ignore signals from a tab signed in to another company.
+      if (data.tenant && data.tenant !== api.getToken()) return;
       if (data.branchId) applySyncedBranchId(data.branchId);
 
-      // 1. Process batch multi-updates if provided (instant atomic multi-tab sync)
-      if (data.multiUpdates) {
-        if (Array.isArray(data.multiUpdates.products)) setProducts(data.multiUpdates.products);
-        if (Array.isArray(data.multiUpdates.sales)) setSales(data.multiUpdates.sales);
-        if (Array.isArray(data.multiUpdates.clients)) setClients(data.multiUpdates.clients);
-        if (Array.isArray(data.multiUpdates.providers)) setProviders(data.multiUpdates.providers);
-        if (Array.isArray(data.multiUpdates.purchases)) setPurchases(data.multiUpdates.purchases);
-        if (Array.isArray(data.multiUpdates.expenses)) setExpenses(data.multiUpdates.expenses);
-        if (Array.isArray(data.multiUpdates.shifts)) setShifts(data.multiUpdates.shifts);
-        if (data.multiUpdates.config) setConfig(data.multiUpdates.config);
-        return;
-      }
-
-      // 2. Process individual entity sync
-      if (data.type === 'sync_entity' && data.entity) {
-        const { entity, action, item, id } = data;
-        if (entity === 'products') {
-          if (action === 'delete' && id) setProducts(p => p.filter(x => x.id !== id));
-          else if (item) setProducts(p => [item, ...p.filter(x => x.id !== item.id)]);
-        } else if (entity === 'clients') {
-          if (action === 'delete' && id) setClients(c => c.filter(x => x.id !== id));
-          else if (item) setClients(c => [item, ...c.filter(x => x.id !== item.id)]);
-        } else if (entity === 'providers') {
-          if (action === 'delete' && id) setProviders(pr => pr.filter(x => x.id !== id));
-          else if (item) setProviders(pr => [item, ...pr.filter(x => x.id !== item.id)]);
-        } else if (entity === 'sales' && item) {
-          setSales(s => [item, ...s.filter(x => x.id !== item.id)]);
-        } else if (entity === 'purchases' && item) {
-          setPurchases(pu => [item, ...pu.filter(x => x.id !== item.id)]);
-        } else if (entity === 'expenses') {
-          if (action === 'delete' && id) setExpenses(e => e.filter(x => x.id !== id));
-          else if (item) setExpenses(e => [item, ...e.filter(x => x.id !== item.id)]);
-        } else if (entity === 'shifts' && item) {
-          setShifts(sh => [item, ...sh.filter(x => x.id !== item.id)]);
-        } else if (entity === 'config' && item) {
-          setConfig(item);
-        }
+      // Deletions are applied right away; saved records arrive through the
+      // Firestore listeners, which always carry the latest server data.
+      if (data.type === 'sync_entity' && data.action === 'delete' && data.id) {
+        const id = data.id;
+        if (data.entity === 'products') setProducts(p => p.filter(x => x.id !== id));
+        else if (data.entity === 'clients') setClients(c => c.filter(x => x.id !== id));
+        else if (data.entity === 'providers') setProviders(pr => pr.filter(x => x.id !== id));
+        else if (data.entity === 'expenses') setExpenses(e => e.filter(x => x.id !== id));
       }
     };
 
@@ -1015,6 +990,9 @@ export default function App() {
       setConfig(defaultAppConfig);
       setActiveTab('dashboard');
       setViewMode('admin');
+      // Borrar los datos de la empresa guardados en este navegador y empezar limpio.
+      await api.clearLocalCompanyCache();
+      window.location.reload();
     }
   };
 

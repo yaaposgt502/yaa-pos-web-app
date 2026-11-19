@@ -127,6 +127,30 @@ export function applySaleToClient(client: Client, sale: Sale, saleBranch: string
   };
 }
 
+/**
+ * Manual stock adjustment from the inventory screen. delta > 0 adds units to
+ * the first lot; delta < 0 removes them from the lots in order.
+ */
+export function applyStockAdjustment(product: Product, delta: number): Product {
+  const current = toNum(product.stock);
+  const updated: Product = { ...product, stock: current + delta };
+  if (product.expirationDates && product.expirationDates.length > 0) {
+    if (delta > 0) {
+      updated.expirationDates = product.expirationDates.map((r, i) => (i === 0 ? { ...r, stock: loteStock(r) + delta } : r));
+    } else if (delta < 0) {
+      let rem = -delta;
+      updated.expirationDates = product.expirationDates.map(r => {
+        if (rem <= 0) return r;
+        const s = loteStock(r);
+        const deduct = Math.min(s, rem);
+        rem -= deduct;
+        return { ...r, stock: s - deduct };
+      });
+    }
+  }
+  return updated;
+}
+
 /** Deducts transferred units from the source product (lots first-in order). */
 export function applyTransferOut(source: Product, quantity: number, sourceBranchName: string): Product {
   const currentStock = Math.max(0, toNum(source.stock));

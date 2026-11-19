@@ -9,7 +9,9 @@ import {
   applyPurchaseItemToProduct,
   applyTransferOut,
   applyTransferIn,
+  applyStockAdjustment,
 } from '../../src/utils/inventoryMath';
+import { esc } from '../../src/utils/escapeHtml';
 import type { Product, Sale, SaleItem, Shift, Client } from '../../src/types';
 
 const product = (extra: Partial<Product> = {}): Product => ({
@@ -119,4 +121,22 @@ test('transferencia: sale del origen y entra al destino (existente o nuevo)', ()
   assert.equal(inNew.id, 'p3');
   assert.equal(inNew.stock, 4);
   assert.equal(inNew.branch, 'Norte');
+});
+
+test('ajuste manual: entrada al primer lote, salida en orden', () => {
+  const p = product({ stock: 10, expirationDates: [{ batch: 'A', date: '2027-01-01', stock: 4 }, { batch: 'B', date: '2027-06-01', stock: 6 }] });
+  const up = applyStockAdjustment(p, 3);
+  assert.equal(up.stock, 13);
+  assert.equal(up.expirationDates?.[0].stock, 7);
+  const down = applyStockAdjustment(p, -5);
+  assert.equal(down.stock, 5);
+  assert.equal(down.expirationDates?.[0].stock, 0);
+  assert.equal(down.expirationDates?.[1].stock, 5);
+});
+
+test('esc() neutraliza HTML en impresiones', () => {
+  assert.equal(esc('<img src=x onerror=alert(1)>'), '&lt;img src=x onerror=alert(1)&gt;');
+  assert.equal(esc('Tom & "Jerry\''), 'Tom &amp; &quot;Jerry&#39;');
+  assert.equal(esc(undefined), '');
+  assert.equal(esc(12.5), '12.5');
 });

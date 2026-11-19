@@ -306,37 +306,16 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
   // Tab 3: Lists custom configurations
   const [categories, setCategories] = useState<string[]>(() => {
     if (config.categories && config.categories.length > 0) return config.categories;
-    const saved = localStorage.getItem('settings_categories');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.length > 0) return parsed;
-      } catch (e) {}
-    }
     return getDefaultCategoriesForType(config.businessType || 'general');
   });
   const [newCategory, setNewCategory] = useState('');
   const [units, setUnits] = useState<string[]>(() => {
     if (config.units && config.units.length > 0) return config.units;
-    const saved = localStorage.getItem('settings_units');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.length > 0) return parsed;
-      } catch (e) {}
-    }
     return getDefaultUnitsForType(config.businessType || 'general');
   });
   const [newUnit, setNewUnit] = useState('');
 
-  // Auto-save lists to localStorage when updated
-  useEffect(() => {
-    localStorage.setItem('settings_categories', JSON.stringify(categories));
-  }, [categories]);
-
-  useEffect(() => {
-    localStorage.setItem('settings_units', JSON.stringify(units));
-  }, [units]);
+  // Categorías y unidades se guardan en la configuración de la empresa (Guardar).
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);

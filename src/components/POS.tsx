@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { esc } from '../utils/escapeHtml';
+import { useConfigList } from '../utils/useConfigList';
 import { Product, Client, Sale, Shift, AppConfig, PrescriptionData, Branch, Quotation } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
 import { 
@@ -395,34 +397,10 @@ export default function POS({
   const [refundSaleObj, setRefundSaleObj] = useState<Sale | null>(null);
   const [refundSuccessMsg, setRefundSuccessMsg] = useState('');
 
-  // Special states for Combos, Services, Promos
-  const [combos] = useState<Combo[]>(() => {
-    const saved = localStorage.getItem('inventory_combos');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'c1', name: 'Combo Hamburguesa + Gaseosa', products: 'Hambuguesa Clásica, Coca-Cola 350ml', price: 45.0, cost: 25.0, status: 'Activo' },
-      { id: 'c2', name: 'Dúo de Whiskys Black Label', products: '2x Whisky Black Label 750ml', price: 350.0, cost: 220.0, status: 'Activo' }
-    ];
-  });
-
-  const [services] = useState<Service[]>(() => {
-    const saved = localStorage.getItem('inventory_services');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 's1', name: 'Entrega a Domicilio (Delivery)', price: 15.0, category: 'Logística', icon: 'Truck', description: 'Envío express al domicilio del cliente' },
-      { id: 's2', name: 'Soporte Técnico Especializado', price: 150.0, category: 'Soporte', icon: 'Wrench', description: 'Instalación y configuración de equipos' },
-      { id: 's3', name: 'Envoltura de Regalo Premium', price: 5.0, category: 'Personalización', icon: 'Gift', description: 'Empaque de lujo para obsequios especiales' }
-    ];
-  });
-
-  const [promos] = useState<Promo[]>(() => {
-    const saved = localStorage.getItem('inventory_promos');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'p1', code: 'PROMO10', name: '10% de Descuento General', value: '10', type: 'percentage', status: 'Activo', expiration: '2027-12-31' },
-      { id: 'p2', code: 'DESCUENTOS50', name: 'Q50.00 de Descuento', value: '50', type: 'fixed', status: 'Activo', expiration: '2027-12-31' }
-    ];
-  });
+  // Combos, servicios y promociones de la empresa (configuración en Firestore).
+  const [combos] = useConfigList<Combo>(config, 'combos', 'inventory_combos');
+  const [services] = useConfigList<Service>(config, 'services', 'inventory_services');
+  const [promos] = useConfigList<Promo>(config, 'promos', 'inventory_promos');
 
   // Add to Cart modal states
   const [selectedProductToAddToCart, setSelectedProductToAddToCart] = useState<POSProduct | null>(null);
@@ -942,7 +920,7 @@ export default function POS({
   // Local state for pending orders (starts clean, persists real orders created via "Nuevo Pedido")
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>(() => {
     try {
-      const saved = localStorage.getItem('yaa_pos_pending_orders');
+      const saved = localStorage.getItem(api.tenantStorageKey('yaa_pos_pending_orders'));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
@@ -957,7 +935,7 @@ export default function POS({
   // Sync real pending orders with localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('yaa_pos_pending_orders', JSON.stringify(pendingOrders));
+      localStorage.setItem(api.tenantStorageKey('yaa_pos_pending_orders'), JSON.stringify(pendingOrders));
     } catch (e) {}
   }, [pendingOrders]);
 
@@ -984,13 +962,6 @@ export default function POS({
     const masterCats = (() => {
       if (config.categories && config.categories.length > 0) {
         return config.categories;
-      }
-      const saved = localStorage.getItem('settings_categories');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved) as string[];
-          if (parsed && parsed.length > 0) return parsed;
-        } catch (e) {}
       }
       if (config.businessType === 'pharmacy') {
         return ['Medicamentos', 'Cuidado Personal', 'Dispositivos Médicos', 'Suplementos', 'Fórmulas', 'Perfumería'];
@@ -1736,12 +1707,12 @@ export default function POS({
       <tr>
         <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;">${idx + 1}</td>
         <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0;">
-          <strong style="color: #1e293b;">${item.product.name}</strong>
-          <div style="font-size: 10px; color: #64748b; font-family: monospace;">Cód: ${item.product.code || '—'} ${item.selectedUnit ? `| Unidad: ${item.selectedUnit}` : ''} ${item.selectedLote ? `| ${item.selectedLote}` : ''}</div>
+          <strong style="color: #1e293b;">${esc(item.product.name)}</strong>
+          <div style="font-size: 10px; color: #64748b; font-family: monospace;">Cód: ${esc(item.product.code || '—')} ${item.selectedUnit ? `| Unidad: ${esc(item.selectedUnit)}` : ''} ${item.selectedLote ? `| ${esc(item.selectedLote)}` : ''}</div>
         </td>
-        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600;">${item.quantity}</td>
-        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace;">${currency}${(item.customPrice ?? item.product.price).toFixed(2)}</td>
-        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; font-family: monospace; color: #0f172a;">${currency}${((item.customPrice ?? item.product.price) * item.quantity).toFixed(2)}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600;">${esc(item.quantity)}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace;">${esc(currency)}${(item.customPrice ?? item.product.price).toFixed(2)}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; font-family: monospace; color: #0f172a;">${esc(currency)}${((item.customPrice ?? item.product.price) * item.quantity).toFixed(2)}</td>
       </tr>
     `).join('');
 
@@ -1749,7 +1720,7 @@ export default function POS({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Proforma / Cotización ${proformaId} - ${config.storeName}</title>
+          <title>Proforma / Cotización ${esc(proformaId)} - ${esc(config.storeName)}</title>
           <meta charset="utf-8" />
           <style>
             * { box-sizing: border-box; }
@@ -1781,12 +1752,12 @@ export default function POS({
           <table class="header-table">
             <tr>
               <td>
-                <h1 class="brand-title">${config.storeName || 'YAA POS'}</h1>
-                <p class="brand-sub">${config.branches?.[0]?.address || 'Documento Oficial de Cotización / Proforma'}</p>
+                <h1 class="brand-title">${esc(config.storeName || 'YAA POS')}</h1>
+                <p class="brand-sub">${esc(config.branches?.[0]?.address || 'Documento Oficial de Cotización / Proforma')}</p>
                 ${quoteIsConsignment ? '<span class="consignacion-badge">★ PROFORMA DE CONSIGNACIÓN</span>' : ''}
               </td>
               <td style="text-align: right; vertical-align: top;">
-                <div class="doc-tag">PROFORMA Nº ${proformaId}</div>
+                <div class="doc-tag">PROFORMA Nº ${esc(proformaId)}</div>
                 <p style="font-size: 11px; color: #64748b; margin: 6px 0 0 0;">Fecha: ${new Date().toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
                 <p style="font-size: 11px; color: #dc2626; margin: 3px 0 0 0; font-weight: 600;">Válida hasta: ${quoteExpirationDate ? new Date(quoteExpirationDate + 'T00:00:00').toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' }) : '15 días'}</p>
               </td>
@@ -1795,12 +1766,12 @@ export default function POS({
 
           <div class="info-grid">
             <div>
-              <div class="info-row"><span class="info-label">Cliente:</span> ${quoteClientName || 'Consumidor Final'}</div>
-              ${quoteClientEmails.length > 0 ? `<div class="info-row"><span class="info-label">Email(s):</span> ${quoteClientEmails.join(', ')}</div>` : ''}
-              <div class="info-row"><span class="info-label">Sucursal:</span> ${currentOperatingBranch}</div>
+              <div class="info-row"><span class="info-label">Cliente:</span> ${esc(quoteClientName || 'Consumidor Final')}</div>
+              ${quoteClientEmails.length > 0 ? `<div class="info-row"><span class="info-label">Email(s):</span> ${esc(quoteClientEmails.join(', '))}</div>` : ''}
+              <div class="info-row"><span class="info-label">Sucursal:</span> ${esc(currentOperatingBranch)}</div>
             </div>
             <div>
-              <div class="info-row"><span class="info-label">Emisor:</span> ${user?.name || 'Ventas'}</div>
+              <div class="info-row"><span class="info-label">Emisor:</span> ${esc(user?.name || 'Ventas')}</div>
               <div class="info-row"><span class="info-label">Estado:</span> Vigente</div>
               <div class="info-row"><span class="info-label">Tipo:</span> ${quoteIsConsignment ? 'Consignación' : 'Cotización estándar'}</div>
             </div>
@@ -1825,23 +1796,23 @@ export default function POS({
             <div class="totals-box">
               <div class="tot-row">
                 <span style="color: #64748b;">Subtotal:</span>
-                <span style="font-family: monospace; font-weight: 600;">${currency}${totalQuote.toFixed(2)}</span>
+                <span style="font-family: monospace; font-weight: 600;">${esc(currency)}${totalQuote.toFixed(2)}</span>
               </div>
               ${discountAmount > 0 ? `
                 <div class="tot-row" style="color: #dc2626;">
-                  <span>Descuento (${discountValue}${discountType === 'percent' ? '%' : ''}):</span>
-                  <span style="font-family: monospace; font-weight: 600;">-${currency}${discountAmount.toFixed(2)}</span>
+                  <span>Descuento (${esc(discountValue)}${discountType === 'percent' ? '%' : ''}):</span>
+                  <span style="font-family: monospace; font-weight: 600;">-${esc(currency)}${discountAmount.toFixed(2)}</span>
                 </div>
               ` : ''}
               ${taxAmount > 0 ? `
                 <div class="tot-row">
-                  <span style="color: #64748b;">${taxName} (${taxRateVal}%):</span>
-                  <span style="font-family: monospace; font-weight: 600;">${currency}${taxAmount.toFixed(2)}</span>
+                  <span style="color: #64748b;">${esc(taxName)} (${esc(taxRateVal)}%):</span>
+                  <span style="font-family: monospace; font-weight: 600;">${esc(currency)}${taxAmount.toFixed(2)}</span>
                 </div>
               ` : ''}
               <div class="tot-row tot-grand">
                 <span>TOTAL:</span>
-                <span style="font-family: monospace;">${currency}${finalTotal.toFixed(2)}</span>
+                <span style="font-family: monospace;">${esc(currency)}${finalTotal.toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -1849,7 +1820,7 @@ export default function POS({
           ${quoteNotes ? `
             <div class="notes-box">
               <strong>Observaciones:</strong><br />
-              ${quoteNotes.replace(/\\n/g, '<br />')}
+              ${esc(quoteNotes).replace(/\n/g, '<br />')}
             </div>
           ` : ''}
 

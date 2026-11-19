@@ -132,10 +132,6 @@ service cloud.firestore {
              (data[field] is string && data[field].size() <= maxLen);
     }
 
-    function optNum(data, field) {
-      return !(field in data) || data[field] == null || data[field] is number;
-    }
-
     function optList(data, field, maxLen) {
       return !(field in data) || data[field] == null ||
              (data[field] is list && data[field].size() <= maxLen);
@@ -187,8 +183,9 @@ service cloud.firestore {
              data.productId is string && data.productId.size() <= 128 &&
              data.refId is string && data.refId.size() <= 128 &&
              data.quantity is number &&
-             data.type in ['venta', 'devolucion', 'compra', 'transferencia_salida', 'transferencia_entrada'] &&
+             data.type in ['venta', 'devolucion', 'compra', 'transferencia_salida', 'transferencia_entrada', 'ajuste'] &&
              optStr(data, 'productName', 250) &&
+             optStr(data, 'reason', 200) &&
              optStr(data, 'date', 64);
     }
 

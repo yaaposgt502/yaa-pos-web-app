@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { esc } from '../utils/escapeHtml';
 import { 
   Product, 
   Client, 
@@ -707,15 +708,15 @@ export default function Quotations({
       return `
         <tr>
           <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;">${idx + 1}</td>
-          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-family: monospace; color: #475569; font-size: 11px;">${item.code || '—'}</td>
+          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-family: monospace; color: #475569; font-size: 11px;">${esc(item.code || '—')}</td>
           <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0;">
-            <strong style="color: #0f172a; font-size: 12px;">${item.name}</strong>
-            ${item.selectedLote ? `<div style="font-size: 10px; color: #64748b;">Lote: ${item.selectedLote}</div>` : ''}
+            <strong style="color: #0f172a; font-size: 12px;">${esc(item.name)}</strong>
+            ${item.selectedLote ? `<div style="font-size: 10px; color: #64748b;">Lote: ${esc(item.selectedLote)}</div>` : ''}
           </td>
-          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600;">${item.quantity} ${item.unit || 'Pza'}</td>
-          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace;">${quote.currency}${item.unitPrice.toFixed(2)}</td>
-          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace; color: #dc2626;">${disc > 0 ? `-${quote.currency}${disc.toFixed(2)}` : '—'}</td>
-          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; font-family: monospace; color: #0f172a;">${quote.currency}${item.subtotal.toFixed(2)}</td>
+          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600;">${esc(item.quantity)} ${esc(item.unit || 'Pza')}</td>
+          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace;">${esc(quote.currency)}${item.unitPrice.toFixed(2)}</td>
+          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace; color: #dc2626;">${disc > 0 ? `-${esc(quote.currency)}${disc.toFixed(2)}` : '—'}</td>
+          <td style="padding: 9px 8px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; font-family: monospace; color: #0f172a;">${esc(quote.currency)}${item.subtotal.toFixed(2)}</td>
         </tr>
       `;
     }).join('');
@@ -750,7 +751,7 @@ export default function Quotations({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>${quote.correlative} - ${config.storeName || 'YAA POS'}</title>
+          <title>${esc(quote.correlative)} - ${esc(config.storeName || 'YAA POS')}</title>
           <meta charset="utf-8" />
           <style>
             * { box-sizing: border-box; }
@@ -785,7 +786,7 @@ export default function Quotations({
               font-size: 10.5px;
               font-weight: 700;
               color: #fff;
-              background-color: ${statusColor};
+              background-color: ${esc(statusColor)};
             }
             .info-grid { 
               display: grid; 
@@ -849,35 +850,35 @@ export default function Quotations({
           <table class="header-table">
             <tr>
               <td style="vertical-align: top;">
-                <h1 class="brand-name">${config.storeName || 'YAA POS'}</h1>
+                <h1 class="brand-name">${esc(config.storeName || 'YAA POS')}</h1>
                 <p class="brand-sub">
-                  ${config.razonSocial ? `<strong>${config.razonSocial}</strong><br/>` : ''}
-                  ${config.nit ? `NIT: ${config.nit}<br/>` : ''}
-                  ${config.address || 'Guatemala'}<br/>
-                  ${config.phone ? `Tel: ${config.phone}` : ''} ${config.email ? `| Email: ${config.email}` : ''}
+                  ${config.razonSocial ? `<strong>${esc(config.razonSocial)}</strong><br/>` : ''}
+                  ${config.nit ? `NIT: ${esc(config.nit)}<br/>` : ''}
+                  ${esc(config.address || 'Guatemala')}<br/>
+                  ${config.phone ? `Tel: ${esc(config.phone)}` : ''} ${config.email ? `| Email: ${esc(config.email)}` : ''}
                 </p>
                 ${quote.isConsignment ? '<div style="margin-top:6px; background:#fef3c7; color:#92400e; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; display:inline-block; border:1px solid #fde68a;">★ PROFORMA DE CONSIGNACIÓN</div>' : ''}
               </td>
               <td style="text-align: right; vertical-align: top;">
-                <div class="correlative-badge">${quote.correlative}</div>
-                <div><span class="status-pill">${statusBadgeText}</span></div>
-                <div style="font-size: 11px; color: #64748b; margin-top: 8px;"><strong>Fecha Emisión:</strong> ${formattedDate}</div>
-                <div style="font-size: 11px; color: #b91c1c; margin-top: 3px;"><strong>Válida Hasta:</strong> ${formattedExpDate}</div>
+                <div class="correlative-badge">${esc(quote.correlative)}</div>
+                <div><span class="status-pill">${esc(statusBadgeText)}</span></div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 8px;"><strong>Fecha Emisión:</strong> ${esc(formattedDate)}</div>
+                <div style="font-size: 11px; color: #b91c1c; margin-top: 3px;"><strong>Válida Hasta:</strong> ${esc(formattedExpDate)}</div>
               </td>
             </tr>
           </table>
 
           <div class="info-grid">
             <div>
-              <div class="info-row"><span class="info-label">Cliente:</span> <span class="info-val"><strong>${quote.clientName || 'Consumidor Final'}</strong></span></div>
-              <div class="info-row"><span class="info-label">NIT / DPI:</span> <span class="info-val">${quote.clientNit || 'C/F'}</span></div>
-              <div class="info-row"><span class="info-label">Teléfono:</span> <span class="info-val">${quote.clientPhone || '—'}</span></div>
-              <div class="info-row"><span class="info-label">Dirección:</span> <span class="info-val">${quote.clientAddress || '—'}</span></div>
-              ${quote.emails && quote.emails.length > 0 ? `<div class="info-row"><span class="info-label">Email(s):</span> <span class="info-val">${quote.emails.join(', ')}</span></div>` : ''}
+              <div class="info-row"><span class="info-label">Cliente:</span> <span class="info-val"><strong>${esc(quote.clientName || 'Consumidor Final')}</strong></span></div>
+              <div class="info-row"><span class="info-label">NIT / DPI:</span> <span class="info-val">${esc(quote.clientNit || 'C/F')}</span></div>
+              <div class="info-row"><span class="info-label">Teléfono:</span> <span class="info-val">${esc(quote.clientPhone || '—')}</span></div>
+              <div class="info-row"><span class="info-label">Dirección:</span> <span class="info-val">${esc(quote.clientAddress || '—')}</span></div>
+              ${quote.emails && quote.emails.length > 0 ? `<div class="info-row"><span class="info-label">Email(s):</span> <span class="info-val">${esc(quote.emails.join(', '))}</span></div>` : ''}
             </div>
             <div>
-              <div class="info-row"><span class="info-label">Sucursal:</span> <span class="info-val">${quote.branch || 'Principal'}</span></div>
-              <div class="info-row"><span class="info-label">Atendido por:</span> <span class="info-val">${quote.operatorName || 'Asesor Comercial'}</span></div>
+              <div class="info-row"><span class="info-label">Sucursal:</span> <span class="info-val">${esc(quote.branch || 'Principal')}</span></div>
+              <div class="info-row"><span class="info-label">Atendido por:</span> <span class="info-val">${esc(quote.operatorName || 'Asesor Comercial')}</span></div>
               <div class="info-row"><span class="info-label">Modalidad:</span> <span class="info-val">${quote.isConsignment ? 'Consignación' : 'Cotización Estándar'}</span></div>
               <div class="info-row"><span class="info-label">Moneda:</span> <span class="info-val">${quote.currency === 'Q' ? 'Quetzales (Q)' : quote.currency}</span></div>
             </div>
@@ -904,23 +905,23 @@ export default function Quotations({
             <div class="totals-box">
               <div class="tot-row">
                 <span>Subtotal:</span>
-                <span style="font-family: monospace;">${quote.currency}${quote.subtotal.toFixed(2)}</span>
+                <span style="font-family: monospace;">${esc(quote.currency)}${quote.subtotal.toFixed(2)}</span>
               </div>
               ${quote.discountTotal > 0 ? `
                 <div class="tot-row" style="color: #dc2626;">
                   <span>Descuento aplicado:</span>
-                  <span style="font-family: monospace;">-${quote.currency}${quote.discountTotal.toFixed(2)}</span>
+                  <span style="font-family: monospace;">-${esc(quote.currency)}${quote.discountTotal.toFixed(2)}</span>
                 </div>
               ` : ''}
               ${quote.taxTotal > 0 ? `
                 <div class="tot-row">
                   <span>Impuestos / IVA (${quote.taxRate || 0}%):</span>
-                  <span style="font-family: monospace;">+${quote.currency}${quote.taxTotal.toFixed(2)}</span>
+                  <span style="font-family: monospace;">+${esc(quote.currency)}${quote.taxTotal.toFixed(2)}</span>
                 </div>
               ` : ''}
               <div class="tot-grand">
                 <span>TOTAL:</span>
-                <span style="font-family: monospace;">${quote.currency}${quote.total.toFixed(2)}</span>
+                <span style="font-family: monospace;">${esc(quote.currency)}${quote.total.toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -928,14 +929,14 @@ export default function Quotations({
           ${quote.notes ? `
             <div class="section-box">
               <div class="section-title">Observaciones / Notas</div>
-              <div class="section-content">${quote.notes}</div>
+              <div class="section-content">${esc(quote.notes)}</div>
             </div>
           ` : ''}
 
           ${quote.termsAndConditions ? `
             <div class="section-box" style="margin-top: 12px; background: #fffbeb; border-color: #fef3c7;">
               <div class="section-title" style="color: #92400e;">Términos y Condiciones</div>
-              <div class="section-content" style="color: #78350f;">${quote.termsAndConditions}</div>
+              <div class="section-content" style="color: #78350f;">${esc(quote.termsAndConditions)}</div>
             </div>
           ` : ''}
 
@@ -945,7 +946,7 @@ export default function Quotations({
               <div style="font-size: 9.5px; color: #94a3b8; margin-top: 3px;">Firma / Sello autorizado</div>
             </div>
             <div>
-              <div class="sig-line">Aceptado por: ${quote.clientName}</div>
+              <div class="sig-line">Aceptado por: ${esc(quote.clientName)}</div>
               <div style="font-size: 9.5px; color: #94a3b8; margin-top: 3px;">Firma de conformidad</div>
             </div>
           </div>

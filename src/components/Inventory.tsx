@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { esc } from '../utils/escapeHtml';
+import { useConfigList } from '../utils/useConfigList';
 import { BrowserMultiFormatReader } from '@zxing/library';
-import { Product, AppConfig, Sale, Purchase, Branch, User } from '../types';
+import { Product, AppConfig, Sale, Purchase, Branch, User, StockMovement } from '../types';
+import * as api from '../api';
 import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
 import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
 import { matchProductsByCode, SUPPORTED_BARCODE_FORMATS, getProductCodes } from '../utils/barcodeHelper';
@@ -418,18 +421,10 @@ export default function Inventory({
   const [formPricePerUnit, setFormPricePerUnit] = useState('');
   const [formPricePerBlister, setFormPricePerBlister] = useState('0');
   const [formPricePerBox, setFormPricePerBox] = useState('0');
-  const [laboratoriesList, setLaboratoriesList] = useState<string[]>(() => {
-    const saved = localStorage.getItem('pharmacy_laboratories');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      } catch (e) {}
-    }
-    return ['Bayer', 'Genfar', 'Pfizer', 'Roche', 'Abbott', 'Sandoz', 'Laboratorios Ramos', 'Otros'];
-  });
+  const [laboratoriesList, setLaboratoriesList] = useConfigList<string>(
+    config, 'laboratories', 'pharmacy_laboratories',
+    ['Bayer', 'Genfar', 'Pfizer', 'Roche', 'Abbott', 'Sandoz', 'Laboratorios Ramos', 'Otros']
+  );
   const [isAddLabModalOpen, setIsAddLabModalOpen] = useState(false);
   const [newLabName, setNewLabName] = useState('');
   const [formLaboratory, setFormLaboratory] = useState('Bayer');
@@ -861,7 +856,6 @@ export default function Inventory({
     if (!laboratoriesList.includes(trimmed)) {
       const updatedList = [...laboratoriesList, trimmed];
       setLaboratoriesList(updatedList);
-      localStorage.setItem('pharmacy_laboratories', JSON.stringify(updatedList));
     }
     setFormLaboratory(trimmed);
     setNewLabName('');
@@ -943,6 +937,15 @@ export default function Inventory({
   const [newAdjustmentType, setNewAdjustmentType] = useState<'entrada' | 'salida'>('entrada');
   const [newAdjustmentReason, setNewAdjustmentReason] = useState('Ajuste de inventario');
 
+  const [adjustmentMovements, setAdjustmentMovements] = useState<StockMovement[]>([]);
+  const [kardexReloadKey, setKardexReloadKey] = useState(0);
+  useEffect(() => {
+    if (!selectedKardexProduct) { setAdjustmentMovements([]); return; }
+    let cancelled = false;
+    api.getStockMovements(selectedKardexProduct.id, 'ajuste').then(list => { if (!cancelled) setAdjustmentMovements(list); });
+    return () => { cancelled = true; };
+  }, [selectedKardexProduct?.id, kardexReloadKey]);
+
   const productKardexHistory = useMemo(() => {
     if (!selectedKardexProduct) return [];
 
@@ -1016,6 +1019,28 @@ export default function Inventory({
       });
     }
 
+    // Ajustes manuales registrados en el kardex de Firestore.
+    adjustmentMovements.forEach(m => {
+      const isIn = m.quantity > 0;
+      history.push({
+        id: m.id,
+        date: m.date,
+        type: isIn ? 'entrada' : 'salida',
+        concept: m.reason || 'Ajuste Manual',
+        reference: m.reason || 'Ajuste de inventario',
+        quantity: Math.abs(m.quantity),
+        cost: selectedKardexProduct.cost,
+        price: selectedKardexProduct.price,
+        balance: 0,
+        user: m.operatorName || 'Usuario',
+        operation: isIn ? 'Entrada' : 'Salida',
+        motivo: 'Ajuste Manual',
+        lote: selectedKardexProduct.initialBatch || '—',
+        vence: selectedKardexProduct.expirationDate || '—'
+      });
+    });
+
+    // Ajustes antiguos guardados solo en este navegador (solo lectura).
     const savedAdjustmentsKey = `kardex_adjustments_${selectedKardexProduct.id}`;
     const savedAdjustmentsStr = localStorage.getItem(savedAdjustmentsKey);
     if (savedAdjustmentsStr) {
@@ -1089,7 +1114,7 @@ export default function Inventory({
     }
 
     return [...fullHistory].reverse();
-  }, [selectedKardexProduct, sales, purchases, kardexBranch, branches, config.branches]);
+  }, [selectedKardexProduct, sales, purchases, kardexBranch, branches, config.branches, adjustmentMovements]);
 
   const handlePrintKardex = () => {
     if (!selectedKardexProduct) return;
@@ -1102,7 +1127,7 @@ export default function Inventory({
     const html = `
       <html>
         <head>
-          <title>Kardex - ${selectedKardexProduct.name}</title>
+          <title>Kardex - ${esc(selectedKardexProduct.name)}</title>
           <style>
             body { font-family: sans-serif; padding: 30px; color: #1e293b; background: white; }
             h1 { color: #005e63; margin-bottom: 2px; font-size: 22px; font-weight: bold; }
@@ -1135,19 +1160,19 @@ export default function Inventory({
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">CÓDIGO/SKU</span>
-              <span class="info-value">${selectedKardexProduct.code}</span>
+              <span class="info-value">${esc(selectedKardexProduct.code)}</span>
             </div>
             <div class="info-item">
               <span class="info-label">PRODUCTO / CATEGORÍA</span>
-              <span class="info-value">${selectedKardexProduct.name} (${selectedKardexProduct.category || 'Varios'})</span>
+              <span class="info-value">${esc(selectedKardexProduct.name)} (${esc(selectedKardexProduct.category || 'Varios')})</span>
             </div>
             <div class="info-item">
               <span class="info-label">TIPO</span>
-              <span class="info-value">${selectedKardexProduct.unit || 'Producto'}</span>
+              <span class="info-value">${esc(selectedKardexProduct.unit || 'Producto')}</span>
             </div>
             <div class="info-item">
               <span class="info-label">STOCK ACTUAL</span>
-              <span class="info-value" style="color: #0086F0;">${selectedKardexProduct.stock}</span>
+              <span class="info-value" style="color: #0086F0;">${esc(selectedKardexProduct.stock)}</span>
             </div>
           </div>
 
@@ -1176,15 +1201,15 @@ export default function Inventory({
                 return `
                   <tr>
                     <td style="color: #64748b; font-family: monospace;">${new Date(h.date).toLocaleDateString()}, ${new Date(h.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                    <td>${h.user}</td>
-                    <td>${h.operation}</td>
-                    <td><strong>${h.concept}</strong></td>
-                    <td><span class="${badgeClass}">${h.motivo}</span></td>
-                    <td>${h.lote}</td>
+                    <td>${esc(h.user)}</td>
+                    <td>${esc(h.operation)}</td>
+                    <td><strong>${esc(h.concept)}</strong></td>
+                    <td><span class="${esc(badgeClass)}">${esc(h.motivo)}</span></td>
+                    <td>${esc(h.lote)}</td>
                     <td>${h.vence ? new Date(h.vence).toLocaleDateString() : '-'}</td>
                     <td class="text-center entrada">${h.type === 'entrada' || h.type === 'inicial' ? h.quantity : ''}</td>
                     <td class="text-center salida">${h.type === 'salida' ? h.quantity : ''}</td>
-                    <td class="text-right" style="font-weight: bold;">${h.balance}</td>
+                    <td class="text-right" style="font-weight: bold;">${esc(h.balance)}</td>
                   </tr>
                 `;
               }).join('')}
@@ -1226,97 +1251,34 @@ export default function Inventory({
     }
 
     const currentStock = getProductStock(selectedKardexProduct);
-    let newStock = currentStock;
-    if (newAdjustmentType === 'entrada') {
-      newStock += qty;
-    } else {
-      if (qty > currentStock) {
-        alert('No puedes retirar más de lo que hay en stock actual.');
-        return;
-      }
-      newStock -= qty;
+    if (newAdjustmentType === 'salida' && qty > currentStock) {
+      alert('No puedes retirar más de lo que hay en stock actual.');
+      return;
     }
 
-    const savedAdjustmentsKey = `kardex_adjustments_${selectedKardexProduct.id}`;
-    const savedAdjustmentsStr = localStorage.getItem(savedAdjustmentsKey);
-    const adjustments = savedAdjustmentsStr ? JSON.parse(savedAdjustmentsStr) : [];
-    
-    const newAdj = {
-      id: `adj-${Date.now()}`,
-      date: new Date().toISOString(),
-      type: newAdjustmentType,
-      quantity: qty,
-      reference: newAdjustmentReason || 'Ajuste de inventario'
-    };
-
-    adjustments.push(newAdj);
-    localStorage.setItem(savedAdjustmentsKey, JSON.stringify(adjustments));
-
-    let updatedExpirationDates = selectedKardexProduct.expirationDates;
-    if (updatedExpirationDates && updatedExpirationDates.length > 0) {
-      if (newAdjustmentType === 'entrada') {
-        updatedExpirationDates = updatedExpirationDates.map((r, i) =>
-          i === 0 ? { ...r, stock: (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) + qty } : r
-        );
-      } else {
-        let rem = qty;
-        updatedExpirationDates = updatedExpirationDates.map(r => {
-          if (rem <= 0) return r;
-          const s = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
-          const deduct = Math.min(s, rem);
-          rem -= deduct;
-          return { ...r, stock: s - deduct };
-        });
-      }
-    }
-
-    const updatedProduct: Product = {
-      ...selectedKardexProduct,
-      stock: newStock,
-      expirationDates: updatedExpirationDates
-    };
-
+    // Stock y kardex en una sola operación (stockMovements, tipo "ajuste").
     try {
-      const saved = await onSaveProduct(updatedProduct);
+      const { product: saved } = await api.executeStockAdjustment({
+        product: selectedKardexProduct,
+        delta: newAdjustmentType === 'entrada' ? qty : -qty,
+        reason: newAdjustmentReason || 'Ajuste de inventario',
+        operatorName: user?.name
+      });
       setSelectedKardexProduct(saved);
       setNewAdjustmentQty('');
       setNewAdjustmentReason('Ajuste de inventario');
+      setKardexReloadKey(k => k + 1);
       onRefreshData();
     } catch (err: any) {
       alert(err.message || 'Error al guardar el ajuste de stock');
     }
   };
 
-  // Combos State
-  const [combos, setCombos] = useState<Combo[]>(() => {
-    const saved = localStorage.getItem('inventory_combos');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'c1', name: 'Combo Hamburguesa + Gaseosa', products: 'Hambuguesa Clásica, Coca-Cola 350ml', price: 45.0, cost: 25.0, status: 'Activo' },
-      { id: 'c2', name: 'Dúo de Whiskys Black Label', products: '2x Whisky Black Label 750ml', price: 350.0, cost: 220.0, status: 'Activo' }
-    ];
-  });
-
-  // Services State
-  const [services, setServices] = useState<Service[]>(() => {
-    const saved = localStorage.getItem('inventory_services');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 's1', name: 'Entrega a Domicilio (Delivery)', price: 15.0, category: 'Logística', icon: 'Truck', description: 'Envío express al domicilio del cliente' },
-      { id: 's2', name: 'Soporte Técnico Especializado', price: 150.0, category: 'Soporte', icon: 'Wrench', description: 'Instalación y configuración de equipos' },
-      { id: 's3', name: 'Envoltura de Regalo Premium', price: 5.0, category: 'Personalización', icon: 'Gift', description: 'Empaque de lujo para obsequios especiales' }
-    ];
-  });
-
-  // Promos State
-  const [promos, setPromos] = useState<Promo[]>(() => {
-    const saved = localStorage.getItem('inventory_promos');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'p1', code: 'PROMO10', name: 'Descuento de Apertura', value: '10%', type: 'percentage', status: 'Activo', expiration: '2026-12-31' },
-      { id: 'p2', code: '2X1BEBIDAS', name: '2x1 en Bebidas los Viernes', value: '2x1', type: 'special', status: 'Inactivo', expiration: '2026-08-30' }
-    ];
-  });
+  // Combos, servicios y promociones: guardados en la configuración de la
+  // empresa en Firestore (antes solo en este navegador y con datos de ejemplo).
+  const [combos, setCombos] = useConfigList<Combo>(config, 'combos', 'inventory_combos');
+  const [services, setServices] = useConfigList<Service>(config, 'services', 'inventory_services');
+  const [promos, setPromos] = useConfigList<Promo>(config, 'promos', 'inventory_promos');
 
   // Barcode search simulator state
   const [barcodeSearch, setBarcodeSearch] = useState('');
@@ -1330,19 +1292,6 @@ export default function Inventory({
   const [showLabelPrice, setShowLabelPrice] = useState(true);
   const [showLabelDescription, setShowLabelDescription] = useState(false);
   const [showLabelSku, setShowLabelSku] = useState(true);
-
-  // Save special items to localStorage
-  useEffect(() => {
-    localStorage.setItem('inventory_combos', JSON.stringify(combos));
-  }, [combos]);
-
-  useEffect(() => {
-    localStorage.setItem('inventory_services', JSON.stringify(services));
-  }, [services]);
-
-  useEffect(() => {
-    localStorage.setItem('inventory_promos', JSON.stringify(promos));
-  }, [promos]);
 
   // Form states for adding new Combo/Service/Promo
   const [newComboName, setNewComboName] = useState('');
@@ -1379,13 +1328,6 @@ export default function Inventory({
     if (config.categories && config.categories.length > 0) {
       return config.categories;
     }
-    const saved = localStorage.getItem('settings_categories');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as string[];
-        if (parsed && parsed.length > 0) return parsed;
-      } catch (e) {}
-    }
     if (config.businessType === 'pharmacy') {
       return ['Medicamentos', 'Cuidado Personal', 'Dispositivos Médicos', 'Suplementos', 'Fórmulas', 'Perfumería', 'General / Otros'];
     } else if (config.businessType === 'bookstore') {
@@ -1400,13 +1342,6 @@ export default function Inventory({
   const unitsList = useMemo(() => {
     if (config.units && config.units.length > 0) {
       return config.units;
-    }
-    const saved = localStorage.getItem('settings_units');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as string[];
-        if (parsed && parsed.length > 0) return parsed;
-      } catch (e) {}
     }
     if (config.businessType === 'pharmacy') {
       return ['UNIDAD', 'CAJA', 'BLISTER', 'FRASCO', 'TABLETA', 'AMPOLLA', 'SOBRE'];
@@ -1704,41 +1639,17 @@ export default function Inventory({
       return;
     }
 
-    const currentStock = getProductStock(manualStockProduct);
-    const newStock = currentStock + qty;
-
-    let updatedExpirationDates = manualStockProduct.expirationDates;
-    if (updatedExpirationDates && updatedExpirationDates.length > 0) {
-      updatedExpirationDates = updatedExpirationDates.map((r, i) =>
-        i === 0 ? { ...r, stock: (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) + qty } : r
-      );
-    }
-
-    // Save adjustment to Kardex history
-    const savedAdjustmentsKey = `kardex_adjustments_${manualStockProduct.id}`;
-    const savedAdjustmentsStr = localStorage.getItem(savedAdjustmentsKey);
-    const adjustments = savedAdjustmentsStr ? JSON.parse(savedAdjustmentsStr) : [];
-    const newAdj = {
-      id: `adj-manual-${Date.now()}`,
-      date: new Date().toISOString(),
-      type: 'entrada',
-      quantity: qty,
-      reference: manualStockReason.trim() || 'Aumento manual de stock'
-    };
-    adjustments.push(newAdj);
-    localStorage.setItem(savedAdjustmentsKey, JSON.stringify(adjustments));
-
-    const updated: Product = {
-      ...manualStockProduct,
-      stock: newStock,
-      location: manualStockLocation || manualStockProduct.location || 'Almacén Principal',
-      expirationDates: updatedExpirationDates
-    };
-
     try {
-      await onSaveProduct(updated);
+      await api.executeStockAdjustment({
+        product: manualStockProduct,
+        delta: qty,
+        reason: manualStockReason.trim() || 'Aumento manual de stock',
+        operatorName: user?.name,
+        extraFields: { location: manualStockLocation || manualStockProduct.location || 'Almacén Principal' }
+      });
       setIsManualStockModalOpen(false);
       setManualStockProduct(null);
+      setKardexReloadKey(k => k + 1);
       onRefreshData();
     } catch (err: any) {
       alert(err.message || 'Error al actualizar el stock');
@@ -2081,13 +1992,13 @@ export default function Inventory({
               ${generateBarcodeHTML(p.code)}
             </div>
           ` : ''}
-          ${showLabelName ? `<div class="product-name">${p.name}</div>` : ''}
-          ${showLabelPrice ? `<div class="product-price">${currency} ${p.price.toFixed(2)}</div>` : ''}
-          ${showLabelDescription ? `<div class="product-desc">${p.detail || ''}</div>` : ''}
+          ${showLabelName ? `<div class="product-name">${esc(p.name)}</div>` : ''}
+          ${showLabelPrice ? `<div class="product-price">${esc(currency)} ${p.price.toFixed(2)}</div>` : ''}
+          ${showLabelDescription ? `<div class="product-desc">${esc(p.detail || '')}</div>` : ''}
           ${showLabelSku ? `
             <div class="sku-row">
-              <span class="sku-cat">${p.category || 'General'}</span>
-              <span class="sku-code">${p.code}</span>
+              <span class="sku-cat">${esc(p.category || 'General')}</span>
+              <span class="sku-code">${esc(p.code)}</span>
             </div>
           ` : ''}
         </div>

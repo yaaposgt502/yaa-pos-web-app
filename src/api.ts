@@ -28,6 +28,8 @@ import {
   runTransaction,
   increment,
   deleteField,
+  terminate,
+  clearIndexedDbPersistence,
   type WriteBatch,
   type Transaction,
   type DocumentReference
@@ -41,7 +43,7 @@ import {
 import { auth, db, storage } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License, Quotation, Consignment, StockMovement } from './types';
-import { applySaleItemToProduct, applySaleToShift, applySaleToClient, applyPurchaseItemToProduct, applyTransferOut, applyTransferIn, toNum } from './utils/inventoryMath';
+import { applySaleItemToProduct, applySaleToShift, applySaleToClient, applyPurchaseItemToProduct, applyTransferOut, applyTransferIn, applyStockAdjustment, toNum } from './utils/inventoryMath';
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
 import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './utils/planLimits';
 import { parseSafeDate, toLocalDateString } from './utils/dateHelper';
@@ -686,6 +688,54 @@ export async function logoutUser(): Promise<void> {
     localStorage.removeItem('yaa_pos_licenses');
   } catch {}
   window.dispatchEvent(new Event('yaa_pos_logout'));
+}
+
+// Merges only the given fields into the store configuration, leaving the
+// rest of the document as it is on the server.
+export async function updateConfigFields(fields: Partial<AppConfig>): Promise<void> {
+  const uid = getToken();
+  if (!uid) throw new Error('No autorizado. Inicie sesión.');
+  const clean = cleanDataForFirestore(fields);
+  const docRef = doc(db, 'users', uid, 'configs', 'storeConfig');
+  const write = setDoc(docRef, clean, { merge: true });
+  if (cachedConfig) cachedConfig = { ...cachedConfig, ...clean };
+  if (isLikelyOffline()) {
+    write.catch(err => console.error('[Yaa POS] Error al sincronizar la configuración:', err));
+    return;
+  }
+  await write;
+}
+
+// One-time import of a list that older versions kept only in this browser
+// (combos, services, promotions, laboratories). It is written only if the
+// company's configuration does not have that list yet, checked on the server.
+export async function importLegacyConfigList(field: keyof AppConfig, items: unknown[]): Promise<boolean> {
+  const uid = getToken();
+  if (!uid || isLikelyOffline()) return false;
+  const docRef = doc(db, 'users', uid, 'configs', 'storeConfig');
+  return runTransaction(db, async (tx: Transaction) => {
+    const snap = await tx.get(docRef);
+    if (snap.exists() && Array.isArray((snap.data() as any)[field])) return false;
+    tx.set(docRef, cleanDataForFirestore({ [field]: items }), { merge: true });
+    return true;
+  });
+}
+
+// Deletes the company data Firestore keeps in this browser (IndexedDB cache)
+// so the next person who uses this computer cannot read it. Firestore stops
+// working afterwards, so the caller must reload the page.
+// If other tabs of the app are still open the cache cannot be cleared; it is
+// cleared on the next sign-out with a single tab.
+export async function clearLocalCompanyCache(): Promise<boolean> {
+  clearMemoryCache();
+  try {
+    await terminate(db);
+    await clearIndexedDbPersistence(db);
+    return true;
+  } catch (err) {
+    console.warn('[Yaa POS] No se pudo borrar la caché local (¿hay otra pestaña abierta?):', err);
+    return false;
+  }
 }
 
 export async function getMe(): Promise<User> {
@@ -2090,6 +2140,81 @@ export async function executeStockTransfer(input: TransferTxInput): Promise<{ so
   const result = await runOnlineOrOffline(online, offline);
   refreshCaches({ products: [result.source, result.target] });
   return result;
+}
+
+// ---------------------------------------------------- Stock adjustments ---
+
+// Manual adjustment from the inventory screen, recorded in the kardex
+// (stockMovements, type "ajuste") instead of this browser's localStorage.
+export async function executeStockAdjustment(input: {
+  product: Product;
+  delta: number;
+  reason: string;
+  operatorName?: string;
+  extraFields?: Partial<Product>;
+}): Promise<{ product: Product; pendingSync: boolean }> {
+  const uid = getToken();
+  if (!uid) throw new Error('No autorizado. Inicie sesión.');
+  if (!input.delta) throw new Error('La cantidad del ajuste debe ser distinta de cero.');
+  const adjustmentId = newDocId('adj');
+  const date = new Date().toISOString();
+  const productRef = getDocRef('products', input.product.id);
+  const movementFor = (p: Product): StockMovement => cleanDataForFirestore({
+    id: `${adjustmentId}_${p.id}`,
+    productId: p.id,
+    productName: p.name || '',
+    type: 'ajuste',
+    quantity: input.delta,
+    refId: adjustmentId,
+    branch: p.branch,
+    date,
+    operatorName: input.operatorName,
+    reason: (input.reason || 'Ajuste de inventario').slice(0, 200),
+  }) as StockMovement;
+  const check = (p: Product) => {
+    if (input.delta < 0 && -input.delta > toNum(p.stock)) {
+      throw new Error('No puedes retirar más de lo que hay en stock actual.');
+    }
+  };
+
+  const online = () => runTransaction(db, async (tx: Transaction) => {
+    const fresh = snapToEntity<Product>(await tx.get(productRef));
+    if (!fresh) throw new Error('Producto no encontrado.');
+    check(fresh);
+    const updated = { ...applyStockAdjustment(fresh, input.delta), ...(input.extraFields || {}) };
+    tx.set(productRef, cleanDataForFirestore(updated));
+    const m = movementFor(updated);
+    tx.set(getDocRef('stockMovements', m.id), m);
+    return { product: updated, pendingSync: false };
+  });
+
+  const offline = async () => {
+    check(input.product);
+    const updated = { ...applyStockAdjustment(input.product, input.delta), ...(input.extraFields || {}) };
+    const batch = writeBatch(db);
+    batch.update(productRef, stockPatch(updated, input.delta, cleanDataForFirestore(input.extraFields || {})));
+    const m = movementFor(updated);
+    batch.set(getDocRef('stockMovements', m.id), m);
+    await commitBatch(batch, true);
+    return { product: updated, pendingSync: true };
+  };
+
+  const result = await runOnlineOrOffline(online, offline);
+  refreshCaches({ products: [result.product] });
+  return result;
+}
+
+export async function getStockMovements(productId: string, type?: StockMovement['type']): Promise<StockMovement[]> {
+  const constraints = [where('productId', '==', productId)];
+  if (type) constraints.push(where('type', '==', type));
+  const q = query(getCollectionRef('stockMovements'), ...constraints);
+  try {
+    const snap = isLikelyOffline() ? await getDocsFromCache(q) : await getDocs(q);
+    return snap.docs.map(d => d.data() as StockMovement);
+  } catch (err) {
+    console.warn('[Yaa POS] No se pudieron leer los movimientos de kardex:', err);
+    return [];
+  }
 }
 
 // ------------------------------------------------- Expenses and payments ---

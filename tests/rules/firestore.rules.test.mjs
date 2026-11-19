@@ -44,7 +44,7 @@ const product = (extra = {}) => ({
 
 before(async () => {
   env = await initializeTestEnvironment({
-    projectId: 'demo-yaa-pos',
+    projectId: 'demo-yaa-pos-rules',
     firestore: { rules, host: '127.0.0.1', port: 8085 },
   });
 });
@@ -222,6 +222,14 @@ describe('Etapa 2: ventas, devoluciones y kardex', () => {
     await assertFails(setDoc(ref, movement({ quantity: -1 })));
     await assertFails(deleteDoc(ref));
     await assertSucceeds(deleteDoc(doc(ownerCtx(), 'users', OWNER, 'stockMovements', 's2_p1')));
+  });
+
+  test('un ajuste manual de stock queda en el kardex', async () => {
+    const db = cashierCtx();
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', OWNER, 'products', 'p1'), product({ stock: 25 }));
+    batch.set(doc(db, 'users', OWNER, 'stockMovements', 'adj1_p1'), movement({ id: 'adj1_p1', type: 'ajuste', quantity: 5, refId: 'adj1', reason: 'Conteo físico' }));
+    await assertSucceeds(batch.commit());
   });
 
   test('un movimiento de kardex mal formado se rechaza', async () => {
