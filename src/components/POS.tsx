@@ -1570,7 +1570,13 @@ export default function POS({
     // ticket shows the beginning of the id, reports show the end). A partial
     // match must be unique.
     const needle = refundSaleId.trim().replace(/^#/, '').toLowerCase();
-    const candidates = pastSales.filter(s => !s.originalSaleId && s.total > 0);
+    // Reload so sales made after opening the POS can also be returned.
+    let pool = pastSales;
+    try {
+      pool = await api.getSales();
+      setPastSales(pool);
+    } catch {}
+    const candidates = pool.filter(s => !s.originalSaleId && s.total > 0);
     const exact = candidates.find(s => s.id.toLowerCase() === needle);
     const matches = exact
       ? [exact]
