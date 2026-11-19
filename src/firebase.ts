@@ -8,11 +8,47 @@ import {
   getDocFromServer,
   Firestore,
   terminate,
-  clearIndexedDbPersistence
+  clearIndexedDbPersistence,
+  connectFirestoreEmulator,
+  waitForPendingWrites
 } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import { getStorage } from 'firebase/storage';
-import firebaseConfig from '../firebase-applet-config.json';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
+import productionConfig from '../firebase-applet-config.json';
+
+// =========================================================================
+// STAGING (test environment)
+// With VITE_USE_EMULATORS=true (npm run dev:staging) the app talks ONLY to
+// the local Firebase emulators and uses a fake "demo-" project. Any call
+// that is not emulated fails instead of reaching the production project.
+// A production build with this flag is refused (vite.config.ts).
+// =========================================================================
+export const USING_EMULATORS = (import.meta as any).env?.VITE_USE_EMULATORS === 'true';
+
+export const EMULATOR_HOSTS = {
+  auth: 'http://127.0.0.1:9099',
+  firestore: { host: '127.0.0.1', port: 8085 },
+  storage: { host: '127.0.0.1', port: 9199 },
+};
+
+export const firebaseConfig = USING_EMULATORS
+  ? {
+      ...productionConfig,
+      projectId: 'demo-yaa-pos',
+      apiKey: 'demo-api-key',
+      authDomain: 'localhost',
+      appId: '1:000000000000:web:demo',
+      messagingSenderId: '000000000000',
+      measurementId: undefined as unknown as string,
+      storageBucket: 'demo-yaa-pos.appspot.com',
+      firestoreDatabaseId: '(default)',
+    }
+  : productionConfig;
+
+// Base URL of the Identity Toolkit REST API (operator accounts).
+export const IDENTITY_TOOLKIT_BASE = USING_EMULATORS
+  ? `${EMULATOR_HOSTS.auth}/identitytoolkit.googleapis.com`
+  : 'https://identitytoolkit.googleapis.com';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
@@ -30,9 +66,18 @@ try {
   firestoreInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 }
 
+if (USING_EMULATORS) {
+  connectFirestoreEmulator(firestoreInstance, EMULATOR_HOSTS.firestore.host, EMULATOR_HOSTS.firestore.port);
+}
+
 export const db = firestoreInstance; /* CRITICAL: The app will break without this database ID */
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+
+if (USING_EMULATORS) {
+  connectAuthEmulator(auth, EMULATOR_HOSTS.auth, { disableWarnings: true });
+  connectStorageEmulator(storage, EMULATOR_HOSTS.storage.host, EMULATOR_HOSTS.storage.port);
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -136,6 +181,23 @@ export const firestoreReady: Promise<void> = (async () => {
   }
 })();
 
+// True when this device still has writes (sales, purchases...) saved in the
+// local cache that the server has not confirmed. waitForPendingWrites
+// resolves at once when there are none; offline it waits until the
+// connection returns, so the timeout means "still pending".
+export async function hasUnsyncedWrites(timeoutMs = 4000): Promise<boolean> {
+  try {
+    const synced = await Promise.race([
+      waitForPendingWrites(firestoreInstance).then(() => true),
+      sleep(timeoutMs).then(() => false),
+    ]);
+    return !synced;
+  } catch {
+    // Firestore already stopped: nothing can be pending in this tab.
+    return false;
+  }
+}
+
 export async function wipeLocalFirestoreCache(): Promise<boolean> {
   markPendingClear(true);
   let channel: BroadcastChannel | null = null;
@@ -148,17 +210,30 @@ export async function wipeLocalFirestoreCache(): Promise<boolean> {
     const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     let lastAck = Date.now();
     let acks = 0;
+    let refused = 0;
     channel.onmessage = (ev) => {
-      if (ev.data?.type === 'shutdown_ack' && ev.data.requestId === requestId) { acks++; lastAck = Date.now(); }
+      if (ev.data?.requestId !== requestId) return;
+      if (ev.data.type === 'shutdown_ack') { acks++; lastAck = Date.now(); }
+      if (ev.data.type === 'shutdown_refused') { refused++; lastAck = Date.now(); }
     };
     channel.postMessage({ type: 'shutdown', requestId, from: TAB_ID });
     const started = Date.now();
-    // Wait at least 500 ms, then until 400 ms pass without new answers (max 2.5 s).
-    while (Date.now() - started < 2500) {
+    // Each tab needs up to 1.5 s to check its unsynced writes: wait at least
+    // 2 s, then until 400 ms pass without new answers (max 4 s).
+    while (Date.now() - started < 4000) {
       await sleep(100);
-      if (Date.now() - started >= 500 && Date.now() - lastAck >= 400) break;
+      if (Date.now() - started >= 2000 && Date.now() - lastAck >= 400) break;
     }
-    console.info(`[Yaa POS] Pestañas que detuvieron Firestore: ${acks}`);
+    console.info(`[Yaa POS] Pestañas que detuvieron Firestore: ${acks}; con datos sin enviar: ${refused}`);
+    if (refused > 0) {
+      // Another tab still has unsynced writes: deleting the cache would delete
+      // them. Keep it; it is deleted on a later sign-out with nothing pending.
+      markPendingClear(false);
+      channel.postMessage({ type: 'cleared', cleared: false, from: TAB_ID });
+      channel.close();
+      console.warn('[Yaa POS] Otra pestaña tiene operaciones sin enviar: la caché local no se borró para no perderlas.');
+      return false;
+    }
   }
 
   // 2. Stop Firestore here and delete the cache.
@@ -184,6 +259,11 @@ if (typeof BroadcastChannel !== 'undefined') {
       const msg = ev.data;
       if (!msg || msg.from === TAB_ID) return;
       if (msg.type === 'shutdown' && !stopped) {
+        // Refuse if this tab still has operations the server has not received.
+        if (await hasUnsyncedWrites(1500)) {
+          listener.postMessage({ type: 'shutdown_refused', requestId: msg.requestId, from: TAB_ID });
+          return;
+        }
         stopped = true;
         try { await terminate(firestoreInstance); } catch {}
         listener.postMessage({ type: 'shutdown_ack', requestId: msg.requestId });

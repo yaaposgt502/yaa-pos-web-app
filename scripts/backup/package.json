@@ -1,0 +1,13 @@
+{
+  "name": "yaa-pos-backup-tools",
+  "private": true,
+  "type": "module",
+  "description": "Verificación de respaldos de Yaa POS (solo lectura). Ver README.md.",
+  "scripts": {
+    "count": "node count-documents.mjs",
+    "compare": "node compare-counts.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

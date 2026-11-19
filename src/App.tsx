@@ -970,6 +970,16 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    // Do not sign out while sales or other operations saved on this device
+    // have not reached the server: signing out would make them impossible to
+    // send, and clearing the cache would delete them.
+    if (await api.hasUnsyncedWrites(navigator.onLine ? 8000 : 1500)) {
+      alert(
+        'Hay ventas u otras operaciones guardadas en este dispositivo que todavía no se enviaron al servidor.\n\n' +
+        'Para no perderlas, la sesión NO se cerró. Conéctese a internet, espere unos segundos y vuelva a intentarlo.'
+      );
+      return;
+    }
     try {
       await api.logoutUser();
     } finally {

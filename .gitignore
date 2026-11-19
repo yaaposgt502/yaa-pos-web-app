@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Entorno de pruebas (emuladores)
+staging/emulator-data/
+staging/*.local.json
+*-debug.log
+scripts/backup/node_modules/

@@ -1,9 +1,14 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ command, mode }) => {
+  // Safety: a production build must never point at the local emulators.
+  const env = { ...loadEnv(mode, process.cwd(), ''), ...process.env };
+  if (command === 'build' && env.VITE_USE_EMULATORS === 'true') {
+    throw new Error('VITE_USE_EMULATORS=true no está permitido al compilar para producción.');
+  }
   return {
     plugins: [react(), tailwindcss()],
     resolve: {

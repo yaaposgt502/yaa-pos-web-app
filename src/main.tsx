@@ -1,7 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
-import { firestoreReady } from './firebase';
+import { firestoreReady, USING_EMULATORS } from './firebase';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import './index.css';
 
@@ -63,6 +63,15 @@ if ('serviceWorker' in navigator) {
         .catch((err) => console.warn('[Service Worker] Registration warning:', err));
     });
   }
+}
+
+// Test environment: make it impossible to confuse with production.
+if (USING_EMULATORS && typeof document !== 'undefined') {
+  document.title = `[PRUEBAS] ${document.title}`;
+  const badge = document.createElement('div');
+  badge.textContent = 'MODO PRUEBAS · emuladores locales · sin datos reales';
+  badge.setAttribute('style', 'position:fixed;bottom:8px;right:8px;z-index:99999;background:#b45309;color:#fff;font:600 11px system-ui;padding:4px 8px;border-radius:6px;pointer-events:none;opacity:.9');
+  document.body.appendChild(badge);
 }
 
 const rootElement = document.getElementById('root');

@@ -41,8 +41,8 @@ import {
   getDownloadURL, 
   deleteObject 
 } from 'firebase/storage';
-import { auth, db, storage, wipeLocalFirestoreCache, PENDING_CACHE_CLEAR_KEY } from './firebase';
-import firebaseConfig from '../firebase-applet-config.json';
+import { auth, db, storage, wipeLocalFirestoreCache, hasUnsyncedWrites, PENDING_CACHE_CLEAR_KEY, firebaseConfig, IDENTITY_TOOLKIT_BASE } from './firebase';
+export { hasUnsyncedWrites };
 import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License, Quotation, Consignment, StockMovement } from './types';
 import { applySaleItemToProduct, applySaleToShift, applySaleToClient, applyPurchaseItemToProduct, applyTransferOut, applyTransferIn, applyStockAdjustment, toNum } from './utils/inventoryMath';
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
@@ -360,7 +360,7 @@ export async function provisionOperatorAuth(email: string, password?: string, ol
   }
 
   // 1. Try to register new user in Firebase Auth via Identity Toolkit
-  const signUpUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`;
+  const signUpUrl = `${IDENTITY_TOOLKIT_BASE}/v1/accounts:signUp?key=${apiKey}`;
   const res = await fetch(signUpUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -379,7 +379,7 @@ export async function provisionOperatorAuth(email: string, password?: string, ol
 
   const errorMsg = data.error?.message;
   if (errorMsg === 'EMAIL_EXISTS') {
-    const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
+    const signInUrl = `${IDENTITY_TOOLKIT_BASE}/v1/accounts:signInWithPassword?key=${apiKey}`;
     
     // 2. Check if user already has this exact password
     const checkCurrent = await fetch(signInUrl, {
@@ -410,7 +410,7 @@ export async function provisionOperatorAuth(email: string, password?: string, ol
         });
         const oldData = await signInOld.json();
         if (signInOld.ok && oldData.idToken) {
-          const updateUrl = `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`;
+          const updateUrl = `${IDENTITY_TOOLKIT_BASE}/v1/accounts:update?key=${apiKey}`;
           const updateRes = await fetch(updateUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -676,6 +676,9 @@ export async function loginUser(email: string, password: string): Promise<{ toke
 }
 
 export async function logoutUser(): Promise<void> {
+  // Never schedule the cache wipe while this device has unsynced writes:
+  // deleting the cache would delete them.
+  const unsynced = await hasUnsyncedWrites(1500);
   clearMemoryCache();
   await signOut(auth);
   setToken(null);
@@ -689,7 +692,7 @@ export async function logoutUser(): Promise<void> {
     localStorage.removeItem('yaa_pos_licenses');
     // If this sign-out does not wipe the cache right away (automatic sign-out
     // of a blocked account), the next page load does it before reading data.
-    localStorage.setItem(PENDING_CACHE_CLEAR_KEY, String(Date.now()));
+    if (!unsynced) localStorage.setItem(PENDING_CACHE_CLEAR_KEY, String(Date.now()));
   } catch {}
   window.dispatchEvent(new Event('yaa_pos_logout'));
 }
