@@ -190,7 +190,7 @@ export default function PlanModal({
                     </span>
                     {plan.felAllowed && (
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <ShieldCheck className="w-3 h-3" /> FEL SAT
+                        <ShieldCheck className="w-3 h-3" /> FEL (próximamente)
                       </span>
                     )}
                   </div>

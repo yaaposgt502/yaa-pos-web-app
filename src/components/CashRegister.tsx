@@ -84,49 +84,6 @@ export default function CashRegister({
     }
   }, [activeBranchName]);
 
-  // Default Sample Shifts matching the historic closures reference image
-  const defaultSampleShifts: Shift[] = useMemo(() => [
-    {
-      id: 'sample-shift-3',
-      openedAt: '2026-09-16T15:19:00',
-      closedAt: '2026-09-18T01:19:00',
-      initialCash: 100.00,
-      salesTotal: 0.00,
-      cashSales: 0.00,
-      expensesTotal: 0.00,
-      finalCash: 100.00,
-      state: 'closed',
-      cashierName: user?.name || 'Luis Fernando Mijangos',
-      shiftNumber: 3
-    },
-    {
-      id: 'sample-shift-2',
-      openedAt: '2026-09-10T02:54:00',
-      closedAt: '2026-09-16T15:19:00',
-      initialCash: 150.00,
-      salesTotal: 81.00,
-      cashSales: 81.00,
-      expensesTotal: 0.00,
-      finalCash: 231.00,
-      state: 'closed',
-      cashierName: user?.name || 'Luis Fernando Mijangos',
-      shiftNumber: 2
-    },
-    {
-      id: 'sample-shift-1',
-      openedAt: '2026-09-09T08:28:00',
-      closedAt: '2026-09-10T02:54:00',
-      initialCash: 200.00,
-      salesTotal: 8.00,
-      cashSales: 8.00,
-      expensesTotal: 0.00,
-      finalCash: 283.00,
-      state: 'closed',
-      cashierName: user?.name || 'Luis Fernando Mijangos',
-      shiftNumber: 1
-    }
-  ], [user]);
-
   // Date and Time formatter matching DD/MM/YYYY HH:mm
   const formatShiftDate = (dateStr?: string) => {
     if (!dateStr) return '-';
@@ -152,9 +109,9 @@ export default function CashRegister({
     return sh.salesTotal || 0;
   };
 
-  // Computed shifts to display, with fallback to sample shifts if empty
+  // Computed shifts to display (only real shifts; no sample data)
   const displayShifts = useMemo(() => {
-    let list = shifts && shifts.length > 0 ? shifts : defaultSampleShifts;
+    let list = shifts || [];
     
     // Independent shifts per branch
     if (user?.isOperator && userAllowedBranches.length > 0) {
@@ -174,12 +131,12 @@ export default function CashRegister({
     const withNumbers = sortedAsc.map((sh, idx) => ({
       ...sh,
       shiftNumber: sh.shiftNumber || (idx + 1),
-      cashierName: sh.cashierName || user?.name || 'Luis Fernando Mijangos'
+      cashierName: sh.cashierName || user?.name || 'Cajero'
     }));
 
     // Return reversed so newest shift is on top (Caja #3, Caja #2, Caja #1) exactly as shown in reference image
     return withNumbers.reverse();
-  }, [shifts, defaultSampleShifts, user, userAllowedBranches, selectedBranch, availableBranches]);
+  }, [shifts, user, userAllowedBranches, selectedBranch, availableBranches]);
 
   // Direct 80mm printer output helper
   const print80mmReceipt = (sh: Shift) => {
@@ -188,7 +145,7 @@ export default function CashRegister({
     const counted = sh.finalCash !== undefined ? sh.finalCash : expected;
     const diff = counted - expected;
     const isExact = Math.abs(diff) < 0.01;
-    const cashier = sh.cashierName || user?.name || 'Luis Fernando Mijangos';
+    const cashier = sh.cashierName || user?.name || 'Cajero';
     const store = config?.storeName || 'MI NEGOCIO / FARMACIA';
 
     const printWindow = window.open('', '_blank', 'width=380,height=600');
@@ -357,7 +314,7 @@ export default function CashRegister({
       salesTotal: 0,
       expensesTotal: 0,
       state: 'open',
-      cashierName: user?.name || 'Luis Fernando Mijangos',
+      cashierName: user?.name || 'Cajero',
       branch: shiftBranch,
       shiftNumber: (displayShifts.length || 0) + 1
     };
@@ -392,7 +349,7 @@ export default function CashRegister({
       cashSales: shiftMetrics.cashSales,
       expensesTotal: shiftMetrics.totalExpenses,
       state: 'closed',
-      cashierName: activeShift.cashierName || user?.name || 'Luis Fernando Mijangos',
+      cashierName: activeShift.cashierName || user?.name || 'Cajero',
       observations: formObservations.trim() || undefined
     };
 
@@ -1123,7 +1080,7 @@ export default function CashRegister({
                 <div className="space-y-0.5 text-[10px]">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Cajero:</span>
-                    <span className="font-bold">{selectedShiftForTicket.cashierName || user?.name || 'Luis Fernando Mijangos'}</span>
+                    <span className="font-bold">{selectedShiftForTicket.cashierName || user?.name || 'Cajero'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Apertura:</span>

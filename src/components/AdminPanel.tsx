@@ -2487,7 +2487,7 @@ export default function AdminPanel({ user, onLogout, onViewPOS }: AdminPanelProp
                 ) : userFiles.length === 0 ? (
                   <div className="py-24 text-center text-slate-400 space-y-3 flex flex-col items-center justify-center">
                     <FileText className="w-12 h-12 text-slate-200" />
-                    <p className="text-xs font-bold max-w-xs leading-relaxed">Este usuario no ha subido ningún archivo o respaldo en la sección de complementos.</p>
+                    <p className="text-xs font-bold max-w-xs leading-relaxed">Este usuario no tiene archivos registrados.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">

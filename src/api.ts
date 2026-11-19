@@ -237,6 +237,15 @@ export function formatNameFromEmail(email: string): string {
     .join(' ');
 }
 
+// Local (browser) storage keys that hold company data must be scoped to the
+// signed-in company, so two companies using the same browser never see or
+// re-upload each other's records. Older unscoped keys are left untouched and
+// are no longer read.
+export function tenantStorageKey(base: string): string {
+  const uid = getToken();
+  return uid ? `${base}__${uid}` : `${base}__anon`;
+}
+
 // Helper to get collection reference inside the user's isolated document
 function getCollectionRef(subcollectionName: string) {
   const uid = getToken();
@@ -657,6 +666,13 @@ export async function logoutUser(): Promise<void> {
   setToken(null);
   cacheUser(null);
   localStorage.removeItem('yaa_pos_operator_email');
+  // Remove company data cached in this browser so the next person who signs in
+  // here does not inherit it.
+  try {
+    localStorage.removeItem('yaa_pos_branch_sync_event');
+    localStorage.removeItem('yaa_pos_active_branch_id');
+    localStorage.removeItem('yaa_pos_licenses');
+  } catch {}
   window.dispatchEvent(new Event('yaa_pos_logout'));
 }
 
@@ -1312,13 +1328,6 @@ export async function changeUserPlan(userId: string, newPlanType: string): Promi
   localStorage.setItem('yaa_pos_licenses', JSON.stringify(list));
   window.dispatchEvent(new Event('yaa_pos_licenses_updated'));
 
-  // Notify backend API if running
-  fetch('/api/license/change-plan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
-    body: JSON.stringify({ planType: planDef.name })
-  }).catch(() => {});
-
   return updatedLicense;
 }
 
@@ -1891,10 +1900,13 @@ export async function askAI(
 ): Promise<{ reply: string }> {
   const headers = new Headers();
   headers.set('Content-Type', 'application/json');
-  const token = getToken();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  // The server verifies a real Firebase ID token (not the tenant id).
+  await ensureAuthReady();
+  const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  if (!idToken) {
+    throw new Error('Sesión expirada. Inicie sesión nuevamente para usar el asistente.');
   }
+  headers.set('Authorization', `Bearer ${idToken}`);
   
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -2143,6 +2155,14 @@ export function subscribeConfig(callback: (config: AppConfig, metadata?: SyncMet
 
 // --- SYSTEM RESET API ---
 export async function resetUserDatabase(): Promise<void> {
+  // Only the account owner may wipe the company data. Operators sign in with
+  // their own Firebase account, so their uid differs from the company id.
+  await ensureAuthReady();
+  const companyId = getToken();
+  if (!auth.currentUser || !companyId || auth.currentUser.uid !== companyId) {
+    throw new Error('Solo el propietario de la cuenta puede reiniciar la base de datos.');
+  }
+
   // First delete files properly from storage and database
   try {
     const filesCol = getCollectionRef('files');
@@ -2192,7 +2212,7 @@ export async function getQuotations(): Promise<Quotation[]> {
     
     // Check and merge any local proformas saved in localStorage
     try {
-      const local = localStorage.getItem('yaa_pos_quotations');
+      const local = localStorage.getItem(tenantStorageKey('yaa_pos_quotations'));
       if (local) {
         const localQuotes: Quotation[] = JSON.parse(local);
         const map = new Map<string, Quotation>();
@@ -2212,7 +2232,7 @@ export async function getQuotations(): Promise<Quotation[]> {
   } catch (error) {
     console.warn('Firestore quotations fallback to localStorage:', error);
     try {
-      const local = localStorage.getItem('yaa_pos_quotations');
+      const local = localStorage.getItem(tenantStorageKey('yaa_pos_quotations'));
       return local ? JSON.parse(local) : [];
     } catch {
       return [];
@@ -2232,7 +2252,7 @@ export async function saveQuotation(quotation: Quotation): Promise<Quotation> {
 
   // Save to local storage for immediate offline reliability
   try {
-    const local = localStorage.getItem('yaa_pos_quotations');
+    const local = localStorage.getItem(tenantStorageKey('yaa_pos_quotations'));
     const list: Quotation[] = local ? JSON.parse(local) : [];
     const idx = list.findIndex(q => q.id === quoteToSave.id);
     if (idx >= 0) {
@@ -2240,7 +2260,7 @@ export async function saveQuotation(quotation: Quotation): Promise<Quotation> {
     } else {
       list.unshift(quoteToSave);
     }
-    localStorage.setItem('yaa_pos_quotations', JSON.stringify(list));
+    localStorage.setItem(tenantStorageKey('yaa_pos_quotations'), JSON.stringify(list));
   } catch (e) {
     console.warn('Error saving quotation to localStorage', e);
   }
@@ -2257,11 +2277,11 @@ export async function saveQuotation(quotation: Quotation): Promise<Quotation> {
 
 export async function deleteQuotation(id: string): Promise<{ success: boolean }> {
   try {
-    const local = localStorage.getItem('yaa_pos_quotations');
+    const local = localStorage.getItem(tenantStorageKey('yaa_pos_quotations'));
     if (local) {
       const list: Quotation[] = JSON.parse(local);
       const filtered = list.filter(q => q.id !== id);
-      localStorage.setItem('yaa_pos_quotations', JSON.stringify(filtered));
+      localStorage.setItem(tenantStorageKey('yaa_pos_quotations'), JSON.stringify(filtered));
     }
   } catch (e) {
     console.warn('Error removing quote from local storage', e);
@@ -2288,7 +2308,7 @@ export async function getConsignments(): Promise<Consignment[]> {
     const consignments = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Consignment));
     
     try {
-      const local = localStorage.getItem('yaa_pos_consignments');
+      const local = localStorage.getItem(tenantStorageKey('yaa_pos_consignments'));
       if (local) {
         const localCons: Consignment[] = JSON.parse(local);
         const map = new Map<string, Consignment>();
@@ -2308,7 +2328,7 @@ export async function getConsignments(): Promise<Consignment[]> {
   } catch (error) {
     console.warn('Firestore consignments fallback to localStorage:', error);
     try {
-      const local = localStorage.getItem('yaa_pos_consignments');
+      const local = localStorage.getItem(tenantStorageKey('yaa_pos_consignments'));
       return local ? JSON.parse(local) : [];
     } catch {
       return [];
@@ -2326,7 +2346,7 @@ export async function saveConsignment(consignment: Consignment): Promise<Consign
   }
 
   try {
-    const local = localStorage.getItem('yaa_pos_consignments');
+    const local = localStorage.getItem(tenantStorageKey('yaa_pos_consignments'));
     const list: Consignment[] = local ? JSON.parse(local) : [];
     const idx = list.findIndex(c => c.id === consToSave.id);
     if (idx >= 0) {
@@ -2334,7 +2354,7 @@ export async function saveConsignment(consignment: Consignment): Promise<Consign
     } else {
       list.unshift(consToSave);
     }
-    localStorage.setItem('yaa_pos_consignments', JSON.stringify(list));
+    localStorage.setItem(tenantStorageKey('yaa_pos_consignments'), JSON.stringify(list));
   } catch (e) {
     console.warn('Error saving consignment to localStorage', e);
   }
@@ -2351,11 +2371,11 @@ export async function saveConsignment(consignment: Consignment): Promise<Consign
 
 export async function deleteConsignment(id: string): Promise<{ success: boolean }> {
   try {
-    const local = localStorage.getItem('yaa_pos_consignments');
+    const local = localStorage.getItem(tenantStorageKey('yaa_pos_consignments'));
     if (local) {
       const list: Consignment[] = JSON.parse(local);
       const filtered = list.filter(c => c.id !== id);
-      localStorage.setItem('yaa_pos_consignments', JSON.stringify(filtered));
+      localStorage.setItem(tenantStorageKey('yaa_pos_consignments'), JSON.stringify(filtered));
     }
   } catch (e) {
     console.warn('Error removing consignment from local storage', e);

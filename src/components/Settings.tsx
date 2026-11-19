@@ -92,7 +92,6 @@ export const PANEL_MODULE_GROUPS = [
       { id: 'gastos', label: 'Gastos' },
       { id: 'reportes', label: 'Reportes Diarios' },
       { id: 'sucursales', label: 'Sucursales' },
-      { id: 'complementos', label: 'Complementos' },
       { id: 'configuracion', label: 'Configuración' },
     ]
   }
@@ -393,7 +392,10 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
     setIsSaving(true);
     setSaveSuccess(false);
 
-    const updatedConfig: AppConfig = {
+    // Fields managed by this form. Everything else already stored in the config
+    // document (branches, activeBranchId, etc.) is preserved below, because
+    // saveConfig replaces the whole document.
+    const formFields: Partial<AppConfig> = {
       storeName: razonSocial || storeName, // sync company name
       logo: logo || undefined,
       address: address || undefined,
@@ -422,17 +424,16 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
       ticketPaperSize,
       facturaPaperSize,
       comprobantePaperSize,
-      certificateName,
-      certificatePassword,
-      certificateExpiration,
-      felEnabled,
-      felCertifierName,
-      felApiKey,
-      felAuthorizedBy: user?.name || 'Propietario / Admin',
-      felAuthorizedDate: new Date().toLocaleDateString('es-ES'),
+      // FEL credentials are no longer captured in the browser (Etapa 0).
       categories,
       units
     };
+
+    const updatedConfig: AppConfig = { ...config, ...formFields } as AppConfig;
+    // Optional fields cleared in the form must be removed, not kept from the old config.
+    for (const [key, value] of Object.entries(formFields)) {
+      if (value === undefined) delete (updatedConfig as any)[key];
+    }
 
     // Strip undefined values to prevent Firestore serialization errors
     const cleanedConfig = Object.fromEntries(
@@ -697,7 +698,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
     { id: 'listas', label: 'Listas', icon: <List className="w-4 h-4" /> },
     { id: 'comprobantes', label: 'Comprobantes', icon: <FileText className="w-4 h-4" /> },
     { id: 'vista', label: 'Vista de Comprobante', icon: <Eye className="w-4 h-4" /> },
-    { id: 'certificado', label: 'Certificado Digital', icon: <ShieldCheck className="w-4 h-4" /> },
+    { id: 'certificado', label: 'FEL (en desarrollo)', icon: <ShieldCheck className="w-4 h-4" /> },
     { id: 'backup', label: 'Backup', icon: <Database className="w-4 h-4" /> },
   ];
 
@@ -1017,7 +1018,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                         <ul className="space-y-1.5 text-slate-600">
                           <li className="flex items-center gap-2">
                             <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                            <span>Control tributario y facturación FEL</span>
+                            <span>Configuración tributaria y de comprobantes</span>
                           </li>
                           <li className="flex items-center gap-2">
                             <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -1916,10 +1917,10 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                           <p>FECHA: {new Date().toLocaleDateString()} - {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           {showOperatorInTicket && <p>CAJERO: {user?.name || 'Administrador Yaa POS'}</p>}
                           <p className="font-bold text-slate-800 uppercase">
-                            DOCUMENTO: {previewDocType === 'factura' ? `FACTURA ${facturaSeries}-000042` : previewDocType === 'comprobante' ? `BOLETA ${boletaSeries}-000018` : `TICKET NV-${notaVentaSeries}-000095`}
+                            DOCUMENTO: {previewDocType === 'factura' ? `COMPROBANTE ${facturaSeries}-000042` : previewDocType === 'comprobante' ? `BOLETA ${boletaSeries}-000018` : `TICKET NV-${notaVentaSeries}-000095`}
                           </p>
-                          {previewDocType === 'factura' && felEnabled && (
-                            <p className="text-[8px] text-blue-700 font-bold truncate">AUT. FEL SAT: 7C8E24B1-39F2-4EA8-90D1-B42</p>
+                          {previewDocType === 'factura' && (
+                            <p className="text-[8px] text-amber-700 font-bold truncate">DOCUMENTO SIN VALIDEZ FISCAL</p>
                           )}
                         </div>
 
@@ -1963,12 +1964,6 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                           <p>{ticketFooter}</p>
                         </div>
 
-                        {previewDocType === 'factura' && felEnabled && (
-                          <div className="text-center pt-2 border-t border-slate-200 text-[8px] text-slate-500 space-y-0.5">
-                            <p className="font-bold uppercase">CERTIFICADOR: {felCertifierName || 'INFILE, S.A.'}</p>
-                            <p>Sujeto a pagos trimestrales ISR</p>
-                          </div>
-                        )}
                       </div>
                     );
                   })()}
@@ -1981,201 +1976,32 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
           {/* TAB 6: CERTIFICADO DIGITAL Y FEL */}
           {activeTab === 'certificado' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              {/* Header with blue checkbox button exactly as shown in the user's image */}
               <div className="border-t border-slate-200/90 pt-5 pb-2">
                 <div className="flex items-center gap-3.5">
-                  <button
-                    type="button"
-                    onClick={() => setFelEnabled(!felEnabled)}
-                    className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0 shadow-md transition-all cursor-pointer border active:scale-95 ${
-                      felEnabled 
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500/30 shadow-blue-500/20' 
-                        : 'bg-slate-200 hover:bg-slate-300 text-slate-400 border-slate-300'
-                    }`}
-                    title={felEnabled ? "Firma Electrónica y Certificado XML Activado (Clic para desactivar)" : "Clic para activar Firma Electrónica"}
-                  >
-                    <Check className="w-6 h-6 stroke-[3.5]" />
-                  </button>
+                  <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0 border bg-amber-50 text-amber-600 border-amber-200">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
                   <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">
-                    Firma Electrónica y Certificado XML Tributario
+                    Factura Electrónica (FEL)
                   </h2>
                 </div>
               </div>
 
-              {/* FEL Authorization & Configuration Panel (Propietario / Admin) */}
-              <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950 rounded-2xl p-6 text-white shadow-xl border border-indigo-700/40 space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-800/60 pb-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-xl border border-indigo-400/30">
-                        <ShieldCheck className="w-5 h-5 text-indigo-300" />
-                      </div>
-                      <h3 className="font-extrabold text-base sm:text-lg tracking-tight text-white">
-                        Factura Electrónica (FEL) - Autorización de Propietario / Admin
-                      </h3>
-                    </div>
-                    <p className="text-xs text-indigo-200/80 leading-relaxed max-w-3xl">
-                      El propietario o administrador de la cuenta activa y autoriza la emisión oficial de <strong>Factura Electrónica (FEL)</strong> en formato tributario oficial con datos del emisor, serie/correlativo, código de autorización (CAE/UUID), datos del cliente, desglose de impuesto (IVA 12%) y certificación digital SAT.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3 bg-indigo-900/80 p-3 rounded-2xl border border-indigo-700/60 shrink-0 shadow-md">
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={felEnabled} 
-                        onChange={(e) => setFelEnabled(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-12 h-6 bg-slate-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
-                    <span className={`text-xs font-black uppercase tracking-wider ${felEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
-                      {felEnabled ? 'FEL Activada' : 'FEL Desactivada'}
-                    </span>
-                  </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 space-y-3 text-slate-800">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest bg-amber-200 text-amber-900 px-2.5 py-1 rounded-lg">En desarrollo</span>
                 </div>
-
-                {/* Status Badge & Authorization Details */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-indigo-900/40 border border-indigo-800/60 p-4 rounded-xl space-y-1.5">
-                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest block">Estado de Autorización</span>
-                    <div className="flex items-center gap-2 pt-0.5">
-                      <span className={`w-2.5 h-2.5 rounded-full ${felEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-                      <span className="font-extrabold text-sm text-white">
-                        {felEnabled ? 'AUTORIZADO PARA EMISIÓN FEL' : 'REQUERIDA ACTIVACIÓN'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-indigo-200/80 pt-1">
-                      {felEnabled ? `Autorizado por: ${config.felAuthorizedBy || user?.name || 'Propietario / Admin'}` : 'Desactivado por el administrador'}
-                    </p>
-                  </div>
-
-                  <div className="bg-indigo-900/40 border border-indigo-800/60 p-4 rounded-xl space-y-1.5">
-                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest block">Certificador SAT Asignado</span>
-                    <input 
-                      type="text"
-                      value={felCertifierName}
-                      onChange={(e) => setFelCertifierName(e.target.value)}
-                      className="w-full text-xs bg-indigo-950/70 border border-indigo-700/60 rounded-lg px-3 py-2 text-white font-medium focus:outline-hidden focus:ring-1 focus:ring-indigo-400"
-                      placeholder="INFILE, S.A. / Certificador SAT"
-                    />
-                  </div>
-
-                  <div className="bg-indigo-900/40 border border-indigo-800/60 p-4 rounded-xl space-y-1.5">
-                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest block">Llave / Token API Certificador</span>
-                    <input 
-                      type="password"
-                      value={felApiKey}
-                      onChange={(e) => setFelApiKey(e.target.value)}
-                      className="w-full text-xs bg-indigo-950/70 border border-indigo-700/60 rounded-lg px-3 py-2 text-white font-mono focus:outline-hidden focus:ring-1 focus:ring-indigo-400"
-                      placeholder="FEL-SAT-KEY-8823910-X"
-                    />
-                  </div>
-                </div>
-
-                {/* Specifications Checklist */}
-                <div className="bg-slate-900/90 border border-indigo-800/50 p-4 rounded-xl space-y-2.5">
-                  <span className="text-[11px] font-extrabold text-indigo-300 uppercase tracking-wider block">
-                    Especificaciones Tributarias Incluidas en Factura Electrónica (FEL)
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs text-indigo-100">
-                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Datos del Emisor (NIT, Razón Social)</span>
-                    </div>
-                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Serie y Correlativo DTE Autorizado</span>
-                    </div>
-                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Código de Autorización UUID (CAE)</span>
-                    </div>
-                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Datos del Cliente / NIT / C/F</span>
-                    </div>
-                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Desglose de Impuesto (IVA 12%)</span>
-                    </div>
-                    <div className="flex items-center gap-2 bg-indigo-950/60 p-2.5 rounded-lg border border-indigo-800/40">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Firma y Certificación Digital SAT</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                
-                {/* Form fields (col-span-8) */}
-                <div className="lg:col-span-8 bg-white border border-slate-150 rounded-2xl p-5 space-y-4 shadow-xs">
-                  <span className="text-xs font-black text-slate-700 uppercase tracking-wide block border-b border-slate-100 pb-2">
-                    Vincular Certificado Digital (.PFX)
-                  </span>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-600">Nombre de Archivo Certificado</label>
-                      <input 
-                        type="text" 
-                        value={certificateName}
-                        onChange={(e) => setCertificateName(e.target.value)}
-                        placeholder="certificado_empresa.pfx"
-                        className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-600">Contraseña de Firma Digital</label>
-                      <input 
-                        type="password" 
-                        value={certificatePassword}
-                        onChange={(e) => setCertificatePassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-600">Fecha de Expiración</label>
-                    <input 
-                      type="date" 
-                      value={certificateExpiration}
-                      onChange={(e) => setCertificateExpiration(e.target.value)}
-                      className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* Status card (col-span-4) */}
-                <div className="lg:col-span-4 space-y-4">
-                  <div className="bg-slate-50 border border-slate-150 rounded-2xl p-5 space-y-4 text-xs">
-                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Validez del Certificado</span>
-                    
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full ${certificateName || felEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
-                        <span className="font-extrabold text-slate-700">
-                          {certificateName || felEnabled ? 'CERTIFICADO REGISTRADO' : 'PENDIENTE DE REGISTRO'}
-                        </span>
-                      </div>
-                      
-                      <div className="space-y-1 text-[11px] text-slate-500">
-                        <p><strong>Proveedor:</strong> {felCertifierName || 'Sin asignar'}</p>
-                        <p><strong>Firma:</strong> RSA 2048 bits / SHA-256</p>
-                        <p><strong>Vence:</strong> {certificateExpiration || 'Sin especificar'}</p>
-                      </div>
-
-                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 flex gap-2 text-[10px] text-slate-400">
-                        <Lock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-                        <p>Cifrado SHA-256 para firma legal de Comprobantes de Pago Electrónicos (FEL / SAT).</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
+                <p className="text-sm font-bold">
+                  Yaa POS todavía no está conectado a un certificador FEL autorizado por la SAT.
+                </p>
+                <p className="text-xs text-slate-600 leading-relaxed max-w-3xl">
+                  Los comprobantes que genera el sistema son documentos internos <strong>sin validez fiscal</strong>. Mientras la integración no esté disponible,
+                  emita sus facturas electrónicas desde su certificador o desde la herramienta de la SAT.
+                </p>
+                <p className="text-xs text-slate-600 leading-relaxed max-w-3xl">
+                  Por seguridad, las credenciales del certificador y la contraseña de firma ya no se capturan en esta pantalla. Cuando la integración esté lista,
+                  se configurarán en un servidor protegido y nunca quedarán visibles en el navegador.
+                </p>
               </div>
             </div>
           )}
@@ -2262,7 +2088,8 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
 
                   </div>
 
-                  {/* Danger Zone / Reset Database */}
+                  {/* Danger Zone / Reset Database (account owner only) */}
+                  {!user?.isOperator && (
                   <div className="border border-rose-100 bg-rose-50/10 rounded-xl p-5 space-y-4 mt-6">
                     <div className="flex items-start gap-3">
                       <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
@@ -2309,6 +2136,7 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
                       </div>
                     </div>
                   </div>
+                  )}
 
                 </div>
 
@@ -2431,16 +2259,6 @@ export default function Settings({ config, user, userLicense, onOpenPlanUpgrade,
             icon: Calendar,
             color: 'text-rose-600 bg-rose-50 border-rose-100',
             badge: 'Fechas Lote'
-          },
-          {
-            id: 'complementos',
-            label: 'Complementos',
-            category: 'admin',
-            categoryLabel: 'Administración',
-            desc: 'Servicios de recarga, pagos y extensiones funcionales.',
-            icon: Sparkles,
-            color: 'text-amber-600 bg-amber-50 border-amber-100',
-            badge: 'Extensiones'
           },
           {
             id: 'clientes',

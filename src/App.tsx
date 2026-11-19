@@ -8,7 +8,6 @@ import POS from './components/POS';
 import Inventory from './components/Inventory';
 import Purchasing from './components/Purchasing';
 import Expirations from './components/Expirations';
-import Complementos from './components/Complementos';
 import ClientsProviders from './components/ClientsProviders';
 import Expenses from './components/Expenses';
 import CashRegister from './components/CashRegister';
@@ -802,7 +801,18 @@ export default function App() {
       if (payload.branchId) {
         localStorage.setItem('yaa_pos_active_branch_id', payload.branchId);
       }
-      localStorage.setItem('yaa_pos_branch_sync_event', JSON.stringify(payload));
+      // Only a small signal goes to localStorage (no business records): full data
+      // arrays exceeded the storage quota and left customer data on disk.
+      // Tabs already receive real data from Firestore and the BroadcastChannel.
+      localStorage.setItem('yaa_pos_branch_sync_event', JSON.stringify({
+        type: payload.type,
+        branchId: payload.branchId,
+        branchName: payload.branchName,
+        entity: payload.entity,
+        action: payload.action,
+        id: payload.id,
+        timestamp: payload.timestamp
+      }));
       if (typeof BroadcastChannel !== 'undefined') {
         const channel = new BroadcastChannel('yaa_pos_branch_sync');
         channel.postMessage(payload);
@@ -1955,24 +1965,6 @@ export default function App() {
     return saved;
   };
 
-  const onUploadFile = async (f: File) => {
-    const saved = await api.uploadFile(f);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
-    return saved;
-  };
-
-  const onDeleteFile = async (id: string) => {
-    const res = await api.deleteFile(id);
-    notifyBranchSync({ type: 'data_update', branchId: activeBranch?.id, branchName: activeBranch?.name, timestamp: Date.now() });
-    await loadAllData();
-    return res;
-  };
-
-  const onAskAI = async (prompt: string) => {
-    return api.askAI(prompt, branchProducts, branchSales, branchExpenses, config);
-  };
-
   // --- RENDER SECTIONS ---
 
   // Loading/Spin overlay
@@ -2152,7 +2144,6 @@ export default function App() {
     { id: 'historial-ventas', label: 'Historial de Ventas', icon: <History className="w-4 h-4 text-emerald-400" /> },
     { id: 'compras', label: 'Gestión Compras', icon: <ShoppingBag className="w-4 h-4" /> },
     { id: 'vencimientos', label: 'Vencimientos', icon: <Calendar className="w-4 h-4" /> },
-    { id: 'complementos', label: 'Complementos', icon: <Sparkles className="w-4 h-4 text-amber-400" /> },
     { id: 'clientes', label: 'Clientes', icon: <Users className="w-4 h-4" /> },
     { id: 'proveedores', label: 'Proveedores', icon: <Truck className="w-4 h-4" /> },
     { id: 'gastos', label: 'Gastos', icon: <TrendingDown className="w-4 h-4" /> },
@@ -2311,17 +2302,6 @@ export default function App() {
             activeBranchName={activeBranch?.name}
             branches={operationalBranches}
             onSwitchBranch={handleSwitchActiveBranch}
-          />
-        );
-      case 'complementos':
-        return (
-          <Complementos 
-            files={branchFiles} 
-            config={config} 
-            onUploadFile={onUploadFile} 
-            onDeleteFile={onDeleteFile} 
-            onAskAI={onAskAI} 
-            onRefreshData={loadAllData} 
           />
         );
       case 'clientes':
@@ -3013,23 +2993,6 @@ export default function App() {
                 </div>
                 <span className="text-[11px] font-semibold text-slate-700 mt-2 tracking-tight group-hover:text-blue-600 transition-colors line-clamp-1">
                   Vencimientos
-                </span>
-              </button>
-
-              {/* 2. Complementos */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('complementos');
-                  setIsMobileMenuOpen(false);
-                }}
-                className="flex flex-col items-center group cursor-pointer active:scale-95 transition-transform"
-              >
-                <div className="w-13 h-13 rounded-full bg-[#112356] text-amber-400 flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
-                  <Sparkles className="w-6 h-6 stroke-[2.2]" />
-                </div>
-                <span className="text-[11px] font-semibold text-slate-700 mt-2 tracking-tight group-hover:text-blue-600 transition-colors line-clamp-1">
-                  Complementos
                 </span>
               </button>
 

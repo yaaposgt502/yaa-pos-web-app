@@ -213,7 +213,7 @@ export default function PlanUpgradeModal({
                           <FileText className="w-3.5 h-3.5 text-blue-600" /> Facturación FEL:
                         </span>
                         <span className={`font-bold ${plan.felAllowed ? 'text-emerald-600' : 'text-slate-400'}`}>
-                          {plan.felAllowed ? 'Habilitada' : 'No incluida'}
+                          {plan.felAllowed ? 'Próximamente' : 'No incluida'}
                         </span>
                       </div>
                     </div>

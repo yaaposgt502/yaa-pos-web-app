@@ -52,7 +52,7 @@ export const SYSTEM_PLANS: Record<'basico' | 'profesional' | 'empresarial', Plan
       'Hasta 3 sucursales o puntos de venta',
       'Hasta 5 usuarios (operadores y admin)',
       'Productos ilimitados en catálogo',
-      'Facturación electrónica FEL (SAT)',
+      'Facturación electrónica FEL (próximamente)',
       'Gestión de compras y proveedores'
     ]
   },
@@ -73,7 +73,7 @@ export const SYSTEM_PLANS: Record<'basico' | 'profesional' | 'empresarial', Plan
       'Sucursales y puntos de venta ilimitados',
       'Usuarios y operadores ilimitados',
       'Productos y ventas ilimitadas',
-      'Facturación FEL y traslados de stock',
+      'Traslados de stock y FEL (próximamente)',
       'Soporte prioritario 24/7'
     ]
   }

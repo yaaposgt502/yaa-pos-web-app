@@ -1003,9 +1003,9 @@ export default function DailyReports({
                             type="button"
                             onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('factura'); }}
                             className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-md text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-purple-100"
-                            title="Ver Factura"
+                            title="Ver comprobante detallado (sin validez fiscal)"
                           >
-                            <FileText className="w-3 h-3 text-purple-600" /> Factura
+                            <FileText className="w-3 h-3 text-purple-600" /> Detallado
                           </button>
                           <button
                             type="button"
@@ -1395,9 +1395,9 @@ export default function DailyReports({
                                   type="button"
                                   onClick={() => { setDocumentModalSale(sale); setSelectedDocumentType('factura'); }}
                                   className="px-1.5 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded text-[9px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer border border-purple-100"
-                                  title="Ver Factura"
+                                  title="Ver comprobante detallado (sin validez fiscal)"
                                 >
-                                  <FileText className="w-2.5 h-2.5 text-purple-600" /> Factura
+                                  <FileText className="w-2.5 h-2.5 text-purple-600" /> Detallado
                                 </button>
                                 <button
                                   type="button"
@@ -1476,7 +1476,7 @@ export default function DailyReports({
                     }`}
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    Factura
+                    Detallado
                   </button>
                   <button
                     type="button"
@@ -1594,47 +1594,33 @@ export default function DailyReports({
                   <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b-2 border-slate-800 pb-5">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <Building2 className={`w-6 h-6 ${config.felEnabled ? 'text-purple-700' : 'text-blue-700'}`} />
-                        <h4 className="font-black text-xl text-slate-900 tracking-tight uppercase">{config.storeName || 'MI NEGOCIO, S.A.'}</h4>
+                        <Building2 className="w-6 h-6 text-blue-700" />
+                        <h4 className="font-black text-xl text-slate-900 tracking-tight uppercase">{config.razonSocial || config.storeName || 'MI NEGOCIO'}</h4>
                       </div>
                       {config.address && <p className="text-slate-500 font-medium">{config.address}</p>}
                       {config.phone && <p className="text-slate-500 font-medium">Teléfono: {config.phone}</p>}
-                      <p className="font-bold text-slate-700">NIT Emisor: {config.nit || '12345678-9'}</p>
-                      <p className="text-[10px] text-slate-400 font-medium">
-                        {config.felEnabled 
-                          ? 'Régimen: Pequeño Contribuyente / Sujeto a Retención Definitiva' 
-                          : 'Régimen: Venta Comercial y Control Interno'}
-                      </p>
+                      {config.nit && <p className="font-bold text-slate-700">NIT: {config.nit}</p>}
                     </div>
 
-                    <div className={`${config.felEnabled ? 'bg-purple-50 border-purple-200 text-purple-900' : 'bg-slate-50 border-slate-200 text-slate-800'} border-2 p-4 rounded-xl text-center min-w-[200px] space-y-1 shrink-0`}>
-                      <span className={`block text-[10px] font-black uppercase tracking-widest ${config.felEnabled ? 'text-purple-800' : 'text-slate-700'}`}>
-                        {config.felEnabled ? 'FACTURA ELECTRÓNICA FEL' : 'FACTURA COMERCIAL'}
+                    <div className="bg-slate-50 border-slate-200 text-slate-800 border-2 p-4 rounded-xl text-center min-w-[200px] space-y-1 shrink-0">
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-slate-700">
+                        COMPROBANTE DE VENTA
                       </span>
-                      <span className="block font-mono text-xs font-bold text-slate-700">
-                        Serie: {config.facturaSeries || (config.felEnabled ? 'FEL-A1' : 'F001')}
+                      <span className="block font-mono text-sm font-black text-slate-900">
+                        Ref. {documentModalSale.id.slice(-8).toUpperCase()}
                       </span>
-                      <span className={`block font-mono text-sm font-black ${config.felEnabled ? 'text-purple-900' : 'text-slate-900'}`}>
-                        No. 00{documentModalSale.id.slice(-6).toUpperCase()}
-                      </span>
-                      {config.felEnabled ? (
-                        <div className="pt-1 text-[9px] text-purple-700 font-mono border-t border-purple-200">
-                          AUT: 4E82B1C9-{documentModalSale.id.slice(0, 8).toUpperCase()}
-                        </div>
-                      ) : (
-                        <div className="pt-1 text-[9px] text-slate-400 font-medium border-t border-slate-200">
-                          Emisión Estándar
-                        </div>
-                      )}
+                      <div className="pt-1 text-[9px] text-amber-700 font-bold border-t border-slate-200">
+                        DOCUMENTO SIN VALIDEZ FISCAL
+                      </div>
                     </div>
                   </div>
 
                   {/* Client & Date Info Table */}
                   <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
                     <div>
-                      <span className="block text-[10px] font-bold text-slate-400 uppercase">RECEPTOR / CLIENTE</span>
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase">CLIENTE</span>
                       <span className="font-bold text-slate-900 text-sm">{getClientName(documentModalSale.clientId)}</span>
-                      <span className="block text-slate-500 text-[11px]">NIT / DPI: C/F (Consumidor Final)</span>
+                      <span className="block text-slate-500 text-[11px]">NIT / DPI: {clients.find(c => c.id === documentModalSale.clientId)?.nit || 'C/F'}</span>
                     </div>
                     <div className="text-right">
                       <span className="block text-[10px] font-bold text-slate-400 uppercase">FECHA DE EMISIÓN</span>
@@ -1647,7 +1633,7 @@ export default function DailyReports({
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className={`${config.felEnabled ? 'bg-purple-900' : 'bg-slate-800'} text-white font-bold uppercase text-[10px]`}>
+                        <tr className="bg-slate-800 text-white font-bold uppercase text-[10px]">
                           <th className="py-2.5 px-3 rounded-l-lg">Cant.</th>
                           <th className="py-2.5 px-3">Descripción / Producto</th>
                           <th className="py-2.5 px-3 text-right">P. Unitario</th>
@@ -1670,41 +1656,35 @@ export default function DailyReports({
                   {/* Totals Section */}
                   <div className="flex justify-between items-end border-t border-slate-200 pt-4">
                     <div className="space-y-1 max-w-xs">
-                      {config.felEnabled ? (
-                        <>
-                          <p className="text-[10px] text-slate-500 leading-tight">
-                            Sujeto a pagos trimestrales ISR / Documento Tributario Electrónico emitido conforme a la resolución de la SAT.
-                          </p>
-                          <div className="flex items-center gap-1.5 text-purple-700 font-bold text-[10px] pt-1">
-                            <QrCode className="w-4 h-4" /> Certificado Digitalmente por la SAT ({config.felCertifierName || 'Certificador Autorizado'})
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-[10px] text-slate-500 leading-tight">
-                            {config.ticketFooter || 'Comprobante de venta y factura comercial emitida para control contable interno.'}
-                          </p>
-                          <div className="flex items-center gap-1.5 text-slate-500 font-bold text-[10px] pt-1">
-                            <FileText className="w-4 h-4 text-slate-400" /> Factura Comercial Estándar
-                          </div>
-                        </>
-                      )}
+                      <p className="text-[10px] text-slate-500 leading-tight">
+                        {config.ticketFooter || 'Comprobante de venta para control interno.'}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-amber-700 font-bold text-[10px] pt-1">
+                        <FileText className="w-4 h-4 text-amber-600" /> No es una factura electrónica (FEL). Sin validez fiscal.
+                      </div>
                     </div>
 
-                    <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl min-w-[220px] space-y-1.5 font-mono">
-                      <div className="flex justify-between text-slate-600 text-[11px]">
-                        <span>Subtotal Neto:</span>
-                        <span>{currency} {(documentModalSale.total * 0.88).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-600 text-[11px]">
-                        <span>IVA Incluido (12%):</span>
-                        <span>{currency} {(documentModalSale.total * 0.12).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between font-black text-sm text-slate-900 border-t border-slate-200 pt-1.5">
-                        <span>TOTAL FACTURA:</span>
-                        <span className={config.felEnabled ? 'text-purple-700' : 'text-blue-700'}>{currency} {documentModalSale.total.toFixed(2)}</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const docTaxRate = (parseFloat(config.taxRate || '12') || 0) / 100;
+                      const docNet = docTaxRate > 0 ? documentModalSale.total / (1 + docTaxRate) : documentModalSale.total;
+                      const docTax = documentModalSale.total - docNet;
+                      return (
+                        <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl min-w-[220px] space-y-1.5 font-mono">
+                          <div className="flex justify-between text-slate-600 text-[11px]">
+                            <span>Subtotal Neto:</span>
+                            <span>{currency} {docNet.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-600 text-[11px]">
+                            <span>{config.taxName || 'IVA'} Incluido ({(docTaxRate * 100).toFixed(0)}%):</span>
+                            <span>{currency} {docTax.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between font-black text-sm text-slate-900 border-t border-slate-200 pt-1.5">
+                            <span>TOTAL:</span>
+                            <span className="text-blue-700">{currency} {documentModalSale.total.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
