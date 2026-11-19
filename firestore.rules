@@ -41,32 +41,33 @@ service cloud.firestore {
 
     // Helper to check if the current user is an active operator of the target owner
     function isOperatorOf(ownerId) {
-      return isSignedIn() && 
-             request.auth.token != null && 
+      return isSignedIn() &&
+             request.auth.token != null &&
              request.auth.token.email != null &&
              hasActiveOperator(ownerId, request.auth.token.email.lower());
     }
 
-    function hasActiveOperator(ownerId, email) {
-      return (exists(/databases/$(database)/documents/operators/$(email)) &&
-              get(/databases/$(database)/documents/operators/$(email)).data.ownerId == ownerId &&
-              get(/databases/$(database)/documents/operators/$(email)).data.status == 'active') ||
-             (exists(/databases/$(database)/documents/users/$(ownerId)/operators/$(email)) &&
-              get(/databases/$(database)/documents/users/$(ownerId)/operators/$(email)).data.status == 'active');
+    // An operator record may be bound to a Firebase Auth UID (authUid). When it
+    // is, only that exact account can act as the operator, so someone who
+    // registers the same email address with another account gets no access.
+    // Older records without authUid keep working by email, as before.
+    function isBoundToCaller(opData) {
+      return !('authUid' in opData) ||
+             opData.authUid == null ||
+             opData.authUid == '' ||
+             opData.authUid == request.auth.uid;
     }
 
-    // Check if an operator is allowed to access/modify a specific branch record
-    function isOperatorAllowedBranch(ownerId, itemBranch) {
-      let email = request.auth.token.email.lower();
-      let globalOpPath = /databases/$(database)/documents/operators/$(email);
-      let tenantOpPath = /databases/$(database)/documents/users/$(ownerId)/operators/$(email);
-      let opData = exists(tenantOpPath) ? get(tenantOpPath).data : (exists(globalOpPath) ? get(globalOpPath).data : {});
-      return !('branches' in opData) ||
-             opData.branches.size() == 0 ||
-             itemBranch == null ||
-             itemBranch == '' ||
-             itemBranch in opData.branches ||
-             ('branch' in opData && opData.branch == itemBranch);
+    function hasActiveOperator(ownerId, email) {
+      let globalPath = /databases/$(database)/documents/operators/$(email);
+      let tenantPath = /databases/$(database)/documents/users/$(ownerId)/operators/$(email);
+      return (exists(globalPath) &&
+              get(globalPath).data.ownerId == ownerId &&
+              get(globalPath).data.status == 'active' &&
+              isBoundToCaller(get(globalPath).data)) ||
+             (exists(tenantPath) &&
+              get(tenantPath).data.status == 'active' &&
+              isBoundToCaller(get(tenantPath).data));
     }
 
     // Helper to check if a user is NOT suspended/deactivated in their user profile document
@@ -108,91 +109,102 @@ service cloud.firestore {
       );
     }
 
-    function isValidOptionalBranch(data) {
-      return !('branch' in data) || data.branch == null || (data.branch is string && data.branch.size() <= 200);
-    }
-
-    function canWriteBranchScopedDoc(userId) {
-      return canWriteTenant(userId) &&
-             isValidOptionalBranch(incoming()) &&
-             (isAdmin() ||
-              request.auth.uid == userId ||
-              !('branch' in incoming()) ||
-              isOperatorAllowedBranch(userId, incoming().branch));
+    // Owner of the tenant (or global admin), with the account and license active.
+    function isTenantOwnerOrAdmin(userId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        (request.auth.uid == userId &&
+         isAccountActive(userId) &&
+         isLicenseActive(userId))
+      );
     }
 
     // =========================================================================
     // ENTITY VALIDATION HELPERS
+    // Kept deliberately tolerant: before this version a catch-all rule skipped
+    // every validation, so documents written until now were never checked.
+    // These checks only reject clearly malformed writes (wrong text types,
+    // oversized text). Stricter validation (numeric fields, required fields)
+    // must come with tests on the Firestore emulator.
     // =========================================================================
+    function optStr(data, field, maxLen) {
+      return !(field in data) || data[field] == null ||
+             (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function optNum(data, field) {
+      return !(field in data) || data[field] == null || data[field] is number;
+    }
+
+    function optList(data, field, maxLen) {
+      return !(field in data) || data[field] == null ||
+             (data[field] is list && data[field].size() <= maxLen);
+    }
+
+    function isValidOptionalBranch(data) {
+      return optStr(data, 'branch', 200);
+    }
+
     function isValidUserProfile(data) {
-      return (!('name' in data) || (data.name is string && data.name.size() <= 200)) &&
-             (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
-             (!('role' in data) || (data.role is string && data.role.size() <= 64)) &&
-             (!('accountStatus' in data) || (data.accountStatus is string && data.accountStatus.size() <= 32)) &&
-             (!('branch' in data) || data.branch == null || (data.branch is string && data.branch.size() <= 200));
+      return optStr(data, 'name', 200) &&
+             optStr(data, 'email', 256) &&
+             optStr(data, 'role', 64) &&
+             optStr(data, 'accountStatus', 32) &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidTenantDoc(data) {
+      return data is map && isValidOptionalBranch(data);
     }
 
     function isValidProduct(data) {
-      return data.name is string && data.name.size() >= 1 && data.name.size() <= 250 &&
-             (data.price is number) &&
-             (data.cost is number) &&
-             (data.stock is number) &&
-             isValidOptionalBranch(data);
+      return isValidTenantDoc(data) && optStr(data, 'name', 250);
     }
 
-    function isValidClient(data) {
-      return data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
-             isValidOptionalBranch(data);
-    }
-
-    function isValidProvider(data) {
-      return data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
-             isValidOptionalBranch(data);
+    function isValidNamedDoc(data) {
+      return isValidTenantDoc(data) && optStr(data, 'name', 200);
     }
 
     function isValidSale(data) {
-      return (data.total is number) &&
-             data.date is string && data.date.size() <= 64 &&
-             isValidOptionalBranch(data);
+      return isValidTenantDoc(data) && optStr(data, 'date', 64);
     }
 
     function isValidPurchase(data) {
-      return (data.total is number) &&
-             data.date is string && data.date.size() <= 64 &&
-             isValidOptionalBranch(data);
+      return isValidTenantDoc(data) && optStr(data, 'date', 64);
     }
 
     function isValidExpense(data) {
-      return (data.amount is number) &&
-             data.description is string && data.description.size() <= 500 &&
-             isValidOptionalBranch(data);
+      return isValidTenantDoc(data) && optStr(data, 'description', 2000);
     }
 
     function isValidShift(data) {
-      return (data.initialCash is number) &&
-             data.state in ['open', 'closed'] &&
-             isValidOptionalBranch(data);
+      return isValidTenantDoc(data) &&
+             (!('state' in data) || data.state in ['open', 'closed']);
     }
 
     function isValidUserFile(data) {
-      return data.name is string && data.name.size() <= 256 &&
-             data.path is string && data.path.size() <= 2048 &&
-             isValidOptionalBranch(data);
+      return isValidTenantDoc(data) &&
+             optStr(data, 'name', 256) &&
+             optStr(data, 'path', 2048);
     }
 
     function isValidConfig(data) {
-      return (!('storeName' in data) || (data.storeName is string && data.storeName.size() <= 200)) &&
-             (!('activeBranchId' in data) || data.activeBranchId == null || (data.activeBranchId is string && data.activeBranchId.size() <= 128)) &&
-             (!('branches' in data) || (data.branches is list && data.branches.size() <= 100));
+      return data is map &&
+             optStr(data, 'storeName', 200) &&
+             optStr(data, 'activeBranchId', 128) &&
+             optList(data, 'branches', 100);
     }
 
-    function isValidOperator(data) {
-      return data.email is string && data.email.size() <= 256 &&
+    function isValidOperator(data, ownerId) {
+      return data is map &&
+             data.email is string && data.email.size() <= 256 &&
              data.name is string && data.name.size() <= 200 &&
              data.status in ['active', 'inactive'] &&
+             data.ownerId == ownerId &&
              isValidOptionalBranch(data) &&
-             (!('branches' in data) || (data.branches is list && data.branches.size() <= 100)) &&
-             (!('disabledTabs' in data) || (data.disabledTabs is list && data.disabledTabs.size() <= 50));
+             optStr(data, 'authUid', 128) &&
+             optList(data, 'branches', 100) &&
+             optList(data, 'disabledTabs', 50);
     }
 
     // =========================================================================
@@ -216,85 +228,113 @@ service cloud.firestore {
     // =========================================================================
     match /users/{userId} {
       allow read: if isSignedIn() && (
-                     isAdmin() || 
-                     request.auth.uid == userId || 
+                     isAdmin() ||
+                     request.auth.uid == userId ||
                      isOperatorOf(userId)
                   );
-                      
+
       allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
-                       isAdmin() || 
+                       isAdmin() ||
                        request.auth.uid == userId
                     );
 
       allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
-                       isAdmin() || 
-                       (request.auth.uid == userId && 
-                        isAccountActive(userId) && 
+                       isAdmin() ||
+                       (request.auth.uid == userId &&
+                        isAccountActive(userId) &&
                         isLicenseActive(userId) &&
-                        (!('accountStatus' in incoming()) || 
-                         !('accountStatus' in existing()) || 
+                        (!('accountStatus' in incoming()) ||
+                         !('accountStatus' in existing()) ||
                          incoming().accountStatus == existing().accountStatus))
                     );
 
       allow delete: if isAdmin();
 
       // =======================================================================
-      // TENANT SUBCOLLECTIONS (Branch-Isolated & Synchronized)
+      // TENANT SUBCOLLECTIONS
+      // Every subcollection is declared explicitly. There is NO catch-all:
+      // any other path under /users/{userId} is denied by default.
+      //
+      // Branch restrictions for operators are NOT enforced here yet: branch
+      // values are stored as free text (names, codes or ids) and compared
+      // loosely by the app, so an exact check would block valid sales.
+      // That comes with the branchId migration (Stage 4).
       // =======================================================================
+
+      // Catalog data: owner and operators can create, edit and delete.
       match /products/{productId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(productId) && canWriteBranchScopedDoc(userId) && isValidProduct(incoming());
+        allow create, update: if isValidId(productId) && canWriteTenant(userId) && isValidProduct(incoming());
         allow delete: if isValidId(productId) && canWriteTenant(userId);
       }
 
       match /clients/{clientId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(clientId) && canWriteBranchScopedDoc(userId) && isValidClient(incoming());
+        allow create, update: if isValidId(clientId) && canWriteTenant(userId) && isValidNamedDoc(incoming());
         allow delete: if isValidId(clientId) && canWriteTenant(userId);
       }
 
       match /providers/{providerId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(providerId) && canWriteBranchScopedDoc(userId) && isValidProvider(incoming());
+        allow create, update: if isValidId(providerId) && canWriteTenant(userId) && isValidNamedDoc(incoming());
         allow delete: if isValidId(providerId) && canWriteTenant(userId);
       }
 
+      // Financial records: operators can create and update (e.g. returns,
+      // paying a purchase, closing a shift) but only the owner or admin can
+      // delete them.
       match /sales/{saleId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(saleId) && canWriteBranchScopedDoc(userId) && isValidSale(incoming());
-        allow delete: if isValidId(saleId) && canWriteTenant(userId);
+        allow create, update: if isValidId(saleId) && canWriteTenant(userId) && isValidSale(incoming());
+        allow delete: if isValidId(saleId) && isTenantOwnerOrAdmin(userId);
       }
 
       match /purchases/{purchaseId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(purchaseId) && canWriteBranchScopedDoc(userId) && isValidPurchase(incoming());
-        allow delete: if isValidId(purchaseId) && canWriteTenant(userId);
-      }
-
-      match /expenses/{expenseId} {
-        allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(expenseId) && canWriteBranchScopedDoc(userId) && isValidExpense(incoming());
-        allow delete: if isValidId(expenseId) && canWriteTenant(userId);
+        allow create, update: if isValidId(purchaseId) && canWriteTenant(userId) && isValidPurchase(incoming());
+        allow delete: if isValidId(purchaseId) && isTenantOwnerOrAdmin(userId);
       }
 
       match /shifts/{shiftId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(shiftId) && canWriteBranchScopedDoc(userId) && isValidShift(incoming());
-        allow delete: if isValidId(shiftId) && canWriteTenant(userId);
+        allow create, update: if isValidId(shiftId) && canWriteTenant(userId) && isValidShift(incoming());
+        allow delete: if isValidId(shiftId) && isTenantOwnerOrAdmin(userId);
+      }
+
+      // Expenses can be deleted from the Cash Register screen by operators.
+      match /expenses/{expenseId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(expenseId) && canWriteTenant(userId) && isValidExpense(incoming());
+        allow delete: if isValidId(expenseId) && canWriteTenant(userId);
       }
 
       match /files/{fileId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(fileId) && canWriteBranchScopedDoc(userId) && isValidUserFile(incoming());
+        allow create, update: if isValidId(fileId) && canWriteTenant(userId) && isValidUserFile(incoming());
         allow delete: if isValidId(fileId) && canWriteTenant(userId);
+      }
+
+      match /quotations/{quotationId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(quotationId) && canWriteTenant(userId) && isValidTenantDoc(incoming());
+        allow delete: if isValidId(quotationId) && canWriteTenant(userId);
+      }
+
+      match /consignments/{consignmentId} {
+        allow read: if canReadTenant(userId);
+        allow create, update: if isValidId(consignmentId) && canWriteTenant(userId) && isValidTenantDoc(incoming());
+        allow delete: if isValidId(consignmentId) && canWriteTenant(userId);
       }
 
       match /configs/{configId} {
         allow read: if canReadTenant(userId);
         allow create, update: if isValidId(configId) && canWriteTenant(userId) && isValidConfig(incoming());
-        allow delete: if isValidId(configId) && (isAdmin() || request.auth.uid == userId);
+        allow delete: if isValidId(configId) && isTenantOwnerOrAdmin(userId);
       }
 
+      // Operators of this tenant: ONLY the owner (or admin) can create, edit
+      // or delete them. Operators cannot raise their own permissions, remove
+      // their branch restriction or invite other people.
       match /operators/{operatorEmail} {
         allow read: if canReadTenant(userId) || (
                        isSignedIn() &&
@@ -302,31 +342,9 @@ service cloud.firestore {
                        request.auth.token.email != null &&
                        request.auth.token.email.lower() == operatorEmail.lower()
                     );
-        allow create, update: if isSignedIn() && (
-                                 isAdmin() ||
-                                 (request.auth.uid == userId &&
-                                  isAccountActive(userId) &&
-                                  isLicenseActive(userId) &&
-                                  isValidOperator(incoming()))
-                              );
-        allow delete: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
-      }
-
-      match /quotations/{quotationId} {
-        allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(quotationId) && canWriteBranchScopedDoc(userId);
-        allow delete: if isValidId(quotationId) && canWriteTenant(userId);
-      }
-
-      match /consignments/{consignmentId} {
-        allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(consignmentId) && canWriteBranchScopedDoc(userId);
-        allow delete: if isValidId(consignmentId) && canWriteTenant(userId);
-      }
-
-      // Fallback for any additional subcollections inside tenant space
-      match /{subcollection}/{docId} {
-        allow read, write: if canWriteTenant(userId);
+        allow create, update: if isTenantOwnerOrAdmin(userId) &&
+                                 (isAdmin() || isValidOperator(incoming(), userId));
+        allow delete: if isTenantOwnerOrAdmin(userId);
       }
     }
 
@@ -335,8 +353,8 @@ service cloud.firestore {
     // =========================================================================
     match /licenses/{userId} {
       allow read: if isSignedIn() && (
-                     request.auth.uid == userId || 
-                     isOperatorOf(userId) || 
+                     request.auth.uid == userId ||
+                     isOperatorOf(userId) ||
                      isAdmin()
                   );
       allow write: if isAdmin();
@@ -344,22 +362,29 @@ service cloud.firestore {
 
     // =========================================================================
     // GLOBAL OPERATORS COLLECTION (/operators/{operatorEmail})
+    // Used to find an operator's company at login. A record belongs to the
+    // owner in its ownerId: nobody else can overwrite it or move it to
+    // another company.
     // =========================================================================
     match /operators/{operatorEmail} {
       allow read: if isSignedIn() && (
-                     (request.auth.token != null && 
-                      request.auth.token.email != null && 
-                      request.auth.token.email.lower() == operatorEmail.lower()) || 
+                     (request.auth.token != null &&
+                      request.auth.token.email != null &&
+                      request.auth.token.email.lower() == operatorEmail.lower()) ||
                      (resource != null && resource.data.ownerId == request.auth.uid) ||
                      isAdmin()
                   );
-      allow create, update: if isSignedIn() && (
-                               isAdmin() ||
-                               (incoming().ownerId == request.auth.uid &&
-                                isAccountActive(request.auth.uid) &&
-                                isLicenseActive(request.auth.uid) &&
-                                isValidOperator(incoming()))
-                            );
+      allow create: if isSignedIn() && (
+                       isAdmin() ||
+                       (isTenantOwnerOrAdmin(request.auth.uid) &&
+                        isValidOperator(incoming(), request.auth.uid))
+                    );
+      allow update: if isSignedIn() && (
+                       isAdmin() ||
+                       (existing().ownerId == request.auth.uid &&
+                        isTenantOwnerOrAdmin(request.auth.uid) &&
+                        isValidOperator(incoming(), request.auth.uid))
+                    );
       allow delete: if isSignedIn() && (
                        isAdmin() ||
                        (resource != null && resource.data.ownerId == request.auth.uid)

@@ -329,15 +329,19 @@ export interface Operator {
   ownerId?: string;
   disabledTabs?: string[];
   passwordProtected?: boolean;
+  // Firebase Auth UID the operator record is bound to (see firestore.rules).
+  authUid?: string;
 }
 
-// Helper to register operator accounts in standard Firebase Auth with real passwords
-export async function provisionOperatorAuth(email: string, password?: string, oldPassword?: string): Promise<void> {
+// Helper to register operator accounts in standard Firebase Auth with real passwords.
+// Returns the Firebase Auth UID when it could be confirmed (new account, or the
+// password given matches the existing account); otherwise undefined.
+export async function provisionOperatorAuth(email: string, password?: string, oldPassword?: string): Promise<string | undefined> {
   const normalizedEmail = email.trim().toLowerCase();
   const apiKey = firebaseConfig.apiKey;
   
   if (!password || !password.trim()) {
-    return;
+    return undefined;
   }
   
   const trimmedPassword = password.trim();
@@ -360,7 +364,7 @@ export async function provisionOperatorAuth(email: string, password?: string, ol
   const data = await res.json();
   
   if (res.ok) {
-    return;
+    return typeof data.localId === 'string' ? data.localId : undefined;
   }
 
   const errorMsg = data.error?.message;
@@ -378,7 +382,8 @@ export async function provisionOperatorAuth(email: string, password?: string, ol
       })
     });
     if (checkCurrent.ok) {
-      return;
+      const currentData = await checkCurrent.json().catch(() => ({}));
+      return typeof currentData.localId === 'string' ? currentData.localId : undefined;
     }
 
     // 3. If oldPassword was provided, sign in and update to new password
@@ -406,7 +411,7 @@ export async function provisionOperatorAuth(email: string, password?: string, ol
             })
           });
           if (updateRes.ok) {
-            return;
+            return typeof oldData.localId === 'string' ? oldData.localId : undefined;
           }
         }
       } catch (err) {
@@ -420,7 +425,7 @@ export async function provisionOperatorAuth(email: string, password?: string, ol
     } catch (resetErr) {
       console.warn("Password reset email dispatch:", resetErr);
     }
-    return;
+    return undefined;
   }
 
   if (errorMsg && (errorMsg.includes('WEAK_PASSWORD') || errorMsg.includes('Password should be at least 6 characters'))) {
@@ -1021,9 +1026,23 @@ export async function saveOperator(operator: Operator): Promise<Operator> {
     }
   } catch {}
 
-  // Provision real credentials in Firebase Auth if a valid password is provided
+  // Keep the Auth UID this operator is already bound to, if any.
+  let authUid: string | undefined;
+  let tenantRecordExisted = false;
+  try {
+    const tenantSnap = await getDoc(doc(db, 'users', uid, 'operators', normalizedEmail));
+    if (tenantSnap.exists()) {
+      tenantRecordExisted = true;
+      const existingAuthUid = (tenantSnap.data() as Operator).authUid;
+      if (typeof existingAuthUid === 'string' && existingAuthUid) authUid = existingAuthUid;
+    }
+  } catch {}
+
+  // Provision real credentials in Firebase Auth if a valid password is provided.
+  // When the account's UID is confirmed, bind the operator record to it.
   if (rawPassword && rawPassword.trim()) {
-    await provisionOperatorAuth(normalizedEmail, rawPassword.trim(), oldPassword);
+    const confirmedUid = await provisionOperatorAuth(normalizedEmail, rawPassword.trim(), oldPassword);
+    if (confirmedUid) authUid = confirmedUid;
   }
 
   // Strictly enforce security: NEVER save passwords in plain text in Firestore.
@@ -1040,13 +1059,26 @@ export async function saveOperator(operator: Operator): Promise<Operator> {
     ownerId: uid,
     passwordProtected: true
   };
+  if (authUid) opToSave.authUid = authUid;
   
   // 1. Save in the owner's isolated subcollection using email as doc ID
   await setDoc(doc(db, 'users', uid, 'operators', normalizedEmail), opToSave);
   
   // 2. Save in the global collection for login lookup
   const globalRef = doc(db, 'operators', normalizedEmail);
-  await setDoc(globalRef, opToSave);
+  try {
+    await setDoc(globalRef, opToSave);
+  } catch (err: any) {
+    if (err?.code === 'permission-denied') {
+      // The global record belongs to another company: undo the tenant copy
+      // we just created (an existing record is left as it was).
+      if (!tenantRecordExisted) {
+        await deleteDoc(doc(db, 'users', uid, 'operators', normalizedEmail)).catch(() => {});
+      }
+      throw new Error('Este correo ya está registrado como operador de otra empresa. Usa un correo distinto.');
+    }
+    throw err;
+  }
   
   return opToSave as Operator;
 }
