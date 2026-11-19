@@ -102,6 +102,7 @@ export default function Purchasing({
   });
   
   const [paymentType, setPaymentType] = useState<'cash' | 'credit'>('cash');
+  const [isSavingPurchase, setIsSavingPurchase] = useState(false);
   const [voucherType, setVoucherType] = useState<'factura' | 'boleta' | 'nota_venta'>('factura');
   const [voucherNumber, setVoucherNumber] = useState('');
   const [ivaOption, setIvaOption] = useState<'sumar' | 'incluir' | 'no_aplicar'>('sumar');
@@ -624,6 +625,7 @@ export default function Purchasing({
 
   const handleSubmitPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingPurchase) return;
     if (!selectedProviderId) {
       alert('Por favor seleccione un proveedor');
       return;
@@ -659,6 +661,7 @@ export default function Purchasing({
       ivaAmount: calculations.iva
     };
 
+    setIsSavingPurchase(true);
     try {
       await onSavePurchase(newPurchase);
       setIsFormOpen(false);
@@ -668,6 +671,8 @@ export default function Purchasing({
       onRefreshData();
     } catch (err: any) {
       alert(err.message || 'Error al guardar la compra');
+    } finally {
+      setIsSavingPurchase(false);
     }
   };
 

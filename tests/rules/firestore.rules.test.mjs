@@ -1,6 +1,7 @@
 // Pruebas de firestore.rules en el emulador local (proyecto "demo-", sin conexión a Firebase real).
 // Ejecutar desde esta carpeta: npm install && npm test   (requiere Java 11+)
 import { test, before, after, beforeEach, describe } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -11,6 +12,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, collection, getDocs,
+  runTransaction, increment, deleteField,
 } from 'firebase/firestore';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -172,6 +174,96 @@ describe('Cajero (operador activo)', () => {
 
   test('NO puede leer datos de otra empresa', async () => {
     await assertFails(getDocs(collection(cashierCtx(), 'users', OTHER_OWNER, 'sales')));
+  });
+});
+
+describe('Etapa 2: ventas, devoluciones y kardex', () => {
+  const movement = (extra = {}) => ({
+    id: 's2_p1', productId: 'p1', productName: 'Paracetamol', type: 'venta', quantity: -2,
+    refId: 's2', branch: 'Central', date: '2026-11-18T10:00:00Z', ...extra,
+  });
+
+  test('el cajero registra venta con stock, turno y movimiento de kardex en una transacción', async () => {
+    const db = cashierCtx();
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', OWNER, 'sales', 's2'), { id: 's2', total: 20, date: '2026-11-18T10:00:00Z', items: [] });
+    batch.set(doc(db, 'users', OWNER, 'products', 'p1'), product({ stock: 18 }));
+    batch.set(doc(db, 'users', OWNER, 'stockMovements', 's2_p1'), movement());
+    await assertSucceeds(batch.commit());
+  });
+
+  test('el cajero marca una venta como devuelta una sola vez', async () => {
+    const db = cashierCtx();
+    const ref = doc(db, 'users', OWNER, 'sales', 's1');
+    await assertSucceeds(updateDoc(ref, { returnSaleId: 'ret_s1', returnedAt: '2026-11-18T11:00:00Z' }));
+    await assertFails(updateDoc(ref, { returnSaleId: 'ret_otra', returnedAt: '2026-11-18T12:00:00Z' }));
+  });
+
+  test('el cajero NO puede cambiar montos ni artículos de una venta', async () => {
+    const db = cashierCtx();
+    await assertFails(updateDoc(doc(db, 'users', OWNER, 'sales', 's1'), { total: 1 }));
+    await assertFails(updateDoc(doc(db, 'users', OWNER, 'sales', 's1'), { returnSaleId: 'ret_s1', total: 0 }));
+  });
+
+  test('reenviar la misma venta (reintento sin conexión) se acepta', async () => {
+    const db = cashierCtx();
+    await assertSucceeds(setDoc(doc(db, 'users', OWNER, 'sales', 's1'), { id: 's1', total: 10, date: '2026-11-01T10:00:00Z', branch: 'Central' }));
+  });
+
+  test('el dueño sí puede corregir una venta', async () => {
+    await assertSucceeds(updateDoc(doc(ownerCtx(), 'users', OWNER, 'sales', 's1'), { total: 12 }));
+  });
+
+  test('los movimientos de kardex no se modifican ni los borra el cajero', async () => {
+    const db = cashierCtx();
+    const ref = doc(db, 'users', OWNER, 'stockMovements', 's2_p1');
+    await assertSucceeds(setDoc(ref, movement()));
+    await assertSucceeds(setDoc(ref, movement()));
+    await assertFails(setDoc(ref, movement({ quantity: -1 })));
+    await assertFails(deleteDoc(ref));
+    await assertSucceeds(deleteDoc(doc(ownerCtx(), 'users', OWNER, 'stockMovements', 's2_p1')));
+  });
+
+  test('un movimiento de kardex mal formado se rechaza', async () => {
+    const db = cashierCtx();
+    await assertFails(setDoc(doc(db, 'users', OWNER, 'stockMovements', 'x'), movement({ id: 'x', type: 'regalo' })));
+    await assertFails(setDoc(doc(db, 'users', OWNER, 'stockMovements', 'y'), movement({ id: 'y', quantity: '2' })));
+  });
+
+  test('dos cajas venden el mismo producto a la vez: no se pierde stock (transacciones)', async () => {
+    const sell = (db, saleId, qty) => runTransaction(db, async (tx) => {
+      const ref = doc(db, 'users', OWNER, 'products', 'p1');
+      const snap = await tx.get(ref);
+      const stock = snap.data().stock;
+      tx.set(doc(db, 'users', OWNER, 'sales', saleId), { id: saleId, total: qty * 10, date: '2026-11-18T10:00:00Z' });
+      tx.set(ref, { ...snap.data(), stock: stock - qty });
+    });
+    await Promise.all([sell(cashierCtx(), 'sA', 3), sell(ownerCtx(), 'sB', 5), sell(boundCtx(), 'sC', 2)]);
+    const final = await getDoc(doc(ownerCtx(), 'users', OWNER, 'products', 'p1'));
+    assert.equal(final.data().stock, 10);
+  });
+
+  test('venta sin conexión con increment() y deleteField() pasa las reglas y suma bien', async () => {
+    const db = cashierCtx();
+    const b1 = writeBatch(db);
+    b1.set(doc(db, 'users', OWNER, 'sales', 'off1'), { id: 'off1', total: 30, date: '2026-11-18T10:00:00Z' });
+    b1.update(doc(db, 'users', OWNER, 'products', 'p1'), { stock: increment(-3), expirationDates: deleteField() });
+    b1.update(doc(db, 'users', OWNER, 'shifts', 't1'), { salesTotal: increment(30) });
+    const b2 = writeBatch(db);
+    b2.update(doc(db, 'users', OWNER, 'products', 'p1'), { stock: increment(-4) });
+    b2.update(doc(db, 'users', OWNER, 'shifts', 't1'), { salesTotal: increment(40) });
+    await assertSucceeds(b1.commit());
+    await assertSucceeds(b2.commit());
+    const p = await getDoc(doc(ownerCtx(), 'users', OWNER, 'products', 'p1'));
+    const t = await getDoc(doc(ownerCtx(), 'users', OWNER, 'shifts', 't1'));
+    assert.equal(p.data().stock, 13);
+    assert.equal(t.data().salesTotal, 70);
+  });
+
+  test('otra empresa NO lee ni escribe el kardex', async () => {
+    const db = otherOwnerCtx();
+    await assertFails(getDocs(collection(db, 'users', OWNER, 'stockMovements')));
+    await assertFails(setDoc(doc(db, 'users', OWNER, 'stockMovements', 'z'), movement({ id: 'z' })));
   });
 });
 

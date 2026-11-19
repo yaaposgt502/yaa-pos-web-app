@@ -109,98 +109,8 @@ const calculateDaysRemaining = (expirationDate: string): number => {
   return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 };
 
-export function applyPurchaseItemToProduct(
-  product: Product,
-  item: {
-    quantity: number;
-    cost: number;
-    lote?: string;
-    expirationDate?: string;
-    pricePerUnit?: number;
-    pricePerBlister?: number;
-    pricePerBox?: number;
-  }
-): Product {
-  let dateStr = '';
-  if (item.expirationDate && item.expirationDate !== '—') {
-    const rawDate = item.expirationDate.trim();
-    if (rawDate.includes('/')) {
-      const parts = rawDate.split('/');
-      if (parts.length === 3) {
-        dateStr = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      } else {
-        dateStr = rawDate;
-      }
-    } else {
-      dateStr = rawDate;
-    }
-  }
-
-  const batchName = (item.lote && item.lote !== '—')
-    ? item.lote.trim()
-    : (product.initialBatch || '00101');
-
-  let currentLotes = product.expirationDates ? product.expirationDates.map(r => ({ ...r })) : [];
-  const existingProductStock = typeof product.stock === 'number' && !isNaN(product.stock) ? product.stock : 0;
-
-  if (currentLotes.length === 0 && existingProductStock > 0) {
-    currentLotes.push({
-      batch: product.initialBatch || '00101',
-      date: product.expirationDate || '',
-      stock: existingProductStock
-    });
-  }
-
-  // Find if there is an existing lote with the SAME batch name AND the SAME date
-  const existingIdx = currentLotes.findIndex(r => {
-    const sameBatch = (r.batch || '').trim().toLowerCase() === batchName.toLowerCase();
-    if (!sameBatch) return false;
-    if (dateStr && r.date && r.date !== '—') {
-      return r.date === dateStr;
-    }
-    return true;
-  });
-
-  if (existingIdx > -1) {
-    const currentLoteStock = typeof currentLotes[existingIdx].stock === 'number' ? currentLotes[existingIdx].stock : (parseInt(currentLotes[existingIdx].stock as any) || 0);
-    currentLotes[existingIdx].stock = currentLoteStock + item.quantity;
-    if (dateStr) {
-      currentLotes[existingIdx].date = dateStr;
-    }
-  } else {
-    currentLotes.push({
-      batch: batchName,
-      date: dateStr || product.expirationDate || '',
-      stock: item.quantity
-    });
-  }
-
-  const lotesSum = currentLotes.reduce((sum, r) => sum + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
-  const nextStock = Math.max(existingProductStock + item.quantity, lotesSum);
-
-  const updatedPrices: Partial<Product> = {};
-  if (typeof item.pricePerUnit === 'number' && item.pricePerUnit > 0) {
-    updatedPrices.pricePerUnit = item.pricePerUnit;
-    updatedPrices.price = item.pricePerUnit;
-  }
-  if (typeof item.pricePerBlister === 'number' && item.pricePerBlister >= 0) {
-    updatedPrices.pricePerBlister = item.pricePerBlister;
-  }
-  if (typeof item.pricePerBox === 'number' && item.pricePerBox >= 0) {
-    updatedPrices.pricePerBox = item.pricePerBox;
-  }
-
-  return {
-    ...product,
-    stock: nextStock,
-    cost: item.cost > 0 ? item.cost : product.cost,
-    expirationDate: dateStr || product.expirationDate,
-    initialBatch: product.initialBatch || batchName,
-    expirationDates: currentLotes,
-    manageBatchAndExpiration: true,
-    ...updatedPrices
-  };
-}
+export { applyPurchaseItemToProduct } from './utils/inventoryMath';
+import { applyPurchaseItemToProduct } from './utils/inventoryMath';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(api.getToken());
@@ -1258,26 +1168,18 @@ export default function App() {
     const client = clients.find(c => c.id === params.clientId);
     if (!client) throw new Error('Cliente no encontrado.');
 
-    const nextBalance = Math.max(0, (client.balanceCredit || 0) - params.amount);
-    const updatedClient: Client = {
-      ...client,
-      balanceCredit: nextBalance
-    };
-    await api.saveClient(updatedClient);
-
-    let updatedShift: Shift | undefined;
+    let activeShift: Shift | undefined;
     if (params.paymentMethod === 'Efectivo') {
       const targetBranch = client.branch || activeBranch?.name || '';
-      const activeShift = shifts.find(sh => sh.state === 'open' && isItemInBranch(sh.branch, targetBranch, systemBranches));
-      if (activeShift) {
-        updatedShift = {
-          ...activeShift,
-          salesTotal: (activeShift.salesTotal || 0) + params.amount,
-          cashSales: ((activeShift.cashSales !== undefined ? activeShift.cashSales : activeShift.salesTotal) || 0) + params.amount
-        };
-        await api.saveShift(updatedShift);
-      }
+      activeShift = shifts.find(sh => sh.state === 'open' && isItemInBranch(sh.branch, targetBranch, systemBranches));
     }
+
+    // Balance and cash register move together in one atomic write (increments).
+    const { client: updatedClient, shift: updatedShift } = await api.executeClientPayment({
+      client,
+      amount: params.amount,
+      shift: activeShift
+    });
 
     const nextClients = clients.map(c => c.id === updatedClient.id ? updatedClient : c);
     setClients(nextClients);
@@ -1304,20 +1206,12 @@ export default function App() {
     const provider = providers.find(p => p.id === params.providerId);
     if (!provider) throw new Error('Proveedor no encontrado.');
 
-    const nextPending = Math.max(0, (provider.creditPending || 0) - params.amount);
-    const updatedProvider: Provider = {
-      ...provider,
-      creditPending: nextPending
-    };
-    await api.saveProvider(updatedProvider);
-
-    let createdExpense: Expense | undefined;
-    let updatedShift: Shift | undefined;
-
+    let expenseDraft: Expense | undefined;
+    let activeShift: Shift | undefined;
     if (params.paymentMethod === 'Efectivo') {
       const targetBranch = provider.branch || activeBranch?.name || '';
-      createdExpense = {
-        id: `exp_prov_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      expenseDraft = {
+        id: api.newDocId('exp_prov'),
         date: new Date().toISOString(),
         description: `Pago a Proveedor: ${provider.name} ${params.voucherNumber ? `(Doc: ${params.voucherNumber})` : ''}`,
         amount: params.amount,
@@ -1327,17 +1221,15 @@ export default function App() {
         voucherNumber: params.voucherNumber,
         observations: params.notes || 'Abono / Pago de cuenta pendiente a proveedor'
       };
-      await api.saveExpense(createdExpense);
-
-      const activeShift = shifts.find(sh => sh.state === 'open' && isItemInBranch(sh.branch, targetBranch, systemBranches));
-      if (activeShift) {
-        updatedShift = {
-          ...activeShift,
-          expensesTotal: (activeShift.expensesTotal || 0) + params.amount
-        };
-        await api.saveShift(updatedShift);
-      }
+      activeShift = shifts.find(sh => sh.state === 'open' && isItemInBranch(sh.branch, targetBranch, systemBranches));
     }
+
+    const { provider: updatedProvider, expense: createdExpense, shift: updatedShift } = await api.executeProviderPayment({
+      provider,
+      amount: params.amount,
+      expense: expenseDraft,
+      shift: activeShift
+    });
 
     const nextProviders = providers.map(p => p.id === updatedProvider.id ? updatedProvider : p);
     setProviders(nextProviders);
@@ -1367,157 +1259,65 @@ export default function App() {
 
   const onSaveSale = async (s: Sale) => {
     const saleBranch = s.branch || activeBranch?.name || '';
-    // Pre-generate deterministic idempotent sale ID to prevent duplicate sales upon sync or retry
-    const saleId = s.id || `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const saleWithBranch: Sale = { 
-      ...s, 
+    // The POS generates the id once per checkout, so a retry reuses it and
+    // can never register the same sale twice.
+    const saleId = s.id || api.newDocId('sale');
+    const saleWithBranch: Sale = {
+      ...s,
       id: saleId,
-      ...(saleBranch ? { branch: saleBranch } : {}) 
+      ...(saleBranch ? { branch: saleBranch } : {})
     };
 
-    // 1. Descontar stock únicamente de los productos pertenecientes a esta sucursal
-    const productUpdates: Product[] = [];
-    const productsMap = new Map(products.map(p => [p.id, { ...p }]));
+    const alreadySaved = sales.find(x => x.id === saleId);
+    if (alreadySaved) return alreadySaved;
 
-    for (const item of s.items) {
-      const product =
-        products.find(p => p.id === item.productId && isItemInBranch(p.branch, saleBranch, systemBranches)) ||
-        products.find(p => p.id === item.productId);
-      if (product) {
-        const prodCopy = productsMap.get(product.id) || { ...product };
-        const mult = item.selectedUnit === 'Blíster' 
-          ? (prodCopy.unitsPerBlister && prodCopy.unitsPerBlister > 0 ? prodCopy.unitsPerBlister : 1) 
-          : (item.selectedUnit === 'Caja' 
-              ? (prodCopy.unitsPerBox && prodCopy.unitsPerBox > 0 ? prodCopy.unitsPerBox : 1) 
-              : 1);
-        const unitsToDeduct = item.quantity * mult;
-        
-        const lotesSum = (prodCopy.expirationDates || []).reduce((acc, r) => acc + (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)), 0);
-        const currentStock = Math.max(prodCopy.stock || 0, lotesSum);
-        const nextStock = Math.max(0, currentStock - unitsToDeduct);
-
-        let updatedExpirationDates = prodCopy.expirationDates;
-        if (updatedExpirationDates && updatedExpirationDates.length > 0) {
-          let remainingDeduct = unitsToDeduct;
-          // First attempt to deduct from matching selected batch
-          updatedExpirationDates = updatedExpirationDates.map(r => {
-            const batchName = r.batch || prodCopy.initialBatch || 'Lote 01';
-            if (remainingDeduct > 0 && item.selectedLote && item.selectedLote.includes(batchName)) {
-              const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
-              const deduct = Math.min(currentLoteStock, remainingDeduct);
-              remainingDeduct -= deduct;
-              return { ...r, stock: currentLoteStock - deduct };
-            }
-            return r;
-          });
-          // Deduct remaining from any available lote
-          if (remainingDeduct > 0) {
-            updatedExpirationDates = updatedExpirationDates.map(r => {
-              if (remainingDeduct <= 0) return r;
-              const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
-              const deduct = Math.min(currentLoteStock, remainingDeduct);
-              remainingDeduct -= deduct;
-              return { ...r, stock: currentLoteStock - deduct };
-            });
-          }
-
-          // Eliminar automáticamente los lotes y fechas de vencimiento sin stock (stock <= 0)
-          updatedExpirationDates = updatedExpirationDates.filter(r => {
-            const currentLoteStock = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
-            return currentLoteStock > 0;
-          });
-        }
-
-        const survivingLotes = (updatedExpirationDates && updatedExpirationDates.length > 0) ? updatedExpirationDates : undefined;
-        const nextExpirationDate = survivingLotes && survivingLotes.length > 0 
-          ? survivingLotes[0].date 
-          : (nextStock > 0 ? prodCopy.expirationDate : undefined);
-        const nextInitialBatch = survivingLotes && survivingLotes.length > 0 
-          ? (survivingLotes[0].batch || prodCopy.initialBatch) 
-          : prodCopy.initialBatch;
-
-        const updatedProd: Product = {
-          ...prodCopy,
-          branch: prodCopy.branch || saleBranch,
-          stock: nextStock,
-          expirationDate: nextExpirationDate,
-          initialBatch: nextInitialBatch,
-          expirationDates: survivingLotes
-        };
-
-        productsMap.set(product.id, updatedProd);
-        productUpdates.push(updatedProd);
-      }
+    if (saleWithBranch.originalSaleId) {
+      const original = sales.find(x => x.id === saleWithBranch.originalSaleId);
+      if (original?.returnSaleId) throw new Error('Esta venta ya tiene una devolución registrada.');
     }
 
-    // 2. Actualizar caja (shift activo de esta sucursal)
-    let shiftUpdate: Shift | undefined;
-    const activeShift = shifts.find(sh => 
+    // Stock, cash register, client and kardex are written in one transaction
+    // (online) or one batch of increments (offline).
+    const productIds = s.items.map(item => (products.some(p => p.id === item.productId) ? item.productId : ''));
+    const activeShift = shifts.find(sh =>
       sh.state === 'open' && (sh.id === s.shiftId || isItemInBranch(sh.branch, saleBranch, systemBranches))
     );
-    if (activeShift) {
-      const extraCash = s.paymentMethod === 'cash' ? s.total : 0;
-      shiftUpdate = {
-        ...activeShift,
-        branch: activeShift.branch || saleBranch,
-        salesTotal: (activeShift.salesTotal || 0) + s.total,
-        cashSales: ((activeShift.cashSales !== undefined ? activeShift.cashSales : activeShift.salesTotal) || 0) + extraCash
-      };
-    }
+    const client = s.clientId && s.clientId !== 'general' ? clients.find(c => c.id === s.clientId) : undefined;
 
-    // 3. Actualizar historial de cliente (gastos, puntos, última compra)
-    let clientUpdate: Client | undefined;
-    if (s.clientId && s.clientId !== 'general') {
-      const client = clients.find(c => c.id === s.clientId);
-      if (client) {
-        const pointsEarned = Math.floor(s.total / 10);
-        clientUpdate = {
-          ...client,
-          branch: client.branch || saleBranch,
-          totalSpent: (client.totalSpent || 0) + s.total,
-          loyaltyPoints: (client.loyaltyPoints || 0) + pointsEarned,
-          lastPurchaseDate: new Date().toISOString().split('T')[0],
-          balanceCredit: s.paymentMethod === 'credit' 
-            ? (client.balanceCredit || 0) + s.total 
-            : (client.balanceCredit || 0)
-        };
-      }
-    }
-
-    // 4. Guardar atómicamente en Firestore & IndexedDB en una sola transacción Batch (0 duplicados, integridad total)
-    const saved = await api.executeSaleTransaction({
+    const result = await api.executeSaleTransaction({
       sale: saleWithBranch,
-      productUpdates,
-      shiftUpdate,
-      clientUpdate
+      saleBranch,
+      productIds,
+      localProducts: products,
+      shift: activeShift,
+      client
     });
+    const saved = result.sale;
 
-    // 5. Actualizar estado local inmediatamente (0 lecturas al servidor, interfaz instantánea sin lag)
-    const nextSales = [saved, ...sales.filter(x => x.id !== saved.id)];
+    const nextSales = [saved, ...sales.filter(x => x.id !== saved.id)].map(x =>
+      saved.originalSaleId && x.id === saved.originalSaleId
+        ? { ...x, returnSaleId: saved.id, returnedAt: saved.date }
+        : x
+    );
     setSales(nextSales);
 
     let nextProducts = products;
-    if (productUpdates.length > 0) {
-      const updatedIds = new Set(productUpdates.map(p => p.id));
-      nextProducts = products.map(p => {
-        if (updatedIds.has(p.id)) {
-          return productUpdates.find(up => up.id === p.id) || p;
-        }
-        return p;
-      });
+    if (result.products.length > 0) {
+      const updatedMap = new Map(result.products.map(p => [p.id, p]));
+      nextProducts = products.map(p => updatedMap.get(p.id) || p);
       setProducts(nextProducts);
     }
 
     let nextShifts = shifts;
-    if (shiftUpdate) {
-      const su = shiftUpdate;
+    if (result.shift) {
+      const su = result.shift;
       nextShifts = shifts.map(sh => sh.id === su.id ? su : sh);
       setShifts(nextShifts);
     }
 
     let nextClients = clients;
-    if (clientUpdate) {
-      const cu = clientUpdate;
+    if (result.client) {
+      const cu = result.client;
       nextClients = clients.map(c => c.id === cu.id ? cu : c);
       setClients(nextClients);
     }
@@ -1542,31 +1342,29 @@ export default function App() {
 
   const onSavePurchase = async (pur: Purchase) => {
     const purchaseBranch = pur.branch || activeBranch?.name || '';
-    const updatedProductsList: Product[] = [];
+    const purchaseId = pur.id || api.newDocId('pur');
+    const purchaseWithBranch: Purchase = { ...pur, id: purchaseId, branch: purchaseBranch };
+    const previous = purchases.find(p => p.id === purchaseId);
 
-    // 1. Aumentar stock e ingresar costo, lote y vencimiento del producto en ESTA sucursal si la compra está completada
-    if (pur.status === 'completed') {
-      const updatedProductsMap = new Map<string, Product>();
-
+    // 1. Resolver el producto de cada artículo (existente en ESTA sucursal o uno nuevo).
+    //    El stock solo se aplica una vez, cuando la compra pasa a "completada".
+    const targets: (Product | undefined)[] = [];
+    const newProductIds: string[] = [];
+    if (pur.status === 'completed' && previous?.status !== 'completed') {
+      const createdByKey = new Map<string, Product>();
       for (const item of pur.items) {
-        if (!item) continue;
+        if (!item) { targets.push(undefined); continue; }
+        const itemNeedle = item.name ? item.name.trim().toLowerCase() : '';
+        const key = item.productId || `name:${itemNeedle}`;
+
         let product =
-          updatedProductsMap.get(item.productId) ||
-          products.find(p => p && p.id === item.productId && isItemInBranch(p.branch, purchaseBranch, systemBranches));
-        
-        if (!product && item.name) {
-          const itemNeedle = item.name.trim().toLowerCase();
-          product = products.find(
-            p =>
-              p &&
-              p.name &&
-              isItemInBranch(p.branch, purchaseBranch, systemBranches) &&
-              p.name.trim().toLowerCase() === itemNeedle
-          );
-        }
+          products.find(p => p && p.id === item.productId && isItemInBranch(p.branch, purchaseBranch, systemBranches)) ||
+          (itemNeedle
+            ? products.find(p => p && p.name && isItemInBranch(p.branch, purchaseBranch, systemBranches) && p.name.trim().toLowerCase() === itemNeedle)
+            : undefined) ||
+          createdByKey.get(key);
 
         if (!product) {
-          const itemNeedle = item.name ? item.name.trim().toLowerCase() : '';
           const templateProd = products.find(
             p => p && (p.id === item.productId || (p.name && itemNeedle && p.name.trim().toLowerCase() === itemNeedle))
           );
@@ -1578,7 +1376,7 @@ export default function App() {
             (item.cost ? Number((item.cost * 1.3).toFixed(2)) : 0);
           const newProd: Product = {
             ...(templateProd || {}),
-            id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            id: api.newDocId('prod'),
             code: itemAny.productCode || templateProd?.code || `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
             name: item.name || templateProd?.name || 'Producto',
             category: itemAny.productCategory || templateProd?.category || 'General',
@@ -1596,45 +1394,21 @@ export default function App() {
             expirationDates: [],
             branch: purchaseBranch
           };
+          createdByKey.set(key, newProd);
+          newProductIds.push(newProd.id);
           product = newProd;
         }
-
-        const updatedProd = {
-          ...applyPurchaseItemToProduct(product, item),
-          branch: purchaseBranch
-        };
-        updatedProductsMap.set(updatedProd.id, updatedProd);
-      }
-
-      for (const updatedProd of updatedProductsMap.values()) {
-        await api.saveProduct(updatedProd);
-        updatedProductsList.push(updatedProd);
+        targets.push(product);
       }
     }
 
-    // 2. Actualizar métricas del proveedor (compras totales, cuentas por pagar)
-    let updatedProvider: Provider | undefined;
-    if (pur.providerId) {
-      const provider = providers.find(p => p && p.id === pur.providerId);
-      if (provider) {
-        const extraCredit = pur.paymentType === 'credit' ? pur.total : 0;
-        updatedProvider = {
-          ...provider,
-          branch: provider.branch || purchaseBranch,
-          totalPurchases: (provider.totalPurchases || 0) + pur.total,
-          creditPending: (provider.creditPending || 0) + extraCredit
-        };
-        await api.saveProvider(updatedProvider);
-      }
-    }
-
-    // 3. Si la compra fue pagada en EFECTIVO, registrar egreso en caja / gastos para cuadre de caja
-    let purchaseExpense: Expense | undefined;
-    let updatedShift: Shift | undefined;
+    // 2. Egreso en caja si se paga en efectivo al recibir la mercadería.
+    let expenseDraft: Expense | undefined;
+    let activeShift: Shift | undefined;
     if (pur.status === 'completed' && pur.paymentType === 'cash') {
       const provName = providers.find(p => p.id === pur.providerId)?.name || 'Proveedor';
-      purchaseExpense = {
-        id: `exp_pur_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      expenseDraft = {
+        id: `exp_pur_${purchaseId}`,
         date: pur.date || new Date().toISOString(),
         description: `Pago de compra de mercadería a ${provName} ${pur.voucherNumber ? `(Doc: ${pur.voucherNumber})` : ''}`,
         amount: pur.total,
@@ -1644,59 +1418,55 @@ export default function App() {
         voucherNumber: pur.voucherNumber,
         observations: `Compra al contado (${pur.items.length} artículos)`
       };
-      await api.saveExpense(purchaseExpense);
-
-      const activeShift = shifts.find(sh => 
-        sh.state === 'open' && isItemInBranch(sh.branch, purchaseBranch, systemBranches)
-      );
-      if (activeShift) {
-        updatedShift = {
-          ...activeShift,
-          expensesTotal: (activeShift.expensesTotal || 0) + pur.total
-        };
-        await api.saveShift(updatedShift);
-      }
+      activeShift = shifts.find(sh => sh.state === 'open' && isItemInBranch(sh.branch, purchaseBranch, systemBranches));
     }
 
-    const purchaseWithBranch: Purchase = {
-      ...pur,
-      branch: purchaseBranch
-    };
+    const provider = pur.providerId ? providers.find(p => p && p.id === pur.providerId) : undefined;
 
-    const saved = await api.savePurchase(purchaseWithBranch);
+    // 3. Compra, stock, proveedor, egreso, caja y kardex en una sola operación atómica.
+    const result = await api.executePurchaseTransaction({
+      purchase: purchaseWithBranch,
+      targets,
+      provider,
+      shift: activeShift,
+      expenseDraft,
+      previous,
+      newProductIds,
+      operatorName: user?.name
+    });
+    const saved = result.purchase;
 
-    // 4. Actualizar estados locales de React de manera reactiva instantánea
+    // 4. Actualizar estados locales de React
     const nextPurchases = [saved, ...purchases.filter(p => p.id !== saved.id)];
     setPurchases(nextPurchases);
 
     let nextProducts = products;
-    if (updatedProductsList.length > 0) {
-      const updatedMap = new Map(updatedProductsList.map(p => [p.id, p]));
+    if (result.products.length > 0) {
+      const updatedMap = new Map(result.products.map(p => [p.id, p]));
       nextProducts = products.map(p => updatedMap.get(p.id) || p);
-      for (const p of updatedProductsList) {
-        if (!nextProducts.some(x => x.id === p.id)) {
-          nextProducts.push(p);
-        }
+      for (const p of result.products) {
+        if (!nextProducts.some(x => x.id === p.id)) nextProducts.push(p);
       }
       setProducts(nextProducts);
     }
 
     let nextProviders = providers;
-    if (updatedProvider) {
-      const up = updatedProvider;
+    if (result.provider) {
+      const up = result.provider;
       nextProviders = providers.map(p => p.id === up.id ? up : p);
       setProviders(nextProviders);
     }
 
     let nextExpenses = expenses;
-    if (purchaseExpense) {
-      nextExpenses = [purchaseExpense, ...expenses];
+    if (result.expense) {
+      const ex = result.expense;
+      nextExpenses = [ex, ...expenses.filter(x => x.id !== ex.id)];
       setExpenses(nextExpenses);
     }
 
     let nextShifts = shifts;
-    if (updatedShift) {
-      const us = updatedShift;
+    if (result.shift) {
+      const us = result.shift;
       nextShifts = shifts.map(sh => sh.id === us.id ? us : sh);
       setShifts(nextShifts);
     }
@@ -1745,85 +1515,23 @@ export default function App() {
       throw new Error(`Cantidad inválida. Stock disponible en ${sourceBranchObj.name}: ${currentStock}`);
     }
 
-    // 1. Descontar de la sucursal origen
-    const nextSourceStock = Math.max(0, currentStock - quantity);
-    const updatedSourceProduct: Product = {
-      ...sourceProduct,
-      branch: sourceProduct.branch || sourceBranchObj.name,
-      stock: nextSourceStock
-    };
-
-    if (sourceProduct.expirationDates && sourceProduct.expirationDates.length > 0) {
-      let rem = quantity;
-      const updatedSourceLotes = sourceProduct.expirationDates
-        .map(r => {
-          if (rem <= 0) return r;
-          const s = typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0);
-          const deduct = Math.min(s, rem);
-          rem -= deduct;
-          return { ...r, stock: s - deduct };
-        })
-        .filter(r => (typeof r.stock === 'number' ? r.stock : (parseInt(r.stock as any) || 0)) > 0);
-      updatedSourceProduct.expirationDates = updatedSourceLotes;
-    } else {
-      delete updatedSourceProduct.expirationDates;
-    }
-
-    await api.saveProduct(updatedSourceProduct);
-
-    // 2. Sumar o crear producto independiente en la sucursal destino
     const existingTargetProduct = products.find(
       p =>
+        p.id !== sourceProduct.id &&
         isItemInBranch(p.branch, targetBranchObj.name, systemBranches) &&
         (p.code.trim().toLowerCase() === sourceProduct.code.trim().toLowerCase() ||
           p.name.trim().toLowerCase() === sourceProduct.name.trim().toLowerCase())
     );
 
-    let savedTargetProduct: Product;
-    if (existingTargetProduct) {
-      const nextTargetStock = (existingTargetProduct.stock || 0) + quantity;
-      const targetLotes = existingTargetProduct.expirationDates
-        ? [...existingTargetProduct.expirationDates]
-        : [];
-      if (targetLotes.length > 0) {
-        targetLotes[0] = {
-          ...targetLotes[0],
-          stock: (Number(targetLotes[0].stock) || 0) + quantity
-        };
-      }
-      savedTargetProduct = {
-        ...existingTargetProduct,
-        branch: targetBranchObj.name,
-        stock: nextTargetStock
-      };
-      if (targetLotes.length > 0) {
-        savedTargetProduct.expirationDates = targetLotes;
-      } else if (existingTargetProduct.expirationDates) {
-        savedTargetProduct.expirationDates = existingTargetProduct.expirationDates;
-      } else {
-        delete savedTargetProduct.expirationDates;
-      }
-      await api.saveProduct(savedTargetProduct);
-    } else {
-      savedTargetProduct = {
-        ...sourceProduct,
-        id: `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        branch: targetBranchObj.name,
-        stock: quantity
-      };
-      if (sourceProduct.expirationDate) {
-        savedTargetProduct.expirationDates = [
-          { date: sourceProduct.expirationDate, stock: quantity, batch: sourceProduct.initialBatch || '00101' }
-        ];
-      } else if (sourceProduct.expirationDates && sourceProduct.expirationDates.length > 0) {
-        savedTargetProduct.expirationDates = [
-          { date: sourceProduct.expirationDates[0].date, stock: quantity, batch: sourceProduct.expirationDates[0].batch || '00101' }
-        ];
-      } else {
-        delete savedTargetProduct.expirationDates;
-      }
-      await api.saveProduct(savedTargetProduct);
-    }
+    // Origen, destino y kardex en una sola operación atómica.
+    const { source: updatedSourceProduct, target: savedTargetProduct } = await api.executeStockTransfer({
+      source: sourceProduct,
+      target: existingTargetProduct,
+      quantity,
+      sourceBranchName: sourceBranchObj.name,
+      targetBranchName: targetBranchObj.name,
+      operatorName: user?.name
+    });
 
     const nextProducts = products
       .map(p => p.id === updatedSourceProduct.id ? updatedSourceProduct : p)
@@ -1845,25 +1553,27 @@ export default function App() {
     });
   };
 
+  // An edited or deleted expense only moves the open shift if it was
+  // registered during that shift.
+  const expenseBelongsToShift = (exp: Expense, sh: Shift) =>
+    !sh.openedAt || parseSafeDate(exp.date).getTime() >= parseSafeDate(sh.openedAt).getTime();
+
   const onSaveExpense = async (e: Expense) => {
     const expenseBranch = e.branch || activeBranch?.name || '';
     const expenseWithBranch: Expense = { ...e, ...(expenseBranch ? { branch: expenseBranch } : {}) };
+    const previous = e.id ? expenses.find(x => x.id === e.id) : undefined;
 
-    let updatedShift: Shift | undefined;
-    // Descontar caja / registrar gasto en el turno activo DE ESTA SUCURSAL
     const activeShift = shifts.find(sh => 
       sh.state === 'open' && isItemInBranch(sh.branch, expenseBranch, systemBranches)
     );
-    if (activeShift) {
-      updatedShift = {
-        ...activeShift,
-        branch: activeShift.branch || expenseBranch,
-        expensesTotal: (activeShift.expensesTotal || 0) + e.amount
-      };
-      await api.saveShift(updatedShift);
-    }
+    const shiftForChange = activeShift && (!previous || expenseBelongsToShift(previous, activeShift)) ? activeShift : undefined;
 
-    const saved = await api.saveExpense(expenseWithBranch);
+    // Gasto y caja juntos; al editar solo se suma la diferencia.
+    const { expense: saved, shift: updatedShift } = await api.executeExpenseChange({
+      expense: expenseWithBranch,
+      previous,
+      shift: shiftForChange
+    });
     const nextExpenses = [saved, ...expenses.filter(x => x.id !== saved.id)];
     setExpenses(nextExpenses);
 
@@ -1890,19 +1600,18 @@ export default function App() {
   const onDeleteExpense = async (id: string) => {
     const expense = expenses.find(e => e.id === id);
     let updatedShift: Shift | undefined;
+    let res: { success: boolean };
     if (expense) {
       const activeShift = shifts.find(sh => 
         sh.state === 'open' && isItemInBranch(sh.branch, expense.branch || activeBranch?.name, systemBranches)
       );
-      if (activeShift) {
-        updatedShift = {
-          ...activeShift,
-          expensesTotal: Math.max(0, (activeShift.expensesTotal || 0) - expense.amount)
-        };
-        await api.saveShift(updatedShift);
-      }
+      const shiftForChange = activeShift && expenseBelongsToShift(expense, activeShift) ? activeShift : undefined;
+      const r = await api.executeExpenseChange({ expense, previous: expense, shift: shiftForChange, remove: true });
+      updatedShift = r.shift;
+      res = { success: true };
+    } else {
+      res = await api.deleteExpense(id);
     }
-    const res = await api.deleteExpense(id);
     const nextExpenses = expenses.filter(e => e.id !== id);
     setExpenses(nextExpenses);
 
@@ -1932,6 +1641,20 @@ export default function App() {
       ...s,
       ...(shiftBranch ? { branch: shiftBranch } : {})
     };
+
+    // Solo un turno abierto por caja (sucursal).
+    const wasOpen = !!s.id && shifts.some(sh => sh.id === s.id && sh.state === 'open');
+    if (shiftWithBranch.state === 'open' && !wasOpen) {
+      const storedOpen = await api.getOpenShifts();
+      const openShifts = [...storedOpen, ...shifts.filter(sh => sh.state === 'open' && !storedOpen.some(x => x.id === sh.id))];
+      const conflict = openShifts.find(sh => sh.id !== s.id && isItemInBranch(sh.branch, shiftBranch, systemBranches));
+      if (conflict) {
+        throw new Error(
+          `Ya hay un turno abierto en esta caja${conflict.shiftNumber ? ` (turno #${conflict.shiftNumber})` : ''}${conflict.cashierName ? ` a cargo de ${conflict.cashierName}` : ''}. Ciérrelo antes de abrir otro.`
+        );
+      }
+    }
+
     const saved = await api.saveShift(shiftWithBranch);
     const nextShifts = [saved, ...shifts.filter(sh => sh.id !== saved.id)];
     setShifts(nextShifts);

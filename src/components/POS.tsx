@@ -269,6 +269,9 @@ export default function POS({
 
   // Modals and submission state
   const [isSubmittingSale, setIsSubmittingSale] = useState(false);
+  // Sale id generated once per checkout: retrying after an error reuses it,
+  // so the same sale can never be registered twice.
+  const checkoutSaleIdRef = useRef<string | null>(null);
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
@@ -1488,8 +1491,11 @@ export default function POS({
       return;
     }
 
+    if (!checkoutSaleIdRef.current) {
+      checkoutSaleIdRef.current = `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    }
     const newSale: Sale = {
-      id: '',
+      id: checkoutSaleIdRef.current,
       date: new Date().toISOString(),
       items: cart.map(item => ({
         productId: item.product.id,
@@ -1518,6 +1524,7 @@ export default function POS({
     setIsSubmittingSale(true);
     try {
       const saved = await onSaveSale(newSale);
+      checkoutSaleIdRef.current = null;
       setCompletedSale(saved);
       
       // Clear current cart session
@@ -1559,9 +1566,28 @@ export default function POS({
     e.preventDefault();
     if (!refundSaleId) return;
 
-    const saleToRefund = pastSales.find(s => s.id.toLowerCase().includes(refundSaleId.toLowerCase()) || s.id === refundSaleId);
-    if (!saleToRefund) {
+    // Exact id first, then the short reference printed on receipts (the
+    // ticket shows the beginning of the id, reports show the end). A partial
+    // match must be unique.
+    const needle = refundSaleId.trim().replace(/^#/, '').toLowerCase();
+    const candidates = pastSales.filter(s => !s.originalSaleId && s.total > 0);
+    const exact = candidates.find(s => s.id.toLowerCase() === needle);
+    const matches = exact
+      ? [exact]
+      : (needle.length >= 4
+          ? candidates.filter(s => s.id.toLowerCase().startsWith(needle) || s.id.toLowerCase().endsWith(needle))
+          : []);
+    if (matches.length === 0) {
       alert('Venta no encontrada.');
+      return;
+    }
+    if (matches.length > 1) {
+      alert('Hay varias ventas con esa referencia. Escriba el número de venta completo.');
+      return;
+    }
+    const saleToRefund = matches[0];
+    if (saleToRefund.returnSaleId) {
+      alert('Esta venta ya tiene una devolución registrada.');
       return;
     }
 
@@ -1573,9 +1599,12 @@ export default function POS({
     try {
       // Simulate/execute refund logic
       // In a real application, you would save negative sale or delete. Let's register a reversed sale
+      const { returnSaleId: _r, returnedAt: _ra, ...originalData } = refundSaleObj;
       const reversedSale: Sale = {
-        ...refundSaleObj,
-        id: '',
+        ...originalData,
+        // Deterministic id: a second return of the same sale is rejected.
+        id: `ret_${refundSaleObj.id}`,
+        originalSaleId: refundSaleObj.id,
         total: -refundSaleObj.total,
         profit: -refundSaleObj.profit,
         date: new Date().toISOString(),

@@ -24,7 +24,13 @@ import {
   getDocFromCache,
   getDocsFromServer,
   getDocFromServer,
-  writeBatch
+  writeBatch,
+  runTransaction,
+  increment,
+  deleteField,
+  type WriteBatch,
+  type Transaction,
+  type DocumentReference
 } from 'firebase/firestore';
 import { 
   ref, 
@@ -34,7 +40,8 @@ import {
 } from 'firebase/storage';
 import { auth, db, storage } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
-import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License, Quotation, Consignment } from './types';
+import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, AppConfig, User, License, Quotation, Consignment, StockMovement } from './types';
+import { applySaleItemToProduct, applySaleToShift, applySaleToClient, applyPurchaseItemToProduct, applyTransferOut, applyTransferIn, toNum } from './utils/inventoryMath';
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
 import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './utils/planLimits';
 import { parseSafeDate, toLocalDateString } from './utils/dateHelper';
@@ -1671,66 +1678,498 @@ export async function saveSale(sale: Sale): Promise<Sale> {
   return normalizedSale;
 }
 
-// Atomic transaction execution for Sales:
-// Atomically commits sale record, inventory deductions, shift total and client updates in 1 single batch.
-// Guaranteed idempotency: pre-generated saleId prevents duplicate sales upon sync or reconnect.
-export async function executeSaleTransaction(params: {
+// =========================================================================
+// TRANSACTIONAL OPERATIONS
+// Online: a Firestore transaction re-reads the affected documents and
+// computes stock, cash and balances from the server values, so two cash
+// registers selling the same product never overwrite each other.
+// Offline: one atomic batch with increment() for every counter. It is saved
+// in the local cache immediately and sent when the connection returns.
+// =========================================================================
+
+export function newDocId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function isLikelyOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+function isUnavailableError(err: any): boolean {
+  const msg = String(err?.message || '').toLowerCase();
+  return err?.code === 'unavailable' || msg.includes('client is offline') || msg.includes('offline');
+}
+
+// Offline commits resolve only when the server answers, so they are not
+// awaited: the write is already in the local cache and the UI can continue.
+async function commitBatch(batch: WriteBatch, offline: boolean): Promise<void> {
+  if (offline) {
+    batch.commit().catch(err => console.error('[Yaa POS] Error al sincronizar una operación pendiente:', err));
+    return;
+  }
+  await batch.commit();
+}
+
+async function runOnlineOrOffline<T>(online: () => Promise<T>, offline: () => Promise<T>): Promise<T> {
+  if (isLikelyOffline()) return offline();
+  try {
+    return await online();
+  } catch (err) {
+    if (isUnavailableError(err)) return offline();
+    throw err;
+  }
+}
+
+function withoutUndefined<T extends Record<string, any>>(data: T): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(data)) if (v !== undefined) out[k] = v;
+  return out;
+}
+
+// Fields that inventory operations own on a product. Other fields (name,
+// price, etc.) are left as they are on the server.
+function stockPatch(updated: Product, stockDelta: number, extra: Record<string, any> = {}): Record<string, any> {
+  return withoutUndefined({
+    ...extra,
+    stock: increment(stockDelta),
+    branch: updated.branch || undefined,
+    expirationDates: updated.expirationDates ? cleanDataForFirestore(updated.expirationDates) : deleteField(),
+    expirationDate: updated.expirationDate ?? deleteField(),
+    initialBatch: updated.initialBatch ?? deleteField(),
+  });
+}
+
+function buildMovements(
+  type: StockMovement['type'],
+  refId: string,
+  deltas: Map<string, number>,
+  products: Product[],
+  meta: { branch?: string; date: string; operatorName?: string }
+): StockMovement[] {
+  const out: StockMovement[] = [];
+  for (const [productId, quantity] of deltas.entries()) {
+    if (!quantity) continue;
+    out.push(cleanDataForFirestore({
+      id: `${refId}_${productId}`,
+      productId,
+      productName: products.find(p => p.id === productId)?.name || '',
+      type,
+      quantity,
+      refId,
+      branch: meta.branch,
+      date: meta.date,
+      operatorName: meta.operatorName,
+    }) as StockMovement);
+  }
+  return out;
+}
+
+function snapToEntity<T extends { id: string }>(snap: any): T | undefined {
+  return snap && snap.exists() ? ({ ...(snap.data() as T), id: snap.id }) : undefined;
+}
+
+function refreshCaches(r: { products?: Product[]; shift?: Shift; client?: Client; provider?: Provider }) {
+  if (cachedProducts && r.products && r.products.length > 0) {
+    const map = new Map(r.products.map(p => [p.id, p]));
+    cachedProducts = cachedProducts.map(p => map.get(p.id) || p);
+    for (const p of r.products) if (!cachedProducts.some(x => x.id === p.id)) cachedProducts = [...cachedProducts, p];
+  }
+  if (cachedShifts && r.shift) {
+    const s = r.shift;
+    cachedShifts = cachedShifts.some(x => x.id === s.id) ? cachedShifts.map(x => (x.id === s.id ? s : x)) : [...cachedShifts, s];
+  }
+  if (cachedClients && r.client) {
+    const c = r.client;
+    cachedClients = cachedClients.map(x => (x.id === c.id ? c : x));
+  }
+  if (cachedProviders && r.provider) {
+    const pv = r.provider;
+    cachedProviders = cachedProviders.map(x => (x.id === pv.id ? pv : x));
+  }
+}
+
+// ---------------------------------------------------------------- Sales ---
+
+export interface SaleTxInput {
+  sale: Sale;               // id generated once by the caller (stable on retries)
+  saleBranch: string;
+  productIds: string[];     // product resolved for each sale item ('' = none)
+  localProducts: Product[];
+  shift?: Shift;
+  client?: Client;
+}
+
+export interface SaleTxResult {
   sale: Sale;
-  productUpdates: Product[];
-  shiftUpdate?: Shift;
-  clientUpdate?: Client;
-}): Promise<Sale> {
+  products: Product[];
+  shift?: Shift;
+  client?: Client;
+  alreadyRegistered: boolean;
+  pendingSync: boolean;
+}
+
+function computeSaleEffects(input: SaleTxInput, sale: Sale, productsById: Map<string, Product>, shift?: Shift, client?: Client) {
+  const working = new Map(productsById);
+  const deltas = new Map<string, number>();
+  sale.items.forEach((item, i) => {
+    const pid = input.productIds[i];
+    const product = pid ? working.get(pid) : undefined;
+    if (!pid || !product) return;
+    const r = applySaleItemToProduct(product, item, input.saleBranch);
+    working.set(pid, r.product);
+    deltas.set(pid, (deltas.get(pid) || 0) + r.stockDelta);
+  });
+  const products = [...deltas.keys()].map(id => working.get(id)!).filter(Boolean);
+  return {
+    products,
+    deltas,
+    shiftFx: shift ? applySaleToShift(shift, sale, input.saleBranch) : undefined,
+    clientFx: client ? applySaleToClient(client, sale, input.saleBranch) : undefined,
+    movements: buildMovements(sale.originalSaleId ? 'devolucion' : 'venta', sale.id, deltas, products, {
+      branch: sale.branch, date: sale.date, operatorName: sale.operatorName,
+    }),
+  };
+}
+
+export async function executeSaleTransaction(input: SaleTxInput): Promise<SaleTxResult> {
   const uid = getToken();
   if (!uid) throw new Error('No autorizado. Inicie sesión.');
 
-  const batch = writeBatch(db);
+  const sale: Sale = cleanDataForFirestore({
+    ...input.sale,
+    id: input.sale.id || newDocId('sale'),
+    date: input.sale.date ? parseSafeDate(input.sale.date).toISOString() : new Date().toISOString(),
+  });
+  const saleRef = getDocRef('sales', sale.id);
+  const originalRef = sale.originalSaleId ? getDocRef('sales', sale.originalSaleId) : null;
+  const returnMark = { returnSaleId: sale.id, returnedAt: sale.date };
 
-  // 1. Ensure deterministic sale ID and strictly valid ISO date to prevent duplicates and query bugs
-  const saleId = params.sale.id || `sale_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  const finalSale: Sale = { 
-    ...params.sale, 
-    id: saleId,
-    date: params.sale.date ? parseSafeDate(params.sale.date).toISOString() : new Date().toISOString()
+  const online = () => runTransaction(db, async (tx: Transaction): Promise<SaleTxResult> => {
+    const existing = await tx.get(saleRef);
+    if (existing.exists()) {
+      return { sale: existing.data() as Sale, products: [], alreadyRegistered: true, pendingSync: false };
+    }
+    if (originalRef) {
+      const orig = await tx.get(originalRef);
+      if (!orig.exists()) throw new Error('No se encontró la venta original.');
+      if ((orig.data() as Sale).returnSaleId) throw new Error('Esta venta ya tiene una devolución registrada.');
+    }
+    const ids = [...new Set(input.productIds.filter(Boolean))];
+    const snaps = await Promise.all(ids.map(id => tx.get(getDocRef('products', id))));
+    const fresh = new Map<string, Product>();
+    snaps.forEach(s => { const p = snapToEntity<Product>(s); if (p) fresh.set(p.id, p); });
+    const shift = input.shift ? snapToEntity<Shift>(await tx.get(getDocRef('shifts', input.shift.id))) : undefined;
+    const client = input.client ? snapToEntity<Client>(await tx.get(getDocRef('clients', input.client.id))) : undefined;
+
+    const fx = computeSaleEffects(input, sale, fresh, shift, client);
+    tx.set(saleRef, sale);
+    for (const p of fx.products) tx.set(getDocRef('products', p.id), cleanDataForFirestore(p));
+    if (fx.shiftFx) tx.set(getDocRef('shifts', fx.shiftFx.shift.id), cleanDataForFirestore(fx.shiftFx.shift));
+    if (fx.clientFx) tx.set(getDocRef('clients', fx.clientFx.client.id), cleanDataForFirestore(fx.clientFx.client));
+    for (const m of fx.movements) tx.set(getDocRef('stockMovements', m.id), m);
+    if (originalRef) tx.update(originalRef, returnMark);
+    return { sale, products: fx.products, shift: fx.shiftFx?.shift, client: fx.clientFx?.client, alreadyRegistered: false, pendingSync: false };
+  });
+
+  const offline = async (): Promise<SaleTxResult> => {
+    const local = new Map(input.localProducts.map(p => [p.id, p]));
+    const fx = computeSaleEffects(input, sale, local, input.shift, input.client);
+    const batch = writeBatch(db);
+    batch.set(saleRef, sale);
+    for (const p of fx.products) batch.update(getDocRef('products', p.id), stockPatch(p, fx.deltas.get(p.id) || 0));
+    if (fx.shiftFx && input.shift) {
+      batch.update(getDocRef('shifts', input.shift.id), withoutUndefined({
+        salesTotal: increment(fx.shiftFx.salesTotalDelta),
+        // Older shifts without cashSales derive it from salesTotal: write it once as a value.
+        cashSales: input.shift.cashSales !== undefined ? increment(fx.shiftFx.cashSalesDelta) : fx.shiftFx.shift.cashSales,
+        branch: fx.shiftFx.shift.branch || undefined,
+      }));
+    }
+    if (fx.clientFx && input.client) {
+      batch.update(getDocRef('clients', input.client.id), withoutUndefined({
+        totalSpent: increment(fx.clientFx.totalSpentDelta),
+        loyaltyPoints: increment(fx.clientFx.loyaltyPointsDelta),
+        balanceCredit: increment(fx.clientFx.balanceCreditDelta),
+        lastPurchaseDate: fx.clientFx.client.lastPurchaseDate,
+        branch: fx.clientFx.client.branch || undefined,
+      }));
+    }
+    for (const m of fx.movements) batch.set(getDocRef('stockMovements', m.id), m);
+    if (originalRef) batch.update(originalRef, returnMark);
+    await commitBatch(batch, true);
+    return { sale, products: fx.products, shift: fx.shiftFx?.shift, client: fx.clientFx?.client, alreadyRegistered: false, pendingSync: true };
   };
-  const saleRef = getDocRef('sales', saleId);
-  batch.set(saleRef, cleanDataForFirestore(finalSale));
 
-  // 2. Add product stock deductions to atomic batch
-  for (const p of params.productUpdates) {
-    const prodRef = getDocRef('products', p.id);
-    batch.set(prodRef, cleanDataForFirestore(p));
-  }
+  const result = await runOnlineOrOffline(online, offline);
+  refreshCaches(result);
+  return result;
+}
 
-  // 3. Add shift update to atomic batch
-  if (params.shiftUpdate) {
-    const shiftRef = getDocRef('shifts', params.shiftUpdate.id);
-    batch.set(shiftRef, cleanDataForFirestore(params.shiftUpdate));
-  }
+// ------------------------------------------------------------ Purchases ---
 
-  // 4. Add client loyalty/balance update to atomic batch
-  if (params.clientUpdate) {
-    const clientRef = getDocRef('clients', params.clientUpdate.id);
-    batch.set(clientRef, cleanDataForFirestore(params.clientUpdate));
-  }
+export interface PurchaseTxInput {
+  purchase: Purchase;        // id generated once by the caller
+  targets: (Product | undefined)[]; // product (existing or new draft) for each item
+  provider?: Provider;
+  shift?: Shift;
+  expenseDraft?: Expense;    // cash expense to register when the stock is received
+  previous?: Purchase;       // local copy of the stored purchase (offline fallback)
+  newProductIds?: string[];  // targets that are new drafts (not yet in Firestore)
+  operatorName?: string;
+}
 
-  // Commit atomically to IndexedDB cache queue + Firestore cloud
-  await batch.commit();
+export interface PurchaseTxResult {
+  purchase: Purchase;
+  products: Product[];
+  provider?: Provider;
+  shift?: Shift;
+  expense?: Expense;
+  alreadyApplied: boolean;
+  pendingSync: boolean;
+}
 
-  // Update in-memory caches instantly (0 additional reads)
-  if (cachedProducts && params.productUpdates.length > 0) {
-    const updatedMap = new Map(params.productUpdates.map(p => [p.id, p]));
-    cachedProducts = cachedProducts.map(p => updatedMap.get(p.id) || p);
+function computePurchaseEffects(input: PurchaseTxInput, prev: Purchase | undefined, fresh: Map<string, Product>, provider?: Provider, shift?: Shift) {
+  const pur = input.purchase;
+  // Stock, cash expense and movements are applied once: when the purchase
+  // reaches "completed" for the first time. Provider totals are counted once:
+  // when the purchase is created.
+  const receiveNow = pur.status === 'completed' && prev?.status !== 'completed';
+  const isNew = !prev;
+  const working = new Map<string, Product>();
+  const deltas = new Map<string, number>();
+  const existing = new Set<string>();
+  if (receiveNow) {
+    pur.items.forEach((item, i) => {
+      const target = input.targets[i];
+      if (!item || !target) return;
+      if (fresh.has(target.id)) existing.add(target.id);
+      const base = working.get(target.id) || fresh.get(target.id) || target;
+      const before = toNum(base.stock);
+      const updated: Product = { ...applyPurchaseItemToProduct(base, item), ...(pur.branch ? { branch: pur.branch } : {}) };
+      working.set(target.id, updated);
+      deltas.set(target.id, (deltas.get(target.id) || 0) + (toNum(updated.stock) - before));
+    });
   }
-  if (cachedShifts && params.shiftUpdate) {
-    const su = params.shiftUpdate;
-    cachedShifts = cachedShifts.map(sh => sh.id === su.id ? su : sh);
-  }
-  if (cachedClients && params.clientUpdate) {
-    const cu = params.clientUpdate;
-    cachedClients = cachedClients.map(c => c.id === cu.id ? cu : c);
-  }
+  const products = [...working.values()];
+  const totalPurchasesDelta = isNew ? pur.total : 0;
+  const creditPendingDelta = isNew && pur.paymentType === 'credit' ? pur.total : 0;
+  const providerUpdated = provider && (totalPurchasesDelta || creditPendingDelta)
+    ? { ...provider, branch: provider.branch || pur.branch, totalPurchases: (provider.totalPurchases || 0) + totalPurchasesDelta, creditPending: (provider.creditPending || 0) + creditPendingDelta }
+    : undefined;
+  const payCashNow = receiveNow && pur.paymentType === 'cash';
+  const expense = payCashNow ? input.expenseDraft : undefined;
+  const shiftUpdated = payCashNow && shift ? { ...shift, expensesTotal: (shift.expensesTotal || 0) + pur.total } : undefined;
+  return {
+    products, deltas, existing, providerUpdated, totalPurchasesDelta, creditPendingDelta, expense, shiftUpdated,
+    movements: buildMovements('compra', pur.id, deltas, products, { branch: pur.branch, date: pur.date || new Date().toISOString(), operatorName: input.operatorName }),
+  };
+}
 
-  return finalSale;
+export async function executePurchaseTransaction(input: PurchaseTxInput): Promise<PurchaseTxResult> {
+  const uid = getToken();
+  if (!uid) throw new Error('No autorizado. Inicie sesión.');
+  const purchase: Purchase = cleanDataForFirestore({ ...input.purchase, id: input.purchase.id || newDocId('pur') });
+  const purchaseRef = getDocRef('purchases', purchase.id);
+  const inputWithId = { ...input, purchase };
+
+  const online = () => runTransaction(db, async (tx: Transaction): Promise<PurchaseTxResult> => {
+    const prev = snapToEntity<Purchase>(await tx.get(purchaseRef));
+    if (prev && prev.status === 'completed' && purchase.status === 'completed') {
+      return { purchase: prev, products: [], alreadyApplied: true, pendingSync: false };
+    }
+    const ids = [...new Set(input.targets.filter(Boolean).map(t => t!.id))];
+    const snaps = await Promise.all(ids.map(id => tx.get(getDocRef('products', id))));
+    const fresh = new Map<string, Product>();
+    snaps.forEach(s => { const p = snapToEntity<Product>(s); if (p) fresh.set(p.id, p); });
+    const provider = input.provider ? snapToEntity<Provider>(await tx.get(getDocRef('providers', input.provider.id))) : undefined;
+    const shift = input.shift ? snapToEntity<Shift>(await tx.get(getDocRef('shifts', input.shift.id))) : undefined;
+
+    const fx = computePurchaseEffects(inputWithId, prev, fresh, provider, shift);
+    for (const p of fx.products) tx.set(getDocRef('products', p.id), cleanDataForFirestore(p));
+    if (fx.providerUpdated) tx.set(getDocRef('providers', fx.providerUpdated.id), cleanDataForFirestore(fx.providerUpdated));
+    if (fx.expense) tx.set(getDocRef('expenses', fx.expense.id), cleanDataForFirestore(fx.expense));
+    if (fx.shiftUpdated) tx.set(getDocRef('shifts', fx.shiftUpdated.id), cleanDataForFirestore(fx.shiftUpdated));
+    for (const m of fx.movements) tx.set(getDocRef('stockMovements', m.id), m);
+    tx.set(purchaseRef, purchase);
+    return { purchase, products: fx.products, provider: fx.providerUpdated, shift: fx.shiftUpdated, expense: fx.expense, alreadyApplied: false, pendingSync: false };
+  });
+
+  const offline = async (): Promise<PurchaseTxResult> => {
+    const prev = input.previous;
+    if (prev && prev.status === 'completed' && purchase.status === 'completed') {
+      return { purchase: prev, products: [], alreadyApplied: true, pendingSync: true };
+    }
+    const local = new Map<string, Product>();
+    const newIds = new Set(input.newProductIds || []);
+    for (const t of input.targets) if (t && !newIds.has(t.id)) local.set(t.id, t);
+    const fx = computePurchaseEffects(inputWithId, prev, local, input.provider, input.shift);
+    const batch = writeBatch(db);
+    for (const p of fx.products) {
+      const ref = getDocRef('products', p.id);
+      if (fx.existing.has(p.id)) {
+        const { stock: _s, ...rest } = cleanDataForFirestore(p) as any;
+        batch.update(ref, stockPatch(p, fx.deltas.get(p.id) || 0, rest));
+      } else {
+        batch.set(ref, cleanDataForFirestore(p));
+      }
+    }
+    if (fx.providerUpdated && input.provider) {
+      batch.update(getDocRef('providers', input.provider.id), {
+        totalPurchases: increment(fx.totalPurchasesDelta),
+        creditPending: increment(fx.creditPendingDelta),
+      });
+    }
+    if (fx.expense) batch.set(getDocRef('expenses', fx.expense.id), cleanDataForFirestore(fx.expense));
+    if (fx.shiftUpdated && input.shift) batch.update(getDocRef('shifts', input.shift.id), { expensesTotal: increment(purchase.total) });
+    for (const m of fx.movements) batch.set(getDocRef('stockMovements', m.id), m);
+    batch.set(purchaseRef, purchase);
+    await commitBatch(batch, true);
+    return { purchase, products: fx.products, provider: fx.providerUpdated, shift: fx.shiftUpdated, expense: fx.expense, alreadyApplied: false, pendingSync: true };
+  };
+
+  const result = await runOnlineOrOffline(online, offline);
+  refreshCaches(result);
+  return result;
+}
+
+// ------------------------------------------------------------ Transfers ---
+
+export interface TransferTxInput {
+  source: Product;
+  target?: Product;          // existing product in the target branch, if any
+  quantity: number;
+  sourceBranchName: string;
+  targetBranchName: string;
+  operatorName?: string;
+}
+
+export async function executeStockTransfer(input: TransferTxInput): Promise<{ source: Product; target: Product; pendingSync: boolean }> {
+  const uid = getToken();
+  if (!uid) throw new Error('No autorizado. Inicie sesión.');
+  const transferId = newDocId('trf');
+  const newTargetId = input.target?.id || newDocId('prod');
+  const date = new Date().toISOString();
+
+  const movements = (source: Product, target: Product) => [
+    ...buildMovements('transferencia_salida', transferId, new Map([[source.id, -input.quantity]]), [source], { branch: input.sourceBranchName, date, operatorName: input.operatorName }),
+    ...buildMovements('transferencia_entrada', transferId, new Map([[target.id, input.quantity]]), [target], { branch: input.targetBranchName, date, operatorName: input.operatorName }),
+  ];
+
+  const online = () => runTransaction(db, async (tx: Transaction) => {
+    const source = snapToEntity<Product>(await tx.get(getDocRef('products', input.source.id)));
+    if (!source) throw new Error('Producto a transferir no encontrado.');
+    const available = Math.max(0, toNum(source.stock));
+    if (input.quantity <= 0 || input.quantity > available) {
+      throw new Error(`Cantidad inválida. Stock disponible en ${input.sourceBranchName}: ${available}`);
+    }
+    const target = input.target ? snapToEntity<Product>(await tx.get(getDocRef('products', input.target.id))) : undefined;
+    const updatedSource = applyTransferOut(source, input.quantity, input.sourceBranchName);
+    const updatedTarget = applyTransferIn(source, target, input.quantity, input.targetBranchName, newTargetId);
+    tx.set(getDocRef('products', updatedSource.id), cleanDataForFirestore(updatedSource));
+    tx.set(getDocRef('products', updatedTarget.id), cleanDataForFirestore(updatedTarget));
+    for (const m of movements(updatedSource, updatedTarget)) tx.set(getDocRef('stockMovements', m.id), m);
+    return { source: updatedSource, target: updatedTarget, pendingSync: false };
+  });
+
+  const offline = async () => {
+    const available = Math.max(0, toNum(input.source.stock));
+    if (input.quantity <= 0 || input.quantity > available) {
+      throw new Error(`Cantidad inválida. Stock disponible en ${input.sourceBranchName}: ${available}`);
+    }
+    const updatedSource = applyTransferOut(input.source, input.quantity, input.sourceBranchName);
+    const updatedTarget = applyTransferIn(input.source, input.target, input.quantity, input.targetBranchName, newTargetId);
+    const batch = writeBatch(db);
+    batch.update(getDocRef('products', updatedSource.id), stockPatch(updatedSource, -input.quantity));
+    if (input.target) batch.update(getDocRef('products', updatedTarget.id), stockPatch(updatedTarget, input.quantity));
+    else batch.set(getDocRef('products', updatedTarget.id), cleanDataForFirestore(updatedTarget));
+    for (const m of movements(updatedSource, updatedTarget)) batch.set(getDocRef('stockMovements', m.id), m);
+    await commitBatch(batch, true);
+    return { source: updatedSource, target: updatedTarget, pendingSync: true };
+  };
+
+  const result = await runOnlineOrOffline(online, offline);
+  refreshCaches({ products: [result.source, result.target] });
+  return result;
+}
+
+// ------------------------------------------------- Expenses and payments ---
+
+// Saves or deletes an expense and moves the shift's expensesTotal by the
+// difference only (editing an expense no longer adds its amount again).
+export async function executeExpenseChange(input: {
+  expense: Expense;
+  previous?: Expense;
+  shift?: Shift;
+  remove?: boolean;
+}): Promise<{ expense: Expense; shift?: Shift }> {
+  const expense: Expense = cleanDataForFirestore({ ...input.expense, id: input.expense.id || newDocId('exp') });
+  const delta = input.remove
+    ? -toNum((input.previous || input.expense).amount)
+    : toNum(expense.amount) - (input.previous ? toNum(input.previous.amount) : 0);
+  const batch = writeBatch(db);
+  if (input.remove) batch.delete(getDocRef('expenses', expense.id));
+  else batch.set(getDocRef('expenses', expense.id), expense);
+  let shift: Shift | undefined;
+  if (input.shift && delta !== 0) {
+    shift = { ...input.shift, expensesTotal: Math.max(0, (input.shift.expensesTotal || 0) + delta) };
+    batch.update(getDocRef('shifts', input.shift.id), withoutUndefined({
+      expensesTotal: increment(delta),
+      branch: input.shift.branch || expense.branch || undefined,
+    }));
+  }
+  await commitBatch(batch, isLikelyOffline());
+  refreshCaches({ shift });
+  return { expense, shift };
+}
+
+export async function executeClientPayment(input: { client: Client; amount: number; shift?: Shift }): Promise<{ client: Client; shift?: Shift }> {
+  const applied = Math.min(Math.max(0, input.amount), Math.max(0, input.client.balanceCredit || 0));
+  const client: Client = { ...input.client, balanceCredit: Math.max(0, (input.client.balanceCredit || 0) - applied) };
+  const batch = writeBatch(db);
+  batch.update(getDocRef('clients', client.id), { balanceCredit: increment(-applied) });
+  let shift: Shift | undefined;
+  if (input.shift) {
+    const s = input.shift;
+    const baseCash = (s.cashSales !== undefined ? s.cashSales : s.salesTotal) || 0;
+    shift = { ...s, salesTotal: (s.salesTotal || 0) + input.amount, cashSales: baseCash + input.amount };
+    batch.update(getDocRef('shifts', s.id), {
+      salesTotal: increment(input.amount),
+      cashSales: s.cashSales !== undefined ? increment(input.amount) : shift.cashSales,
+    });
+  }
+  await commitBatch(batch, isLikelyOffline());
+  refreshCaches({ client, shift });
+  return { client, shift };
+}
+
+export async function executeProviderPayment(input: { provider: Provider; amount: number; expense?: Expense; shift?: Shift }): Promise<{ provider: Provider; expense?: Expense; shift?: Shift }> {
+  const applied = Math.min(Math.max(0, input.amount), Math.max(0, input.provider.creditPending || 0));
+  const provider: Provider = { ...input.provider, creditPending: Math.max(0, (input.provider.creditPending || 0) - applied) };
+  const batch = writeBatch(db);
+  batch.update(getDocRef('providers', provider.id), { creditPending: increment(-applied) });
+  const expense = input.expense ? cleanDataForFirestore({ ...input.expense, id: input.expense.id || newDocId('exp') }) : undefined;
+  if (expense) batch.set(getDocRef('expenses', expense.id), expense);
+  let shift: Shift | undefined;
+  if (expense && input.shift) {
+    shift = { ...input.shift, expensesTotal: (input.shift.expensesTotal || 0) + input.amount };
+    batch.update(getDocRef('shifts', input.shift.id), { expensesTotal: increment(input.amount) });
+  }
+  await commitBatch(batch, isLikelyOffline());
+  refreshCaches({ provider, shift });
+  return { provider, expense, shift };
+}
+
+// Open shifts as stored (server when online, local cache when offline). Used
+// to allow only one open shift per branch.
+export async function getOpenShifts(): Promise<Shift[]> {
+  const q = query(getCollectionRef('shifts'), where('state', '==', 'open'));
+  try {
+    const snap = isLikelyOffline() ? await getDocsFromCache(q) : await getDocsFromServer(q);
+    return snap.docs.map(d => ({ ...(d.data() as Shift), id: d.id }));
+  } catch {
+    const snap = await getDocsFromCache(q).catch(() => null);
+    return snap ? snap.docs.map(d => ({ ...(d.data() as Shift), id: d.id })) : [];
+  }
 }
 
 // Purchases
@@ -2217,7 +2656,8 @@ export async function resetUserDatabase(): Promise<void> {
     'shifts',
     'operators',
     'quotations',
-    'consignments'
+    'consignments',
+    'stockMovements'
   ];
 
   for (const colName of collectionsToClear) {

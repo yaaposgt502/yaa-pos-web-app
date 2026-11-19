@@ -127,6 +127,24 @@ export interface Sale {
   branch?: string;
   voucherType?: 'ticket' | 'boleta' | 'factura' | 'recibo';
   saleType?: 'presencial' | 'delivery';
+  // Returns: the return record points to the sale it reverses, and the
+  // original sale is marked so it cannot be returned twice.
+  originalSaleId?: string;
+  returnSaleId?: string;
+  returnedAt?: string;
+}
+
+// Immutable inventory movement (kardex). quantity is signed, in base units.
+export interface StockMovement {
+  id: string;
+  productId: string;
+  productName: string;
+  type: 'venta' | 'devolucion' | 'compra' | 'transferencia_salida' | 'transferencia_entrada';
+  quantity: number;
+  refId: string;
+  branch?: string;
+  date: string;
+  operatorName?: string;
 }
 
 export interface PurchaseItem {

@@ -182,6 +182,16 @@ service cloud.firestore {
              (!('state' in data) || data.state in ['open', 'closed']);
     }
 
+    function isValidStockMovement(data) {
+      return isValidTenantDoc(data) &&
+             data.productId is string && data.productId.size() <= 128 &&
+             data.refId is string && data.refId.size() <= 128 &&
+             data.quantity is number &&
+             data.type in ['venta', 'devolucion', 'compra', 'transferencia_salida', 'transferencia_entrada'] &&
+             optStr(data, 'productName', 250) &&
+             optStr(data, 'date', 64);
+    }
+
     function isValidUserFile(data) {
       return isValidTenantDoc(data) &&
              optStr(data, 'name', 256) &&
@@ -283,10 +293,30 @@ service cloud.firestore {
       // Financial records: operators can create and update (e.g. returns,
       // paying a purchase, closing a shift) but only the owner or admin can
       // delete them.
+      // Sales are registered once. Afterwards an operator can only mark the
+      // sale as returned (once) or re-send the identical document (offline
+      // retry); editing amounts or items is reserved to the owner or admin.
       match /sales/{saleId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(saleId) && canWriteTenant(userId) && isValidSale(incoming());
+        allow create: if isValidId(saleId) && canWriteTenant(userId) && isValidSale(incoming());
+        allow update: if isValidId(saleId) && isValidSale(incoming()) && (
+                         isTenantOwnerOrAdmin(userId) ||
+                         (canWriteTenant(userId) && (
+                           incoming() == existing() ||
+                           (!('returnSaleId' in existing()) &&
+                            incoming().returnSaleId is string &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['returnSaleId', 'returnedAt'])))));
         allow delete: if isValidId(saleId) && isTenantOwnerOrAdmin(userId);
+      }
+
+      // Kardex: inventory movements are immutable. Re-sending the identical
+      // document (offline retry) is accepted; only the owner can delete
+      // (database reset).
+      match /stockMovements/{movementId} {
+        allow read: if canReadTenant(userId);
+        allow create: if isValidId(movementId) && canWriteTenant(userId) && isValidStockMovement(incoming());
+        allow update: if isValidId(movementId) && canWriteTenant(userId) && incoming() == existing();
+        allow delete: if isValidId(movementId) && isTenantOwnerOrAdmin(userId);
       }
 
       match /purchases/{purchaseId} {
