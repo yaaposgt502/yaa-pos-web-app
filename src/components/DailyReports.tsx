@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useRangeData } from '../utils/useRangeData';
+import RangeNotice from './RangeNotice';
 import { Sale, Expense, AppConfig, Client, Product, User, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
 import { parseSafeDate, isDateInRange, toLocalDateString, formatDisplayDateTime } from '../utils/dateHelper';
@@ -49,8 +51,8 @@ const getLocalDateStr = (d: Date) => {
 };
 
 export default function DailyReports({ 
-  sales: rawSales, 
-  expenses, 
+  sales: liveSales, 
+  expenses: liveExpenses, 
   clients, 
   config, 
   products = [], 
@@ -88,6 +90,24 @@ export default function DailyReports({
       setSelectedBranch(activeBranchName);
     }
   }, [activeBranchName]);
+
+  // Filter States - Default to the current month to show all relevant sales automatically
+  const [startDate, setStartDate] = useState<string>(() => {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    return getLocalDateStr(firstDay);
+  });
+
+  const [endDate, setEndDate] = useState<string>(() => {
+    return getLocalDateStr(new Date());
+  });
+
+  // All sales / expenses of the selected period (not only the most recent ones
+  // kept by the live listeners).
+  const salesRange = useRangeData('sales', liveSales, startDate, endDate);
+  const expensesRange = useRangeData('expenses', liveExpenses, startDate, endDate);
+  const rawSales = salesRange.items;
+  const expenses = expensesRange.items;
 
   const sales = useMemo(() => {
     if (user?.isOperator && allowedBranches.length > 0) {
@@ -128,17 +148,6 @@ export default function DailyReports({
 
   // Loaded operators state
   const [operators, setOperators] = useState<any[]>([]);
-
-  // Filter States - Default to the current month to show all relevant sales automatically
-  const [startDate, setStartDate] = useState<string>(() => {
-    const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    return getLocalDateStr(firstDay);
-  });
-
-  const [endDate, setEndDate] = useState<string>(() => {
-    return getLocalDateStr(new Date());
-  });
 
   const [selectedUser, setSelectedUser] = useState('Todos');
   const [selectedVoucherType, setSelectedVoucherType] = useState('Todos');
@@ -480,6 +489,12 @@ export default function DailyReports({
             FILTROS DE BÚSQUEDA
           </h2>
           
+          <RangeNotice
+            loading={salesRange.loading || expensesRange.loading}
+            truncated={salesRange.truncated || expensesRange.truncated}
+            fromCache={salesRange.fromCache || expensesRange.fromCache}
+            error={salesRange.error || expensesRange.error}
+          />
           {/* QUICK PRESET BUTTONS FOR QUICK SYNC AND INTUITIVE ACCESS */}
           <div className="flex flex-wrap gap-1.5">
             <button

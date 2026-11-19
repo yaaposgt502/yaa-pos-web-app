@@ -28,6 +28,9 @@ import {
   runTransaction,
   increment,
   deleteField,
+  startAfter,
+  type QueryConstraint,
+  type QueryDocumentSnapshot,
   type WriteBatch,
   type Transaction,
   type DocumentReference
@@ -2597,7 +2600,47 @@ export function subscribeProviders(callback: (providers: Provider[], metadata?: 
   }
 }
 
-export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata) => void, limitCount = 300): () => void {
+// How many of the most recent records each live listener keeps in memory.
+// Reports that need older records query them by date range
+// (fetchCollectionInRange) instead of silently using a partial list.
+export const LIVE_LIMITS = { sales: 300, purchases: 150, expenses: 150, shifts: 50 } as const;
+
+export type RangeCollection = 'sales' | 'purchases' | 'expenses';
+
+// All documents of a collection whose "date" falls between fromIso and toIso
+// (ISO strings, both optional), read page by page. When maxDocs is reached
+// the result is marked as truncated so the screen can say so.
+export async function fetchCollectionInRange<T>(
+  col: RangeCollection,
+  fromIso: string | null,
+  toIso: string | null,
+  maxDocs = 20000
+): Promise<{ items: T[]; truncated: boolean; fromCache: boolean }> {
+  const PAGE = 500;
+  const base: QueryConstraint[] = [];
+  if (fromIso) base.push(where('date', '>=', fromIso));
+  if (toIso) base.push(where('date', '<=', toIso));
+  base.push(orderBy('date', 'desc'));
+  const colRef = getCollectionRef(col);
+
+  if (isLikelyOffline()) {
+    const snap = await getDocsFromCache(query(colRef, ...base, limit(maxDocs)));
+    return { items: snap.docs.map(d => d.data() as T), truncated: snap.size >= maxDocs, fromCache: true };
+  }
+
+  const items: T[] = [];
+  let last: QueryDocumentSnapshot | null = null;
+  while (items.length < maxDocs) {
+    const constraints = [...base, ...(last ? [startAfter(last)] : []), limit(Math.min(PAGE, maxDocs - items.length))];
+    const snap = await getDocs(query(colRef, ...constraints));
+    snap.docs.forEach(d => items.push(d.data() as T));
+    if (snap.size === 0 || snap.size < PAGE) return { items, truncated: false, fromCache: false };
+    last = snap.docs[snap.docs.length - 1];
+  }
+  return { items, truncated: true, fromCache: false };
+}
+
+export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata) => void, limitCount = LIVE_LIMITS.sales): () => void {
   try {
     const colRef = getCollectionRef('sales');
     // Order by date descending so the newest sales are always streamed
@@ -2631,7 +2674,7 @@ export function subscribeSales(callback: (sales: Sale[], metadata?: SyncMetadata
   }
 }
 
-export function subscribePurchases(callback: (purchases: Purchase[], metadata?: SyncMetadata) => void, limitCount = 150): () => void {
+export function subscribePurchases(callback: (purchases: Purchase[], metadata?: SyncMetadata) => void, limitCount = LIVE_LIMITS.purchases): () => void {
   try {
     const colRef = getCollectionRef('purchases');
     const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
@@ -2661,7 +2704,7 @@ export function subscribePurchases(callback: (purchases: Purchase[], metadata?: 
   }
 }
 
-export function subscribeExpenses(callback: (expenses: Expense[], metadata?: SyncMetadata) => void, limitCount = 150): () => void {
+export function subscribeExpenses(callback: (expenses: Expense[], metadata?: SyncMetadata) => void, limitCount = LIVE_LIMITS.expenses): () => void {
   try {
     const colRef = getCollectionRef('expenses');
     const q = query(colRef, orderBy('date', 'desc'), limit(limitCount));
@@ -2691,7 +2734,7 @@ export function subscribeExpenses(callback: (expenses: Expense[], metadata?: Syn
   }
 }
 
-export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetadata) => void, limitCount = 50): () => void {
+export function subscribeShifts(callback: (shifts: Shift[], metadata?: SyncMetadata) => void, limitCount = LIVE_LIMITS.shifts): () => void {
   try {
     const colRef = getCollectionRef('shifts');
     const q = query(colRef, orderBy('openedAt', 'desc'), limit(limitCount));

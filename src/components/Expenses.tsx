@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useRangeData } from '../utils/useRangeData';
 import { Expense, AppConfig, User } from '../types';
 import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
 import { 
@@ -29,7 +30,7 @@ interface ExpensesProps {
 }
 
 export default function Expenses({ 
-  expenses, 
+  expenses: liveExpenses, 
   currency, 
   onSaveExpense, 
   onDeleteExpense, 
@@ -140,6 +141,10 @@ export default function Expenses({
       }
     }
   };
+
+  // Every expense (not only the most recent ones kept by the live listener).
+  const expensesRange = useRangeData('expenses', liveExpenses, '', '');
+  const expenses = expensesRange.items;
 
   // Filter & Search Logic
   const filteredExpenses = useMemo(() => {

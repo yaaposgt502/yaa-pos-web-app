@@ -1,4 +1,5 @@
 import React from 'react';
+import { useRangeData } from '../utils/useRangeData';
 import { Product, Sale, Expense, Shift, AppConfig, User, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
 import { parseSafeDate, toLocalDateString, formatDisplayTime, formatDisplayDateTime } from '../utils/dateHelper';
@@ -42,8 +43,8 @@ interface DashboardProps {
 
 export default function Dashboard({ 
   products, 
-  sales: rawSales, 
-  expenses, 
+  sales: liveSales, 
+  expenses: liveExpenses, 
   shifts: rawShifts, 
   config, 
   onNavigate, 
@@ -82,6 +83,18 @@ export default function Dashboard({
       setSelectedBranch(activeBranchName);
     }
   }, [activeBranchName]);
+
+  // The dashboard shows up to the last 30 days: read all sales/expenses of
+  // that window, not only the most recent ones kept by the live listeners.
+  const dashboardStart = React.useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 31);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+  const salesRange = useRangeData('sales', liveSales, dashboardStart, '');
+  const expensesRange = useRangeData('expenses', liveExpenses, dashboardStart, '');
+  const rawSales = salesRange.items;
+  const expenses = expensesRange.items;
 
   const sales = React.useMemo(() => {
     if (user?.isOperator && allowedBranches.length > 0) {

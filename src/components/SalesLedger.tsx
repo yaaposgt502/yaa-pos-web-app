@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useRangeData } from '../utils/useRangeData';
+import RangeNotice from './RangeNotice';
 import { Sale, Client, AppConfig, Product, User, Branch } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
 import { parseSafeDate, isDateInRange, formatDisplayDateTime, toLocalDateString, getTodayDateString, isToday } from '../utils/dateHelper';
@@ -37,7 +39,7 @@ interface SalesLedgerProps {
 }
 
 export const SalesLedger: React.FC<SalesLedgerProps> = ({
-  sales,
+  sales: liveSales,
   clients,
   config,
   products = [],
@@ -84,6 +86,21 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
     }
   }, [activeBranchName]);
 
+  // Date filtering state - Robust local / Guatemala calendar date handling
+  const todayStr = useMemo(() => getTodayDateString(), []);
+  const [datePreset, setDatePreset] = useState<'today' | 'month' | '30days' | 'all' | 'custom'>('month');
+  
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [endDate, setEndDate] = useState<string>(() => getTodayDateString());
+
+  // All sales of the selected period (not only the most recent ones kept by
+  // the live listener).
+  const salesRange = useRangeData('sales', liveSales, startDate, endDate);
+  const sales = salesRange.items;
+
   const effectiveSales = useMemo(() => {
     if (user?.isOperator && allowedBranches.length > 0) {
       return sales.filter(s => {
@@ -100,16 +117,6 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
 
     return sales;
   }, [sales, user, allowedBranches, selectedBranch, availableBranches]);
-
-  // Date filtering state - Robust local / Guatemala calendar date handling
-  const todayStr = useMemo(() => getTodayDateString(), []);
-  const [datePreset, setDatePreset] = useState<'today' | 'month' | '30days' | 'all' | 'custom'>('month');
-  
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-  });
-  const [endDate, setEndDate] = useState<string>(() => getTodayDateString());
 
   // Secondary filters
   const [selectedUser, setSelectedUser] = useState<string>('Todos');
@@ -279,6 +286,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
             </p>
           </div>
           
+          <RangeNotice loading={salesRange.loading} truncated={salesRange.truncated} fromCache={salesRange.fromCache} error={salesRange.error} />
           <div className="flex flex-wrap items-center gap-3">
             {/* Quick Date Presets */}
             <div className="flex bg-slate-100 p-1 rounded-xl gap-1">

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { esc } from '../utils/escapeHtml';
 import { useConfigList } from '../utils/useConfigList';
+import { buildKardexHistory, formatKardexDate } from '../utils/kardex';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, AppConfig, Sale, Purchase, Branch, User, StockMovement } from '../types';
 import * as api from '../api';
@@ -938,184 +939,33 @@ export default function Inventory({
   const [newAdjustmentType, setNewAdjustmentType] = useState<'entrada' | 'salida'>('entrada');
   const [newAdjustmentReason, setNewAdjustmentReason] = useState('Ajuste de inventario');
 
-  const [adjustmentMovements, setAdjustmentMovements] = useState<StockMovement[]>([]);
+  // Kardex: every recorded movement of the product (stockMovements).
+  const [productMovements, setProductMovements] = useState<StockMovement[]>([]);
   const [kardexReloadKey, setKardexReloadKey] = useState(0);
   useEffect(() => {
-    if (!selectedKardexProduct) { setAdjustmentMovements([]); return; }
+    if (!selectedKardexProduct) { setProductMovements([]); return; }
     let cancelled = false;
-    api.getStockMovements(selectedKardexProduct.id, 'ajuste').then(list => { if (!cancelled) setAdjustmentMovements(list); });
+    api.getStockMovements(selectedKardexProduct.id).then(list => { if (!cancelled) setProductMovements(list); });
     return () => { cancelled = true; };
   }, [selectedKardexProduct?.id, kardexReloadKey]);
 
   const productKardexHistory = useMemo(() => {
     if (!selectedKardexProduct) return [];
-
-    const history: Array<{
-      id: string;
-      date: string;
-      type: 'entrada' | 'salida' | 'inicial';
-      concept: string;
-      reference: string;
-      quantity: number;
-      price?: number;
-      cost?: number;
-      balance: number;
-      user: string;
-      operation: string;
-      motivo: string;
-      lote: string;
-      vence: string;
-    }> = [];
-
-    if (sales) {
-      sales.forEach(sale => {
-        if (kardexBranch !== 'Todas' && !isItemInBranch(sale.branch, kardexBranch, branches || config.branches)) {
-          return;
-        }
-        const item = sale.items.find(i => i.productId === selectedKardexProduct.id);
-        if (item) {
-          history.push({
-            id: `sale-${sale.id}-${item.productId}`,
-            date: sale.date,
-            type: 'salida',
-            concept: 'Venta (POS)',
-            reference: `Nota #${sale.id.substring(0, 6).toUpperCase()}`,
-            quantity: item.quantity,
-            price: item.price,
-            cost: item.cost,
-            balance: 0,
-            user: 'Administrador',
-            operation: 'Salida',
-            motivo: 'Venta',
-            lote: `LOTE-${selectedKardexProduct.code}-1`,
-            vence: selectedKardexProduct.expirationDate || '9/12/2026'
-          });
-        }
-      });
-    }
-
-    if (purchases) {
-      purchases.forEach(purchase => {
-        if (kardexBranch !== 'Todas' && !isItemInBranch(purchase.branch, kardexBranch, branches || config.branches)) {
-          return;
-        }
-        const item = purchase.items.find(i => i.productId === selectedKardexProduct.id);
-        if (item) {
-          history.push({
-            id: `purchase-${purchase.id}-${item.productId}`,
-            date: purchase.date,
-            type: 'entrada',
-            concept: 'Compra a Proveedor',
-            reference: `Orden #${purchase.id.substring(0, 6).toUpperCase()}`,
-            quantity: item.quantity,
-            cost: item.cost,
-            balance: 0,
-            user: 'Administrador',
-            operation: 'Entrada',
-            motivo: 'Compra',
-            lote: item.lote || selectedKardexProduct.initialBatch || '00101',
-            vence: item.expirationDate || selectedKardexProduct.expirationDate || '—'
-          });
-        }
-      });
-    }
-
-    // Ajustes manuales registrados en el kardex de Firestore.
-    adjustmentMovements.forEach(m => {
-      const isIn = m.quantity > 0;
-      history.push({
-        id: m.id,
-        date: m.date,
-        type: isIn ? 'entrada' : 'salida',
-        concept: m.reason || 'Ajuste Manual',
-        reference: m.reason || 'Ajuste de inventario',
-        quantity: Math.abs(m.quantity),
-        cost: selectedKardexProduct.cost,
-        price: selectedKardexProduct.price,
-        balance: 0,
-        user: m.operatorName || 'Usuario',
-        operation: isIn ? 'Entrada' : 'Salida',
-        motivo: 'Ajuste Manual',
-        lote: selectedKardexProduct.initialBatch || '—',
-        vence: selectedKardexProduct.expirationDate || '—'
-      });
+    let legacyAdjustments: any[] = [];
+    try {
+      const raw = localStorage.getItem(`kardex_adjustments_${selectedKardexProduct.id}`);
+      if (raw) legacyAdjustments = JSON.parse(raw);
+    } catch {}
+    return buildKardexHistory({
+      product: selectedKardexProduct,
+      movements: productMovements,
+      sales: sales || [],
+      purchases: purchases || [],
+      legacyAdjustments,
+      branchFilter: kardexBranch,
+      branches: branches || config.branches,
     });
-
-    // Ajustes antiguos guardados solo en este navegador (solo lectura).
-    const savedAdjustmentsKey = `kardex_adjustments_${selectedKardexProduct.id}`;
-    const savedAdjustmentsStr = localStorage.getItem(savedAdjustmentsKey);
-    if (savedAdjustmentsStr) {
-      try {
-        const adjustments = JSON.parse(savedAdjustmentsStr);
-        adjustments.forEach((adj: any) => {
-          history.push({
-            id: adj.id,
-            date: adj.date,
-            type: adj.type,
-            concept: adj.reference || 'Ajuste Manual',
-            reference: adj.reference || 'Ajuste de inventario',
-            quantity: adj.quantity,
-            cost: selectedKardexProduct.cost,
-            price: selectedKardexProduct.price,
-            balance: 0,
-            user: 'Administrador',
-            operation: adj.type === 'entrada' ? 'Entrada' : 'Salida',
-            motivo: 'Ajuste Manual',
-            lote: adj.lote || `LOTE-${selectedKardexProduct.code}-1`,
-            vence: adj.vence || selectedKardexProduct.expirationDate || '10/12/2026'
-          });
-        });
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    history.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    let sumEntradas = 0;
-    let sumSalidas = 0;
-    history.forEach(h => {
-      if (h.type === 'entrada') sumEntradas += h.quantity;
-      if (h.type === 'salida') sumSalidas += h.quantity;
-    });
-
-    let calculatedInitial = selectedKardexProduct.stock - sumEntradas + sumSalidas;
-    if (calculatedInitial < 0) {
-      calculatedInitial = 0;
-    }
-
-    const initialRecord = {
-      id: `initial-${selectedKardexProduct.id}`,
-      date: selectedKardexProduct.expirationDate || '2026-05-18T20:56:45.000Z',
-      type: 'inicial' as const,
-      concept: 'Inventario Inicial',
-      reference: 'Stock demo ' + selectedKardexProduct.code,
-      quantity: calculatedInitial,
-      cost: selectedKardexProduct.cost,
-      price: selectedKardexProduct.price,
-      balance: calculatedInitial,
-      user: 'administrador',
-      operation: 'Entrada',
-      motivo: 'Inicial',
-      lote: `LOTE-${selectedKardexProduct.code}-1`,
-      vence: selectedKardexProduct.expirationDate || '9/12/2026'
-    };
-
-    const fullHistory = [initialRecord, ...history];
-
-    let currentBal = calculatedInitial;
-    for (let i = 1; i < fullHistory.length; i++) {
-      const entry = fullHistory[i];
-      if (entry.type === 'entrada') {
-        currentBal += entry.quantity;
-      } else if (entry.type === 'salida') {
-        currentBal -= entry.quantity;
-      }
-      entry.balance = currentBal;
-    }
-
-    return [...fullHistory].reverse();
-  }, [selectedKardexProduct, sales, purchases, kardexBranch, branches, config.branches, adjustmentMovements]);
+  }, [selectedKardexProduct, sales, purchases, kardexBranch, branches, config.branches, productMovements]);
 
   const handlePrintKardex = () => {
     if (!selectedKardexProduct) return;
@@ -1207,7 +1057,7 @@ export default function Inventory({
                     <td><strong>${esc(h.concept)}</strong></td>
                     <td><span class="${esc(badgeClass)}">${esc(h.motivo)}</span></td>
                     <td>${esc(h.lote)}</td>
-                    <td>${h.vence ? new Date(h.vence).toLocaleDateString() : '-'}</td>
+                    <td>${esc(formatKardexDate(h.vence))}</td>
                     <td class="text-center entrada">${h.type === 'entrada' || h.type === 'inicial' ? h.quantity : ''}</td>
                     <td class="text-center salida">${h.type === 'salida' ? h.quantity : ''}</td>
                     <td class="text-right" style="font-weight: bold;">${esc(h.balance)}</td>
@@ -4953,7 +4803,7 @@ export default function Inventory({
                                 {h.lote}
                               </td>
                               <td className="py-3 px-3 text-slate-500">
-                                {h.vence ? new Date(h.vence).toLocaleDateString() : '-'}
+                                {formatKardexDate(h.vence)}
                               </td>
                               <td className="py-3 px-3 text-center font-bold font-mono text-emerald-600 text-[12px]">
                                 {h.type === 'entrada' || h.type === 'inicial' ? h.quantity : ''}

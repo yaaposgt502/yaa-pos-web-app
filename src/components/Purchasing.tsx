@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useRangeData } from '../utils/useRangeData';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, Provider, Purchase, PurchaseItem, AppConfig, User } from '../types';
 import { isItemInBranch } from '../utils/branchHelper';
@@ -48,7 +49,7 @@ interface PurchasingProps {
 export default function Purchasing({ 
   products, 
   providers, 
-  purchases, 
+  purchases: livePurchases, 
   currency, 
   config,
   user,
@@ -139,6 +140,16 @@ export default function Purchasing({
     status: 'all',
     payment: 'all',
   });
+
+  // Purchases of the filtered period (all of them when there is no date
+  // filter), not only the most recent ones kept by the live listener.
+  const purchasesRange = useRangeData(
+    'purchases',
+    livePurchases,
+    appliedFilters.exactDate || appliedFilters.startDate,
+    appliedFilters.exactDate || appliedFilters.endDate
+  );
+  const purchases = purchasesRange.items;
 
   // Selected purchase detail modal
   const [selectedPurchaseDetails, setSelectedPurchaseDetails] = useState<any | null>(null);
