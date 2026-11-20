@@ -332,3 +332,43 @@ describe('Otras empresas y anónimos', () => {
     await assertFails(setDoc(doc(ownerCtx(), 'licenses', OWNER), { status: 'Activa', planType: 'Pro' }));
   });
 });
+
+describe('Protecciones agregadas al unir el cambio de AI Studio', () => {
+  test('una cuenta nueva NO puede darse plan, estado o licencia al crear su perfil', async () => {
+    const db = env.authenticatedContext('nuevoUid', { email: 'nuevo@test.com' }).firestore();
+    await assertFails(setDoc(doc(db, 'users', 'nuevoUid'), { id: 'nuevoUid', name: 'Nuevo', plan: 'Pro' }));
+    await assertFails(setDoc(doc(db, 'users', 'nuevoUid'), { id: 'nuevoUid', name: 'Nuevo', accountStatus: 'active' }));
+    await assertSucceeds(setDoc(doc(db, 'users', 'nuevoUid'), { id: 'nuevoUid', name: 'Nuevo', email: 'nuevo@test.com', createdAt: '2026-11-20T00:00:00Z' }));
+  });
+
+  test('el dueño NO puede cambiarse su propio plan, licencia o rol, pero sí su nombre', async () => {
+    const db = ownerCtx();
+    await assertFails(setDoc(doc(db, 'users', OWNER), { plan: 'Pro' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'users', OWNER), { licenseExpiresAt: '2099-01-01' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'users', OWNER), { role: 'admin' }, { merge: true }));
+    await assertSucceeds(setDoc(doc(db, 'users', OWNER), { name: 'Dueño nuevo' }, { merge: true }));
+  });
+
+  test('un operador NO puede guardarse con contraseña ni con un correo distinto al documento', async () => {
+    const db = ownerCtx();
+    const conClave = op('nuevo@test.com', { password: '123456' });
+    await assertFails(setDoc(doc(db, 'users', OWNER, 'operators', conClave.email), conClave));
+    await assertFails(setDoc(doc(db, 'operators', conClave.email), conClave));
+    const otro = op('otro@test.com');
+    await assertFails(setDoc(doc(db, 'users', OWNER, 'operators', 'distinto@test.com'), otro));
+    await assertFails(setDoc(doc(db, 'operators', 'distinto@test.com'), otro));
+    const bueno = op('nuevo@test.com');
+    await assertSucceeds(setDoc(doc(db, 'users', OWNER, 'operators', bueno.email), bueno));
+    await assertSucceeds(setDoc(doc(db, 'operators', bueno.email), bueno));
+  });
+
+  test('cotizaciones y consignaciones: se aceptan las válidas y se rechazan las malformadas', async () => {
+    const db = cashierCtx();
+    const q = { id: 'q1', clientName: 'Ana', items: [], subtotal: 0, total: 0, status: 'vigente', branch: 'Central' };
+    await assertSucceeds(setDoc(doc(db, 'users', OWNER, 'quotations', 'q1'), q));
+    await assertFails(setDoc(doc(db, 'users', OWNER, 'quotations', 'q2'), { ...q, id: 'q2', status: 'inventado' }));
+    const c = { id: 'k1', clientId: 'c1', clientName: 'Ana', items: [], status: 'activa', totalDeliveredValue: 0, totalPendingValue: 0 };
+    await assertSucceeds(setDoc(doc(db, 'users', OWNER, 'consignments', 'k1'), c));
+    await assertFails(setDoc(doc(db, 'users', OWNER, 'consignments', 'k2'), { ...c, id: 'k2', items: 'no-es-lista' }));
+  });
+});
