@@ -1000,10 +1000,6 @@ export async function getOperators(): Promise<Operator[]> {
       return [ownerOp];
     }
 
-    const sessionOwnerPassword = typeof window !== 'undefined' 
-      ? (sessionStorage.getItem('yaa_pos_session_password') || localStorage.getItem('yaa_pos_owner_password') || '') 
-      : '';
-
     // Dynamic retroactive correction and real password security assurance
     const correctedList = await Promise.all(cleanedList.map(async (op) => {
       const isOwner = op.role === 'Propietario / Administrador' || op.email === 'juancastr19.14@gmail.com' || op.id === '1';

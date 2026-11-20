@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import firebaseConfig from './firebase-applet-config.json';
 
@@ -221,6 +220,8 @@ Analizando tus datos:
 
   // --- VITE MIDDLEWARE SETUP ---
   if (process.env.NODE_ENV !== 'production') {
+    // Vite is a dev dependency: load it only in development.
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -229,7 +230,7 @@ Analizando tus datos:
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.get('/{*splat}', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

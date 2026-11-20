@@ -243,6 +243,39 @@
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "userId", "clientName", "clientEmail", "planType", "status"]
+    },
+    "Quotation": {
+      "title": "Quotation",
+      "description": "Branch-scoped store quotation and proforma",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "correlative": { "type": "string", "maxLength": 64 },
+        "clientName": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string", "maxLength": 64 },
+        "expirationDate": { "type": "string", "maxLength": 64 },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "status": { "type": "string", "enum": ["borrador", "vigente", "vencida", "aceptada", "convertida"], "maxLength": 32 },
+        "branch": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id", "clientName", "items", "total", "status"]
+    },
+    "Consignment": {
+      "title": "Consignment",
+      "description": "Branch-scoped merchandise consignment record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "correlative": { "type": "string", "maxLength": 64 },
+        "clientId": { "type": "string", "maxLength": 128 },
+        "clientName": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string", "maxLength": 64 },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["activa", "liquidada_parcial", "liquidada_total", "devuelta_total"], "maxLength": 32 },
+        "branch": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id", "clientId", "clientName", "items", "status"]
     }
   },
   "firestore": {
@@ -289,6 +322,14 @@
     "/users/{userId}/operators/{operatorEmail}": {
       "schema": "Operator",
       "description": "Owner's isolated list of operators and cashiers with branch permissions"
+    },
+    "/users/{userId}/quotations/{quotationId}": {
+      "schema": "Quotation",
+      "description": "Branch-scoped quotations and proformas"
+    },
+    "/users/{userId}/consignments/{consignmentId}": {
+      "schema": "Consignment",
+      "description": "Branch-scoped consignments"
     },
     "/operators/{operatorEmail}": {
       "schema": "Operator",

@@ -208,10 +208,26 @@ service cloud.firestore {
              data.name is string && data.name.size() <= 200 &&
              data.status in ['active', 'inactive'] &&
              data.ownerId == ownerId &&
+             (!('password' in data) || data.password == null) &&
              isValidOptionalBranch(data) &&
              optStr(data, 'authUid', 128) &&
              optList(data, 'branches', 100) &&
              optList(data, 'disabledTabs', 50);
+    }
+
+    function isValidQuotation(data) {
+      return data.clientName is string && data.clientName.size() <= 200 &&
+             (data.total is number) &&
+             data.items is list && data.items.size() <= 500 &&
+             data.status in ['borrador', 'vigente', 'vencida', 'aceptada', 'convertida'] &&
+             isValidOptionalBranch(data);
+    }
+
+    function isValidConsignment(data) {
+      return data.clientName is string && data.clientName.size() <= 200 &&
+             data.items is list && data.items.size() <= 500 &&
+             data.status in ['activa', 'liquidada_parcial', 'liquidada_total', 'devuelta_total'] &&
+             isValidOptionalBranch(data);
     }
 
     // =========================================================================
@@ -242,7 +258,13 @@ service cloud.firestore {
 
       allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
                        isAdmin() ||
-                       request.auth.uid == userId
+                       // A new owner cannot grant itself a status, plan or license.
+                       (request.auth.uid == userId &&
+                        !('accountStatus' in incoming()) &&
+                        !('plan' in incoming()) &&
+                        !('licenseExpiresAt' in incoming()) &&
+                        !('isOperator' in incoming()) &&
+                        !('ownerId' in incoming()))
                     );
 
       allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming()) && (
@@ -250,9 +272,12 @@ service cloud.firestore {
                        (request.auth.uid == userId &&
                         isAccountActive(userId) &&
                         isLicenseActive(userId) &&
-                        (!('accountStatus' in incoming()) ||
-                         !('accountStatus' in existing()) ||
-                         incoming().accountStatus == existing().accountStatus))
+                        // The owner cannot change its own status, plan, license or role.
+                        (!('id' in incoming()) || incoming().id == userId) &&
+                        ((!('accountStatus' in incoming()) && !('accountStatus' in existing())) || incoming().accountStatus == existing().accountStatus) &&
+                        ((!('plan' in incoming()) && !('plan' in existing())) || incoming().plan == existing().plan) &&
+                        ((!('licenseExpiresAt' in incoming()) && !('licenseExpiresAt' in existing())) || incoming().licenseExpiresAt == existing().licenseExpiresAt) &&
+                        ((!('role' in incoming()) && !('role' in existing())) || incoming().role == existing().role))
                     );
 
       allow delete: if isAdmin();
@@ -343,13 +368,13 @@ service cloud.firestore {
 
       match /quotations/{quotationId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(quotationId) && canWriteTenant(userId) && isValidTenantDoc(incoming());
+        allow create, update: if isValidId(quotationId) && canWriteTenant(userId) && isValidTenantDoc(incoming()) && isValidQuotation(incoming());
         allow delete: if isValidId(quotationId) && canWriteTenant(userId);
       }
 
       match /consignments/{consignmentId} {
         allow read: if canReadTenant(userId);
-        allow create, update: if isValidId(consignmentId) && canWriteTenant(userId) && isValidTenantDoc(incoming());
+        allow create, update: if isValidId(consignmentId) && canWriteTenant(userId) && isValidTenantDoc(incoming()) && isValidConsignment(incoming());
         allow delete: if isValidId(consignmentId) && canWriteTenant(userId);
       }
 
@@ -370,7 +395,8 @@ service cloud.firestore {
                        request.auth.token.email.lower() == operatorEmail.lower()
                     );
         allow create, update: if isTenantOwnerOrAdmin(userId) &&
-                                 (isAdmin() || isValidOperator(incoming(), userId));
+                                 (isAdmin() || (isValidOperator(incoming(), userId) &&
+                                  incoming().email.lower() == operatorEmail.lower()));
         allow delete: if isTenantOwnerOrAdmin(userId);
       }
     }
@@ -404,13 +430,15 @@ service cloud.firestore {
       allow create: if isSignedIn() && (
                        isAdmin() ||
                        (isTenantOwnerOrAdmin(request.auth.uid) &&
-                        isValidOperator(incoming(), request.auth.uid))
+                        isValidOperator(incoming(), request.auth.uid) &&
+                        incoming().email.lower() == operatorEmail.lower())
                     );
       allow update: if isSignedIn() && (
                        isAdmin() ||
                        (existing().ownerId == request.auth.uid &&
                         isTenantOwnerOrAdmin(request.auth.uid) &&
-                        isValidOperator(incoming(), request.auth.uid))
+                        isValidOperator(incoming(), request.auth.uid) &&
+                        incoming().email.lower() == operatorEmail.lower())
                     );
       allow delete: if isSignedIn() && (
                        isAdmin() ||

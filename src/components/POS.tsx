@@ -2074,11 +2074,11 @@ export default function POS({
                   )}
                 </div>
 
-                {/* Mobile Barcode Scanner Camera Button */}
+                {/* Mobile & Tablet Barcode Scanner Camera Button */}
                 <button
                   type="button"
                   onClick={() => startPosBarcodeScanner()}
-                  className="md:hidden flex items-center justify-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer"
+                  className="lg:hidden flex items-center justify-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer"
                   title="Escanear código de barras con la cámara"
                 >
                   <Camera className="w-4 h-4" />
@@ -2087,8 +2087,8 @@ export default function POS({
                 </button>
               </div>
 
-              {/* Category selector */}
-              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+              {/* Category selector (Desktop dropdown) */}
+              <div className="hidden lg:flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
@@ -2099,6 +2099,27 @@ export default function POS({
                   ))}
                 </select>
               </div>
+            </div>
+
+            {/* Mobile & Tablet Category Pills Bar (Exclusively visible on mobile & tablet, hidden on desktop) */}
+            <div className="lg:hidden flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 scrollbar-none yaa-category-pills-row">
+              {categories.map((cat) => {
+                const isSelected = selectedCategory === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`yaa-category-pill px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                      isSelected
+                        ? 'bg-[#2563EB] text-white shadow-xs'
+                        : 'bg-[#F1F5F9] text-[#334155] border border-transparent hover:bg-slate-200/70'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Barcode scan result feedback banner (only in Venta Visual) */}

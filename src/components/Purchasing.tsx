@@ -872,7 +872,7 @@ export default function Purchasing({
                 <div className="sm:col-span-4 space-y-1 relative">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-bold text-slate-700">Producto</label>
-                    <span className="text-[10px] text-blue-600 font-medium md:hidden flex items-center gap-1">
+                    <span className="text-[10px] text-blue-600 font-medium lg:hidden flex items-center gap-1">
                       <Barcode className="w-3 h-3" />
                       Escáner cámara
                     </span>
@@ -918,11 +918,11 @@ export default function Purchasing({
                       )}
                     </div>
 
-                    {/* Mobile Camera Barcode Scanner Button */}
+                    {/* Mobile & Tablet Camera Barcode Scanner Button */}
                     <button
                       type="button"
                       onClick={() => startPurchaseBarcodeScanner()}
-                      className="md:hidden flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer h-9"
+                      className="lg:hidden flex items-center justify-center gap-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-700 active:scale-95 text-white rounded-xl font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer h-9"
                       title="Escanear código de barras con la cámara"
                     >
                       <Camera className="w-4 h-4" />

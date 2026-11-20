@@ -2248,11 +2248,11 @@ export default function Inventory({
                 />
               </div>
 
-              {/* Mobile Barcode Scanner Camera Button for Inventory */}
+              {/* Mobile & Tablet Barcode Scanner Camera Button for Inventory */}
               <button
                 type="button"
                 onClick={() => startBarcodeScanner('inventory_search')}
-                className="md:hidden flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer"
+                className="lg:hidden flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs shrink-0 transition-all cursor-pointer"
                 title="Escanear código de barras con la cámara"
               >
                 <Camera className="w-4 h-4" />
@@ -2317,6 +2317,27 @@ export default function Inventory({
             >
               Limpiar Filtros
             </button>
+          </div>
+
+          {/* Mobile & Tablet Category Pills Bar (Exclusively visible on mobile & tablet, hidden on desktop) */}
+          <div className="lg:hidden flex items-center gap-2 overflow-x-auto pb-1.5 pt-0.5 scrollbar-none yaa-category-pills-row">
+            {categories.map((cat) => {
+              const isSelected = selectedCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`yaa-category-pill px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                    isSelected
+                      ? 'bg-[#2563EB] text-white shadow-xs'
+                      : 'bg-white text-[#475569] border border-[#E2E8F0] hover:bg-slate-50'
+                  }`}
+                >
+                  {cat === 'Todas' ? 'Todos' : cat}
+                </button>
+              );
+            })}
           </div>
 
           {/* 5. Main Product List Table */}
