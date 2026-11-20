@@ -48,6 +48,8 @@ import { applySaleItemToProduct, applySaleToShift, applySaleToClient, applyPurch
 import { compressDataUrlIfNeeded } from './utils/imageCompressor';
 import { checkBranchLimit, checkUserLimit, checkProductLimit, getPlanDefinition } from './utils/planLimits';
 import { parseSafeDate, toLocalDateString } from './utils/dateHelper';
+import { addPending, markSynced, markRejected, removeEntry, readJournal, rejectedEntries, describeRejection, JOURNAL_BASE_KEY } from './utils/offlineJournal';
+import type { JournalEntry, JournalKind, JournalCheck } from './utils/offlineJournal';
 
 // In-memory runtime cache stores to eliminate redundant Firestore queries
 let cachedProducts: Product[] | null = null;
@@ -1767,11 +1769,38 @@ function isUnavailableError(err: any): boolean {
   return err?.code === 'unavailable' || msg.includes('client is offline') || msg.includes('offline');
 }
 
+// Operation described for the offline journal (see utils/offlineJournal.ts).
+interface JournalDraft {
+  id: string;
+  kind: JournalKind;
+  title: string;
+  detail: string;
+  amount?: number;
+  branch?: string;
+  check?: JournalCheck;
+  retry?: any;
+}
+
+function journalKey(): string {
+  return tenantStorageKey(JOURNAL_BASE_KEY);
+}
+
+const money = (n: any) => `Q${toNum(n).toFixed(2)}`;
+
 // Offline commits resolve only when the server answers, so they are not
 // awaited: the write is already in the local cache and the UI can continue.
-async function commitBatch(batch: WriteBatch, offline: boolean): Promise<void> {
+// Every offline operation is written to the journal first, so that if the
+// server rejects it the user is told and the data is not lost.
+async function commitBatch(batch: WriteBatch, offline: boolean, entry?: JournalDraft): Promise<void> {
   if (offline) {
-    batch.commit().catch(err => console.error('[Yaa POS] Error al sincronizar una operación pendiente:', err));
+    const key = journalKey();
+    if (entry) addPending(key, entry);
+    batch.commit()
+      .then(() => { if (entry) markSynced(key, entry.id); })
+      .catch(err => {
+        console.error('[Yaa POS] El servidor rechazó una operación guardada sin conexión:', err);
+        if (entry) markRejected(key, entry.id, describeRejection(err));
+      });
     return;
   }
   await batch.commit();
@@ -1963,7 +1992,24 @@ export async function executeSaleTransaction(input: SaleTxInput): Promise<SaleTx
     }
     for (const m of fx.movements) batch.set(getDocRef('stockMovements', m.id), m);
     if (originalRef) batch.update(originalRef, returnMark);
-    await commitBatch(batch, true);
+    const isReturn = !!sale.originalSaleId;
+    await commitBatch(batch, true, {
+      id: sale.id,
+      kind: isReturn ? 'devolucion' : 'venta',
+      title: `${isReturn ? 'Devolución' : 'Venta'} ${money(sale.total)}${sale.branch ? ` · ${sale.branch}` : ''}`,
+      detail: (sale.items || []).map(i => `${i.quantity} x ${i.name}`).join(', ').slice(0, 400)
+        + (input.client ? ` · Cliente: ${input.client.name}` : ''),
+      amount: toNum(sale.total),
+      branch: sale.branch,
+      check: { collection: 'sales', docId: sale.id, expect: 'exists' },
+      retry: {
+        sale,
+        saleBranch: input.saleBranch,
+        productIds: input.productIds,
+        shiftId: input.shift?.id,
+        clientId: input.client?.id,
+      },
+    });
     return { sale, products: fx.products, shift: fx.shiftFx?.shift, client: fx.clientFx?.client, alreadyRegistered: false, pendingSync: true };
   };
 
@@ -2090,7 +2136,18 @@ export async function executePurchaseTransaction(input: PurchaseTxInput): Promis
     if (fx.shiftUpdated && input.shift) batch.update(getDocRef('shifts', input.shift.id), { expensesTotal: increment(purchase.total) });
     for (const m of fx.movements) batch.set(getDocRef('stockMovements', m.id), m);
     batch.set(purchaseRef, purchase);
-    await commitBatch(batch, true);
+    await commitBatch(batch, true, {
+      id: fx.movements[0]?.id || `${purchase.id}_${purchase.status || 'save'}`,
+      kind: 'compra',
+      title: `Compra ${money(purchase.total)}${purchase.branch ? ` · ${purchase.branch}` : ''}`,
+      detail: `${input.provider?.name ? `Proveedor: ${input.provider.name} · ` : ''}${(purchase.items || []).length} producto(s)`,
+      amount: toNum(purchase.total),
+      branch: purchase.branch,
+      // Receiving stock writes kardex movements: their presence proves the purchase arrived.
+      check: fx.movements[0]
+        ? { collection: 'stockMovements', docId: fx.movements[0].id, expect: 'exists' }
+        : (prev ? undefined : { collection: 'purchases', docId: purchase.id, expect: 'exists' }),
+    });
     return { purchase, products: fx.products, provider: fx.providerUpdated, shift: fx.shiftUpdated, expense: fx.expense, alreadyApplied: false, pendingSync: true };
   };
 
@@ -2149,8 +2206,16 @@ export async function executeStockTransfer(input: TransferTxInput): Promise<{ so
     batch.update(getDocRef('products', updatedSource.id), stockPatch(updatedSource, -input.quantity));
     if (input.target) batch.update(getDocRef('products', updatedTarget.id), stockPatch(updatedTarget, input.quantity));
     else batch.set(getDocRef('products', updatedTarget.id), cleanDataForFirestore(updatedTarget));
-    for (const m of movements(updatedSource, updatedTarget)) batch.set(getDocRef('stockMovements', m.id), m);
-    await commitBatch(batch, true);
+    const mv = movements(updatedSource, updatedTarget);
+    for (const m of mv) batch.set(getDocRef('stockMovements', m.id), m);
+    await commitBatch(batch, true, {
+      id: transferId,
+      kind: 'transferencia',
+      title: `Transferencia de ${input.quantity} · ${input.sourceBranchName} → ${input.targetBranchName}`,
+      detail: input.source.name || '',
+      branch: input.sourceBranchName,
+      check: mv[0] ? { collection: 'stockMovements', docId: mv[0].id, expect: 'exists' } : undefined,
+    });
     return { source: updatedSource, target: updatedTarget, pendingSync: true };
   };
 
@@ -2212,7 +2277,14 @@ export async function executeStockAdjustment(input: {
     batch.update(productRef, stockPatch(updated, input.delta, cleanDataForFirestore(input.extraFields || {})));
     const m = movementFor(updated);
     batch.set(getDocRef('stockMovements', m.id), m);
-    await commitBatch(batch, true);
+    await commitBatch(batch, true, {
+      id: m.id,
+      kind: 'ajuste',
+      title: `Ajuste de inventario ${input.delta > 0 ? '+' : ''}${input.delta} · ${input.product.name || ''}`,
+      detail: m.reason || '',
+      branch: input.product.branch,
+      check: { collection: 'stockMovements', docId: m.id, expect: 'exists' },
+    });
     return { product: updated, pendingSync: true };
   };
 
@@ -2259,7 +2331,15 @@ export async function executeExpenseChange(input: {
       branch: input.shift.branch || expense.branch || undefined,
     }));
   }
-  await commitBatch(batch, isLikelyOffline());
+  await commitBatch(batch, isLikelyOffline(), {
+    id: `${expense.id}_${input.remove ? 'del' : Date.now()}`,
+    kind: 'gasto',
+    title: `${input.remove ? 'Borrar gasto' : 'Gasto'} ${money(expense.amount)}${expense.branch ? ` · ${expense.branch}` : ''}`,
+    detail: expense.description || '',
+    amount: toNum(expense.amount),
+    branch: expense.branch,
+    check: { collection: 'expenses', docId: expense.id, expect: input.remove ? 'missing' : 'exists' },
+  });
   refreshCaches({ shift });
   return { expense, shift };
 }
@@ -2279,7 +2359,14 @@ export async function executeClientPayment(input: { client: Client; amount: numb
       cashSales: s.cashSales !== undefined ? increment(input.amount) : shift.cashSales,
     });
   }
-  await commitBatch(batch, isLikelyOffline());
+  await commitBatch(batch, isLikelyOffline(), {
+    id: newDocId('abono'),
+    kind: 'abono_cliente',
+    title: `Abono de cliente ${money(input.amount)}`,
+    detail: `Cliente: ${input.client.name || ''}`,
+    amount: toNum(input.amount),
+    branch: input.shift?.branch,
+  });
   refreshCaches({ client, shift });
   return { client, shift };
 }
@@ -2296,9 +2383,111 @@ export async function executeProviderPayment(input: { provider: Provider; amount
     shift = { ...input.shift, expensesTotal: (input.shift.expensesTotal || 0) + input.amount };
     batch.update(getDocRef('shifts', input.shift.id), { expensesTotal: increment(input.amount) });
   }
-  await commitBatch(batch, isLikelyOffline());
+  await commitBatch(batch, isLikelyOffline(), {
+    id: expense?.id ? `pago_${expense.id}` : newDocId('pago'),
+    kind: 'pago_proveedor',
+    title: `Pago a proveedor ${money(input.amount)}`,
+    detail: `Proveedor: ${input.provider.name || ''}`,
+    amount: toNum(input.amount),
+    branch: input.shift?.branch,
+    check: expense ? { collection: 'expenses', docId: expense.id, expect: 'exists' } : undefined,
+  });
   refreshCaches({ provider, shift });
   return { provider, expense, shift };
+}
+
+// ------------------------------------------- Offline journal (rejections) ---
+
+export type { JournalEntry };
+
+// Operations saved without connection that the server rejected, for this company.
+export function getRejectedOperations(): JournalEntry[] {
+  return getToken() ? rejectedEntries(journalKey()) : [];
+}
+
+// The user decided not to keep a rejected operation.
+export function discardRejectedOperation(id: string): void {
+  removeEntry(journalKey(), id);
+}
+
+let reconciling = false;
+
+// Checks operations that were still waiting for the server's answer when the
+// page was closed or reloaded: Firestore resends them on its own, but nobody
+// hears the answer. Once this device has nothing left to send, an operation
+// whose document is not on the server was rejected.
+export async function reconcileOfflineJournal(): Promise<void> {
+  if (reconciling || !getToken() || isLikelyOffline()) return;
+  reconciling = true;
+  try {
+    const key = journalKey();
+    const pending = readJournal(key).filter(e => e.status === 'pending');
+    if (pending.length === 0) return;
+    // Still sending: decide later.
+    if (await hasUnsyncedWrites(8000)) return;
+    for (const entry of readJournal(key).filter(e => e.status === 'pending')) {
+      if (!entry.check) {
+        // Nothing to compare with: everything was sent, assume it arrived.
+        markSynced(key, entry.id);
+        continue;
+      }
+      try {
+        const snap = await getDocFromServer(getDocRef(entry.check.collection, entry.check.docId));
+        const arrived = entry.check.expect === 'exists' ? snap.exists() : !snap.exists();
+        if (arrived) markSynced(key, entry.id);
+        else markRejected(key, entry.id, 'El servidor no guardó esta operación. Se detectó al volver a conectarse (la página se había cerrado o recargado antes de recibir la respuesta).');
+      } catch (err) {
+        // Could not ask the server now (offline again, no permission...): try later.
+        console.warn('[Yaa POS] No se pudo comprobar una operación pendiente:', err);
+      }
+    }
+  } finally {
+    reconciling = false;
+  }
+}
+
+// Registers again a sale or return the server rejected. It needs connection:
+// it runs as a normal online transaction (fresh stock, never duplicated).
+// The sale goes to its original shift if it is still open, otherwise to the
+// open shift of the same branch, otherwise to no shift.
+export async function retryRejectedSale(id: string): Promise<SaleTxResult> {
+  const key = journalKey();
+  const entry = readJournal(key).find(e => e.id === id);
+  if (!entry || !entry.retry?.sale) throw new Error('Esta operación no se puede reintentar automáticamente.');
+  if (isLikelyOffline()) throw new Error('Necesita conexión a internet para reintentar.');
+  const r = entry.retry as { sale: Sale; saleBranch: string; productIds: string[]; shiftId?: string; clientId?: string };
+
+  let shift: Shift | undefined;
+  if (r.shiftId) {
+    const snap = await getDocFromServer(getDocRef('shifts', r.shiftId)).catch(() => null);
+    const s = snap && snap.exists() ? ({ ...(snap.data() as Shift), id: snap.id }) : undefined;
+    if (s && s.state === 'open') shift = s;
+  }
+  if (!shift) {
+    const open = await getOpenShifts();
+    const target = (r.saleBranch || r.sale.branch || '').trim().toLowerCase();
+    shift = open.find(s => (s.branch || '').trim().toLowerCase() === target);
+  }
+  let client: Client | undefined;
+  if (r.clientId) {
+    const snap = await getDocFromServer(getDocRef('clients', r.clientId)).catch(() => null);
+    if (snap && snap.exists()) client = { ...(snap.data() as Client), id: snap.id };
+  }
+
+  const result = await executeSaleTransaction({
+    sale: { ...r.sale, shiftId: shift?.id || r.sale.shiftId },
+    saleBranch: r.saleBranch,
+    productIds: r.productIds || [],
+    localProducts: [],
+    shift,
+    client,
+  });
+  if (result.pendingSync) {
+    // The connection dropped during the retry: it is journaled again as a new pending entry.
+    return result;
+  }
+  removeEntry(key, id);
+  return result;
 }
 
 // Open shifts as stored (server when online, local cache when offline). Used

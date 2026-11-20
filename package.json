@@ -9,7 +9,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:unit": "tsx --test tests/unit/inventoryMath.test.ts tests/unit/reports.test.ts",
+    "test:unit": "tsx --test tests/unit/inventoryMath.test.ts tests/unit/reports.test.ts tests/unit/offlineJournal.test.ts",
     "emulators": "tests/rules/node_modules/.bin/firebase emulators:start --project demo-yaa-pos --export-on-exit=./staging/emulator-data",
     "dev:staging": "VITE_USE_EMULATORS=true PORT=3100 tsx server.ts",
     "seed:staging": "node scripts/staging/seed.mjs",

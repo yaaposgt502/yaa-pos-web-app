@@ -4,6 +4,7 @@ import { Product, Client, Provider, Sale, Purchase, Expense, Shift, UserFile, Ap
 
 // Sub-components
 import Dashboard from './components/Dashboard';
+import RejectedOpsNotice from './components/RejectedOpsNotice';
 import POS from './components/POS';
 import Inventory from './components/Inventory';
 import Purchasing from './components/Purchasing';
@@ -212,6 +213,26 @@ export default function App() {
           // Real-time onSnapshot listeners handle collection population without redundant full-collection fetches
         } catch (err: any) {
           if (isCancelled) return;
+          // Without connection the session cannot be validated, but that is NOT a
+          // reason to sign out: the store would be locked out (signing in needs
+          // internet) and offline sales could not be sent. Keep the session with
+          // the profile saved on this device; the license is checked again by the
+          // license listener as soon as the server answers. Only an explicit block
+          // (suspended, deactivated, license) signs out.
+          const msg = String(err?.message || '');
+          const explicitBlock = /suspendida|desactivada|expirad|autorizada|licencia/i.test(msg);
+          const connectionProblem =
+            !navigator.onLine ||
+            err?.code === 'unavailable' ||
+            /offline|sin conexi|tiempo de espera agotado|network|failed to fetch/i.test(msg);
+          const cachedProfile = api.getCachedUser();
+          if (!explicitBlock && connectionProblem && cachedProfile && !api.isQuotaExceededError(err)) {
+            console.warn('[Yaa POS] Sin conexión al validar la sesión: se mantiene la sesión guardada en este equipo.', err);
+            setUser(cachedProfile);
+            clearTimeout(safetyTimer);
+            setIsInitializing(false);
+            return;
+          }
           try {
             await api.logoutUser();
           } catch {
@@ -2418,6 +2439,7 @@ export default function App() {
           <main className={`flex-1 p-3.5 sm:p-5 lg:p-7 ${
             activeTab === 'dashboard' ? 'pb-24' : 'pb-4'
           } md:pb-7 overflow-y-auto max-h-screen bg-[#F5F7FA]`}>
+            <RejectedOpsNotice isOnline={isOnline} />
             <ErrorBoundary key={`${activeTab}-${activeBranch?.id || 'all'}`}>
               {renderActiveComponent()}
             </ErrorBoundary>
