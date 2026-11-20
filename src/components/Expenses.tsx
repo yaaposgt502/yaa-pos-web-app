@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useRangeData } from '../utils/useRangeData';
 import { Expense, AppConfig, User } from '../types';
-import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
+import { isItemInBranch, getOperationalBranches, getSystemBranches } from '../utils/branchHelper';
 import { 
   Plus, 
   Search, 
@@ -46,6 +46,9 @@ export default function Expenses({
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Available branches list
+  // Branch matching must use ALL company branches. With an operator limited to
+  // one branch, a one-item list makes isItemInBranch treat every record as a match.
+  const matchBranches = getSystemBranches(config);
   const availableBranches = useMemo(() => {
     return getOperationalBranches(config, user);
   }, [config, user]);
@@ -162,7 +165,7 @@ export default function Expenses({
           ab.name.toLowerCase().trim() === (e.branch || defaultBranchName).toLowerCase().trim()
         );
       } else if (selectedBranch !== 'Todas') {
-        matchesBranch = isItemInBranch(e.branch, selectedBranch, availableBranches);
+        matchesBranch = isItemInBranch(e.branch, selectedBranch, matchBranches);
       }
 
       return matchesSearch && matchesCategory && matchesBranch;

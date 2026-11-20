@@ -5,7 +5,7 @@ import { buildKardexHistory, formatKardexDate } from '../utils/kardex';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, AppConfig, Sale, Purchase, Branch, User, StockMovement } from '../types';
 import * as api from '../api';
-import { isItemInBranch, getOperationalBranches } from '../utils/branchHelper';
+import { isItemInBranch, getOperationalBranches, getSystemBranches } from '../utils/branchHelper';
 import { compressImage, compressDataUrlIfNeeded } from '../utils/imageCompressor';
 import { matchProductsByCode, SUPPORTED_BARCODE_FORMATS, getProductCodes } from '../utils/barcodeHelper';
 import { 
@@ -152,6 +152,9 @@ export default function Inventory({
   const currency = config.currency || 'Q';
 
   // Transfer Stock Between Branches (Active when account has 2 or more branches)
+  // Branch matching must use ALL company branches. With an operator limited to
+  // one branch, a one-item list makes isItemInBranch treat every record as a match.
+  const matchBranches = getSystemBranches(config);
   const availableBranches = useMemo(() => {
     if (branches && branches.length > 0) return branches;
     return getOperationalBranches(config, user);
@@ -203,7 +206,7 @@ export default function Inventory({
   // Products belonging to the selected source branch with positive stock
   const sourceBranchProducts = useMemo(() => {
     if (!sourceBranchObj) return [];
-    return productPool.filter(p => isItemInBranch(p.branch, sourceBranchObj.name, availableBranches) && (p.stock || 0) > 0);
+    return productPool.filter(p => isItemInBranch(p.branch, sourceBranchObj.name, matchBranches) && (p.stock || 0) > 0);
   }, [productPool, sourceBranchObj, availableBranches]);
 
   // Filtered source products for modal search
@@ -239,7 +242,7 @@ export default function Inventory({
   const targetExistingProduct = useMemo(() => {
     if (!targetBranchObj || !selectedTransferProduct) return null;
     return productPool.find(p =>
-      isItemInBranch(p.branch, targetBranchObj.name, availableBranches) &&
+      isItemInBranch(p.branch, targetBranchObj.name, matchBranches) &&
       (p.code.trim().toLowerCase() === selectedTransferProduct.code.trim().toLowerCase() ||
         p.name.trim().toLowerCase() === selectedTransferProduct.name.trim().toLowerCase())
     );

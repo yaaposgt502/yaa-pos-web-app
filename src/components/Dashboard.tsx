@@ -1,7 +1,7 @@
 import React from 'react';
 import { useRangeData } from '../utils/useRangeData';
 import { Product, Sale, Expense, Shift, AppConfig, User, Branch } from '../types';
-import { isItemInBranch } from '../utils/branchHelper';
+import { isItemInBranch, getSystemBranches } from '../utils/branchHelper';
 import { parseSafeDate, toLocalDateString, formatDisplayTime, formatDisplayDateTime } from '../utils/dateHelper';
 import { 
   TrendingUp, 
@@ -53,6 +53,9 @@ export default function Dashboard({
   branches,
   onSwitchBranch
 }: DashboardProps) {
+  // Branch matching must use ALL company branches. With an operator limited to
+  // one branch, a one-item list makes isItemInBranch treat every record as a match.
+  const matchBranches = getSystemBranches(config);
   const availableBranches = React.useMemo(() => {
     return branches || config.branches || [];
   }, [branches, config.branches]);
@@ -104,7 +107,7 @@ export default function Dashboard({
       });
     }
     if (selectedBranch && selectedBranch !== 'Todas') {
-      return rawSales.filter(s => isItemInBranch(s.branch, selectedBranch, availableBranches));
+      return rawSales.filter(s => isItemInBranch(s.branch, selectedBranch, matchBranches));
     }
     return rawSales;
   }, [rawSales, user, allowedBranches, selectedBranch, availableBranches]);
@@ -117,7 +120,7 @@ export default function Dashboard({
       });
     }
     if (selectedBranch && selectedBranch !== 'Todas') {
-      return rawShifts.filter(sh => isItemInBranch(sh.branch, selectedBranch, availableBranches));
+      return rawShifts.filter(sh => isItemInBranch(sh.branch, selectedBranch, matchBranches));
     }
     return rawShifts;
   }, [rawShifts, user, allowedBranches, selectedBranch, availableBranches]);
@@ -130,7 +133,7 @@ export default function Dashboard({
       });
     }
     if (selectedBranch && selectedBranch !== 'Todas') {
-      return expenses.filter(e => isItemInBranch(e.branch, selectedBranch, availableBranches));
+      return expenses.filter(e => isItemInBranch(e.branch, selectedBranch, matchBranches));
     }
     return expenses;
   }, [expenses, user, allowedBranches, selectedBranch, availableBranches]);
@@ -167,7 +170,7 @@ export default function Dashboard({
   });
 
   // Current Shift Status
-  const currentShift = shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, selectedBranch, availableBranches));
+  const currentShift = shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, selectedBranch, matchBranches));
 
   // --- Sales Trend Data for Main Chart ---
   const [timeframe, setTimeframe] = React.useState<'7days' | '14days' | '30days'>('7days');

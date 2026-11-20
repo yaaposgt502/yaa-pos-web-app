@@ -140,3 +140,18 @@ test('esc() neutraliza HTML en impresiones', () => {
   assert.equal(esc(undefined), '');
   assert.equal(esc(12.5), '12.5');
 });
+
+test('sucursales: un cajero limitado a Norte no ve datos de Central', async () => {
+  const { isItemInBranch } = await import('../../src/utils/branchHelper');
+  const all = [
+    { id: 'b1', name: 'Central', code: 'SUC-01' },
+    { id: 'b2', name: 'Norte', code: 'SUC-02' },
+  ] as any;
+  // Con TODAS las sucursales de la empresa, Central no es Norte.
+  assert.equal(isItemInBranch('Central', 'Norte', all), false);
+  assert.equal(isItemInBranch('Norte', 'Norte', all), true);
+  assert.equal(isItemInBranch('SUC-02', 'Norte', all), true);
+  // Por eso las pantallas deben pasar la lista completa: con una sola sucursal
+  // en la lista, la función acepta todo (pensado para empresas de una sucursal).
+  assert.equal(isItemInBranch('Central', 'Norte', [all[1]]), true);
+});

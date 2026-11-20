@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useRangeData } from '../utils/useRangeData';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import { Product, Provider, Purchase, PurchaseItem, AppConfig, User } from '../types';
-import { isItemInBranch } from '../utils/branchHelper';
+import { isItemInBranch, getSystemBranches } from '../utils/branchHelper';
 import { matchProductsByCode, SUPPORTED_BARCODE_FORMATS } from '../utils/barcodeHelper';
 import { 
   Plus, 
@@ -62,6 +62,9 @@ export default function Purchasing({
   const isPharmacy = config?.businessType === 'pharmacy';
 
   // Available branches list
+  // Branch matching must use ALL company branches. With an operator limited to
+  // one branch, a one-item list makes isItemInBranch treat every record as a match.
+  const matchBranches = getSystemBranches(config);
   const availableBranches = useMemo(() => {
     const list = config?.branches || [];
 
@@ -558,7 +561,7 @@ export default function Purchasing({
           if (!match) return false;
         }
       } else if (selectedBranch && selectedBranch !== 'Todas') {
-        if (!isItemInBranch(pur.branch, selectedBranch, availableBranches)) {
+        if (!isItemInBranch(pur.branch, selectedBranch, matchBranches)) {
           return false;
         }
       }

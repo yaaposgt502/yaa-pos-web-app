@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useRangeData } from '../utils/useRangeData';
 import RangeNotice from './RangeNotice';
 import { Sale, Client, AppConfig, Product, User, Branch } from '../types';
-import { isItemInBranch } from '../utils/branchHelper';
+import { isItemInBranch, getSystemBranches } from '../utils/branchHelper';
 import { parseSafeDate, isDateInRange, formatDisplayDateTime, toLocalDateString, getTodayDateString, isToday } from '../utils/dateHelper';
 import { 
   FileSpreadsheet, 
@@ -51,6 +51,9 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
   const currency = config.currency || 'Q';
 
   // Available branches list
+  // Branch matching must use ALL company branches. With an operator limited to
+  // one branch, a one-item list makes isItemInBranch treat every record as a match.
+  const matchBranches = getSystemBranches(config);
   const availableBranches = useMemo(() => {
     return branches || config.branches || [];
   }, [branches, config.branches]);
@@ -112,7 +115,7 @@ export const SalesLedger: React.FC<SalesLedgerProps> = ({
     }
 
     if (selectedBranch && selectedBranch !== 'Todas' && availableBranches.length > 1) {
-      return sales.filter(s => isItemInBranch(s.branch, selectedBranch, availableBranches));
+      return sales.filter(s => isItemInBranch(s.branch, selectedBranch, matchBranches));
     }
 
     return sales;

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { esc } from '../utils/escapeHtml';
 import { useConfigList } from '../utils/useConfigList';
 import { Product, Client, Sale, Shift, AppConfig, PrescriptionData, Branch, Quotation } from '../types';
-import { isItemInBranch } from '../utils/branchHelper';
+import { isItemInBranch, getSystemBranches } from '../utils/branchHelper';
 import { 
   Search, 
   ShoppingCart, 
@@ -237,7 +237,7 @@ export default function POS({
   }, [activeBranchName, userAllowedBranches, config.activeBranchId, config.branches, branches]);
 
   const currentShift = useMemo(() => {
-    return shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, currentOperatingBranch, branches || config.branches));
+    return shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, currentOperatingBranch, getSystemBranches(config)));
   }, [shifts, currentOperatingBranch, branches, config.branches]);
 
   const [voucherType, setVoucherType] = useState<'ticket' | 'boleta' | 'factura' | 'recibo'>('ticket');

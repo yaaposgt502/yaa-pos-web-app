@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { esc } from '../utils/escapeHtml';
 import { Shift, Sale, Expense, User, AppConfig, Branch } from '../types';
-import { isItemInBranch } from '../utils/branchHelper';
+import { isItemInBranch, getSystemBranches } from '../utils/branchHelper';
 import { parseSafeDate, formatDisplayDateTime } from '../utils/dateHelper';
 import { 
   Lock, 
@@ -55,6 +55,12 @@ export default function CashRegister({
   const [formObservations, setFormObservations] = useState('');
   const [showShiftDetails, setShowShiftDetails] = useState(false);
   const [selectedShiftForTicket, setSelectedShiftForTicket] = useState<Shift | null>(null);
+
+  // Branch matching must use ALL company branches. With an operator limited to
+
+  // one branch, a one-item list makes isItemInBranch treat every record as a match.
+
+  const matchBranches = getSystemBranches(config);
 
   const availableBranches = useMemo(() => {
     return branches || config?.branches || [];
@@ -123,7 +129,7 @@ export default function CashRegister({
         return true;
       });
     } else if (selectedBranch && selectedBranch !== 'Todas') {
-      list = list.filter(sh => isItemInBranch(sh.branch, selectedBranch, availableBranches));
+      list = list.filter(sh => isItemInBranch(sh.branch, selectedBranch, matchBranches));
     }
 
     // Sort chronologically ascending to assign proper shift numbers (Caja #1, Caja #2, Caja #3)
@@ -229,7 +235,7 @@ export default function CashRegister({
 
   // Find active open shift FOR THIS BRANCH
   const activeShift = useMemo(() => {
-    return shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, selectedBranch, availableBranches));
+    return shifts.find(s => s.state === 'open' && isItemInBranch(s.branch, selectedBranch, matchBranches));
   }, [shifts, selectedBranch, availableBranches]);
 
   // Sales and expenses registered DURING the active shift
@@ -254,7 +260,7 @@ export default function CashRegister({
     // Filter sales in this shift strictly for this branch
     const shiftSales = sales.filter(s => 
       s.shiftId === activeShift.id && 
-      isItemInBranch(s.branch, targetBranch, availableBranches)
+      isItemInBranch(s.branch, targetBranch, matchBranches)
     );
     const totalSales = shiftSales.reduce((acc, s) => acc + s.total, 0);
     const cashSales = shiftSales.filter(s => s.paymentMethod === 'cash').reduce((acc, s) => acc + s.total, 0);
@@ -270,7 +276,7 @@ export default function CashRegister({
     // Filter expenses made since shift opening FOR THIS BRANCH ONLY
     const openingTime = parseSafeDate(activeShift.openedAt).getTime();
     const shiftExpenses = expenses.filter(e => {
-      const matchBranch = isItemInBranch(e.branch, targetBranch, availableBranches);
+      const matchBranch = isItemInBranch(e.branch, targetBranch, matchBranches);
       return matchBranch && parseSafeDate(e.date).getTime() >= openingTime;
     });
     const totalExpenses = shiftExpenses.reduce((acc, e) => acc + e.amount, 0);
